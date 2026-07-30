@@ -28,3 +28,17 @@ First run installs Playwright into `test/` (`cd test && bun install`). It pins
 
 After any change to a generator, `riverlib`, or `hq.py`. `verify.py` is instant and worth
 running every time; `browser.mjs` on anything that touches page JS or the HQ.
+
+## Pre-commit hook
+
+`test/hooks/pre-commit` is a fast, offline gate — it syntax-checks the staged Python and
+runs `verify.py` against the current build, blocking the commit on failure. Git hooks
+aren't cloned, so install it once (a symlink, so edits to the tracked file take effect):
+
+```bash
+ln -sf ../../test/hooks/pre-commit .git/hooks/pre-commit
+```
+
+Bypass in a pinch with `git commit --no-verify`. The hook is intentionally instant and
+network-free; run the full `./test/run.sh` (regenerate + browser) before anything you care
+about.

@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Fast, offline pre-commit gate for the river tool:
+#   1. syntax-check every Python file being committed
+#   2. run the static QA (test/verify.py) against the current build, if one exists
+# Both are instant and need no network. The full suite (browser + regenerate) is ./test/run.sh.
+# Bypass in a pinch with:  git commit --no-verify
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+
+echo "pre-commit ▶ python syntax…"
+syn=0
+while IFS= read -r f; do
+  python3 -m py_compile "$f" 2>&1 || syn=1
+done < <(git diff --cached --name-only --diff-filter=ACM | grep '\.py$' || true)
+if [ "$syn" != 0 ]; then
+  echo "  ✗ Python syntax error — commit blocked (use 'git commit --no-verify' to override)"; exit 1
+fi
+
+if [ -f out/index.html ]; then
+  echo "pre-commit ▶ static QA (verify.py)…"
+  if ! python3 test/verify.py >/tmp/precommit_verify.log 2>&1; then
+    echo "  ✗ verify.py failed — commit blocked. Details:"; tail -12 /tmp/precommit_verify.log
+    echo "  (rebuild + full check: ./test/run.sh · override: git commit --no-verify)"; exit 1
+  fi
+else
+  echo "pre-commit ▶ static QA skipped (no out/ build yet)"
+fi
+echo "pre-commit ✓ passed"
