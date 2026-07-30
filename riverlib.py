@@ -786,6 +786,162 @@ def switcher(cur):
             parts.append('<a href="%s">%s %s</a>' % (r["file"], r["emoji"], r["name"]))
     return '<div class="switch">' + "".join(parts) + "</div>"
 
+# ── ARRIVAL STRIP (R3) — "water reaches X at 2:47 PM", + a real phone alarm ──
+# The one number that matters while you are standing in the river. Computed from the
+# build-time release schedule and the DEVICE clock; there is no live refetch, so the
+# build stamp above it is what tells you how much to trust it.
+#
+# Two things this gets right that the old code did not:
+#
+#  1. NEXT window, not the first. GEN[].relStart was min(ramp_blocks(...)) — the first
+#     release of the day. ramp_blocks splits on unit-count change, so a 1U->2U->1U day is
+#     three blocks but ONE front, and Caney routinely runs separate morning and afternoon
+#     releases. A countdown built on relStart computes against the morning release all day
+#     and is silently wrong for the afternoon bump. gen_windows() (GW) already merges
+#     maximal runs above 800 cfs, which IS the release event, so that is what we consume.
+#
+#  2. The alarm is a REAL phone alarm. No web API can schedule a local notification for a
+#     future time (Notification Triggers never shipped; iOS needs a server for Web Push and
+#     suspends background timers anyway). So we emit an .ics with a VALARM: one tap, and the
+#     phone's own calendar owns the reminder. That survives a dead network, a locked screen,
+#     and a closed browser — which is all three conditions at the river.
+#
+# Ships only where the routing constants are backtested (Caney today). cfg.validated=false
+# renders nothing rather than a confident number on unproven math.
+ARRIVAL_CSS = """
+.arrival{padding:16px 18px}
+.arrival .arhead{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:10px}
+.arrival .arttl{font:600 12px/1 -apple-system,sans-serif;letter-spacing:.09em;text-transform:uppercase;color:#66788a}
+.arrival select{font:600 13px/1 -apple-system,sans-serif;color:#16202b;background:#f2f6fa;border:1px solid #e6ecf2;
+ border-radius:9px;padding:7px 9px;min-height:34px}
+.arrival .arbig{font:700 clamp(26px,7vw,34px)/1.1 'Space Grotesk',-apple-system,sans-serif;color:#16202b;
+ letter-spacing:-.01em;margin:2px 0 4px}
+.arrival .arsub{font:500 14px/1.4 -apple-system,sans-serif;color:#66788a}
+.arrival .arcount{font-variant-numeric:tabular-nums;color:#2f92d4;font-weight:700}
+.arrival.now .arbig{color:#8b6cef}
+.arrival.none .arbig{font-size:clamp(19px,5vw,23px);color:#20b2aa}
+.arrival .aract{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-top:13px}
+.arrival button{font:600 14px/1 -apple-system,sans-serif;color:#fff;background:#16202b;border:0;border-radius:11px;
+ padding:12px 15px;min-height:44px;cursor:pointer}
+.arrival button:active{opacity:.75}
+.arrival .arnote{font:500 12px/1.45 -apple-system,sans-serif;color:#93a3b3;margin-top:10px}
+.arrival .arwin{font:600 12px/1 -apple-system,sans-serif;color:#66788a;margin-top:7px}
+@media(max-width:680px){.arrival{padding:14px}.arrival .aract button{flex:1}}
+"""
+
+ARRIVAL_JS = r"""
+// Pure: given release windows and a distance, which front is next for THIS spot?
+// rel = [[startEpochSec, endEpochSec, peakCfs], ...] ascending. Exposed for tests.
+function arrivalPick(rel, mfd, mph, nowMs){
+  var travel = (mfd/mph)*3600, now = nowMs/1000, i, w, arr;
+  // "Water is already on you" WINS over "the next one comes at...". Order matters: on a
+  // split-generation day, standing below the dam at 1pm after a 6-9am release, the front
+  // from that release is on you until 3pm — but the 2pm release also has a future arrival.
+  // Checking upcoming first would cheerfully announce the 8pm arrival while you stand in
+  // rising water. Check arrived first.
+  for(i=rel.length-1;i>=0;i--){
+    w=rel[i]; arr=w[0]+travel;
+    if(arr<=now && now < w[1]+travel) return {state:'arrived', win:w, arrival:arr};
+  }
+  for(i=0;i<rel.length;i++){
+    w=rel[i]; arr=w[0]+travel;
+    if(arr>now) return {state:'upcoming', win:w, arrival:arr,
+                        gen: now>=w[0] && now<w[1]};   // release already running, front still upstream
+  }
+  return {state:'none'};
+}
+window.__arrivalPick = arrivalPick;
+
+function buildArrival(elId, cfg){
+  var el=document.getElementById(elId); if(!el) return;
+  if(!cfg || !cfg.validated || !cfg.rel || !cfg.spots || !cfg.spots.length){ el.style.display='none'; return; }
+  var KEY='arrivalSpot:'+(cfg.id||'river'), LKEY='arrivalLead';
+  function pref(k,d){ try{ var v=localStorage.getItem(k); return v==null?d:v; }catch(e){ return d; } }
+  function setPref(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
+
+  var spotIx = Math.max(0, cfg.spots.findIndex(function(s){ return s.name===pref(KEY,''); }));
+  var lead   = parseInt(pref(LKEY,'45'),10) || 45;
+
+  function fmtClock(sec){
+    var d=new Date(sec*1000);
+    try{ return d.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}); }catch(e){ return d.toISOString(); }
+  }
+  function dur(sec){
+    sec=Math.max(0,Math.round(sec)); var h=Math.floor(sec/3600), m=Math.round((sec%3600)/60);
+    if(m===60){h++;m=0;}
+    return h ? h+'h '+(m<10?'0':'')+m+'m' : m+'m';
+  }
+  function dayWord(sec){
+    var a=new Date(sec*1000), b=new Date(), d=Math.round((a.setHours(0,0,0,0)-b.setHours(0,0,0,0))/86400000);
+    return d===0?'':d===1?' tomorrow':d>1?(' '+new Date(sec*1000).toLocaleDateString([], {weekday:'long'})):'';
+  }
+
+  function ics(spot, arrival){
+    function z(t){ return new Date(t*1000).toISOString().replace(/[-:]/g,'').replace(/\.\d{3}/,''); }
+    var title='Water reaches '+spot.name;
+    return ['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//caney//arrival//EN','CALSCALE:GREGORIAN',
+      'BEGIN:VEVENT','UID:caney-'+Math.round(arrival)+'-'+spot.mfd+'@local','DTSTAMP:'+z(Date.now()/1000),
+      'DTSTART:'+z(arrival),'DTEND:'+z(arrival+1800),'SUMMARY:'+title,
+      'DESCRIPTION:Leading edge of the release reaches '+spot.name+' ('+spot.mfd+' mi below the dam) '+
+        'at ~'+cfg.mph+' mph. Be off the flats before it gets there.',
+      'BEGIN:VALARM','TRIGGER:-PT'+lead+'M','ACTION:DISPLAY',
+      'DESCRIPTION:'+title+' in '+lead+' min — get off the flats','END:VALARM',
+      'END:VEVENT','END:VCALENDAR'].join('\r\n');
+  }
+
+  function paint(){
+    var spot=cfg.spots[spotIx], r=arrivalPick(cfg.rel, spot.mfd, cfg.mph, Date.now());
+    var opts=cfg.spots.map(function(s,i){
+      return '<option value="'+i+'"'+(i===spotIx?' selected':'')+'>'+s.name+' · '+s.mfd+' mi</option>'; }).join('');
+    var leadOpts=[30,45,60,90].map(function(m){
+      return '<option value="'+m+'"'+(m===lead?' selected':'')+'>'+m+' min before</option>'; }).join('');
+
+    var cls='card arrival', big, sub, act='', win='';
+    if(r.state==='upcoming'){
+      var away=r.arrival-Date.now()/1000;
+      big='Water reaches '+spot.name+'<br>at '+fmtClock(r.arrival)+dayWord(r.arrival);
+      sub='<span class="arcount">'+dur(away)+'</span> from now'+(r.gen?' · release already running':'');
+      act='<button id="arIcs">⏰ Set phone alarm</button>';
+      win='Release '+fmtClock(r.win[0])+'–'+fmtClock(r.win[1])+' · peak '+Math.round(r.win[2]).toLocaleString()+' cfs';
+    } else if(r.state==='arrived'){
+      cls+=' now';
+      big='Water is here';
+      sub='Front reached '+spot.name+' at '+fmtClock(r.arrival)+' · fish the falling limb';
+      win='Release '+fmtClock(r.win[0])+'–'+fmtClock(r.win[1])+' · peak '+Math.round(r.win[2]).toLocaleString()+' cfs';
+    } else {
+      cls+=' none';
+      big='No generation in the forecast';
+      sub='Minimum flow — wade it.';
+    }
+    el.className=cls;
+    el.innerHTML='<div class="arhead"><span class="arttl">On the water</span>'
+      +'<select id="arSpot" aria-label="Your spot">'+opts+'</select></div>'
+      +'<div class="arbig">'+big+'</div><div class="arsub">'+sub+'</div>'
+      +(win?'<div class="arwin">'+win+'</div>':'')
+      +(act?'<div class="aract">'+act+'<select id="arLead" aria-label="Alarm lead time">'+leadOpts+'</select></div>':'')
+      +'<div class="arnote">From the schedule baked into this page (see the banner up top for its age). '
+      +'TVA can change a release without notice — set the alarm while you still have signal.</div>';
+
+    document.getElementById('arSpot').onchange=function(e){
+      spotIx=+e.target.value; setPref(KEY, cfg.spots[spotIx].name); paint(); };
+    var ls=document.getElementById('arLead');
+    if(ls) ls.onchange=function(e){ lead=+e.target.value; setPref(LKEY, lead); };
+    var btn=document.getElementById('arIcs');
+    if(btn) btn.onclick=function(){
+      var blob=new Blob([ics(spot, r.arrival)], {type:'text/calendar;charset=utf-8'});
+      var a=document.createElement('a');
+      a.href=URL.createObjectURL(blob);
+      a.download='water-'+spot.name.toLowerCase().replace(/[^a-z0-9]+/g,'-')+'.ics';
+      document.body.appendChild(a); a.click();
+      setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+    };
+  }
+  paint();
+  setInterval(paint, 30000);
+}
+"""
+
+
 def render(html, river_id):
     """Fill every shared token for this river. Unknown/unused tokens stay blank-safe."""
     # Build stamp goes in via <head> rather than a TEMPLATE token, so every page that calls
@@ -815,7 +971,9 @@ def render(html, river_id):
             .replace("__FLYMATRIX_CSS__", FLYMATRIX_CSS)
             .replace("__FLYMATRIX_JS__", FLYMATRIX_JS)
             .replace("__GENSCHED_CSS__", GENSCHED_CSS)
-            .replace("__GENSCHED_JS__", GENSCHED_JS))
+            .replace("__GENSCHED_JS__", GENSCHED_JS)
+            .replace("__ARRIVAL_CSS__", ARRIVAL_CSS)
+            .replace("__ARRIVAL_JS__", ARRIVAL_JS))
 
 # ── shared utilities every float/tailwater page can reuse ────────────────────
 _UA = {"User-Agent": "riverlib/1.0"}

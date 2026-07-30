@@ -64,6 +64,31 @@ html = riverlib.render(TEMPLATE, "duck").replace("__DATA__", json.dumps(DATA))
 | `__FLOWTIMER_CSS__` / `__FLOWTIMER_JS__` | flow-timer river diagram + `buildFlowTimer(containerId,timeline)` (scrub time; front for tailwaters) | `<style>` / `<script>` |
 | `__FLYMATRIX_CSS__` / `__FLYMATRIX_JS__` | clarity×light fly matrix + `buildFlyMatrix(containerId,F)` (grid + box inventory + rig + sources) | `<style>` / `<script>` |
 | `__GENSCHED_CSS__` / `__GENSCHED_JS__` | generation schedule (dam tailwaters) + `buildGenSchedule(id,days,hint,legend,opts)` — day windows-chips + bars + now-marker + arrival line | `<style>` / `<script>` |
+| `__ARRIVAL_CSS__` / `__ARRIVAL_JS__` | on-water arrival strip + `buildArrival(id,cfg)` — "water reaches X at 2:47 PM", live countdown, and a one-tap `.ics` phone alarm | `<style>` / `<script>` |
+
+**Arrival strip — availability per river (parity rule §0 justification).** Currently **Caney
+only**. Two independent gates, both of which must be satisfied before a river gets it:
+
+1. **Backtested constants.** The strip states a time you may wade on, so it ships only where
+   the leading-edge speed has been validated against a downstream gauge (`analysis/backtest_flow.py`).
+   Caney is the only river that has been. `cfg.validated=false` renders nothing at all rather
+   than a confident number on unproven math.
+2. **`mfd` data.** Arrival needs miles-from-dam per access. Only Caney's `ACCESS[]` carries
+   `mfd`; the other six generators have none, and §2 forbids guessing river distances.
+
+`—` for **Duck** and **Elk (AL/Wheeler)** is permanent, not pending: Duck is free-flowing and
+Elk is Wheeler-lake-fed, so neither has a dam release and a leading-edge speed is undefined.
+`—` for **Cumberland, Elk TN, Stones, Cumberland-Nashville** is *pending* both gates above.
+
+*(The §3 matrix still has columns for only 3 of 7 rivers and does not yet carry this row —
+tracked as owed documentation debt.)*
+
+**Selecting the release event.** `buildArrival` consumes `gen_windows()` (`GW`) — maximal runs
+above 800 cfs, which is the actual release *event*. It must **never** consume `GEN[].relStart`,
+which derives from `ramp_blocks`: that splits on unit-count change (a 1U→2U→1U day is three
+blocks but one front) and only ever reports the first block of a day, so a countdown built on
+it is silently wrong for an afternoon release. `arrivalPick()` is pure and exposed as
+`window.__arrivalPick` so `browser.mjs` can drive split-generation days directly.
 
 **Shared helpers (Python):** `riverlib.get()`, `haversine()`, `shuttle_miles()`,
 `solunar(day, sunrise_hm, sunset_hm, tz)`, `light_now(hour, cloud, wind)` → dawn/low/bright/wind.

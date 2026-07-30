@@ -148,6 +148,76 @@ console.log('── build stamp: staleness + clock skew ──');
     'missing on ' + missing.join(', '));
 }
 
+// ── arrival strip (R3): next-window selection ──
+// arrivalPick is pure, so drive it directly with synthetic release windows via
+// page.evaluate. No fixture build needed. The cases that matter are the split-generation
+// days: GEN[].relStart only ever reported the FIRST block of a day, so a countdown built
+// on it went silently wrong every afternoon.
+console.log('── arrival strip: next-window selection ──');
+{
+  const pg = await browser.newPage();
+  await pg.goto(url('caney.html'), { timeout: 20000 });
+  await pg.waitForFunction(() => typeof window.__arrivalPick === 'function', { timeout: 5000 })
+    .catch(() => {});
+
+  // Stonewall: 15 mi at 2.5 mph = 6 h of travel. Times below are epoch seconds on a flat day.
+  const DAY = 1780000000;                      // arbitrary fixed base, no real clock involved
+  const at = h => DAY + h * 3600;
+  const AM = [at(6), at(9), 4000];             // morning release 06:00–09:00, front hits SW 12:00
+  const PM = [at(14), at(18), 7800];           // afternoon release 14:00–18:00, front hits SW 20:00
+  const pick = (rel, nowH) => pg.evaluate(
+    ([rel, nowMs]) => window.__arrivalPick(rel, 15, 2.5, nowMs), [rel, at(nowH) * 1000]);
+
+  const a = await pick([AM, PM], 10);
+  assert('two-window day at 10:00 → morning front, arriving 12:00',
+    a.state === 'upcoming' && a.arrival === at(12), JSON.stringify(a));
+
+  const b = await pick([AM, PM], 13);
+  assert('two-window day at 13:00 → water already here (NOT the 20:00 afternoon arrival)',
+    b.state === 'arrived' && b.arrival === at(12), JSON.stringify(b));
+
+  const c = await pick([AM, PM], 16);
+  assert('two-window day at 16:00 → afternoon front, arriving 20:00',
+    c.state === 'upcoming' && c.arrival === at(20), JSON.stringify(c));
+
+  // Water stays up until the END of the release has travelled past you, not merely until
+  // the front arrives. Release ends 18:00, +6 h travel = the falling limb clears SW at 24:00.
+  const d1 = await pick([AM, PM], 23);
+  assert('at 23:00 the falling limb is still passing → still "here", not "none"',
+    d1.state === 'arrived' && d1.arrival === at(20), JSON.stringify(d1));
+
+  const d = await pick([AM, PM], 25);
+  assert('once the whole release has passed → no generation state',
+    d.state === 'none', JSON.stringify(d));
+
+  const e = await pick([PM], 15);
+  assert('release running but front still upstream → upcoming, flagged as generating',
+    e.state === 'upcoming' && e.gen === true, JSON.stringify(e));
+
+  const f = await pick([], 12);
+  assert('no windows at all → none', f.state === 'none', JSON.stringify(f));
+
+  // closer spot, same windows: Happy Hollow at 6 mi = 2.4 h travel
+  const g = await pg.evaluate(([rel, nowMs]) => window.__arrivalPick(rel, 6, 2.5, nowMs),
+    [[AM, PM], at(7) * 1000]);
+  assert('nearer spot gets an earlier arrival (6 mi → 08:24, not 12:00)',
+    g.state === 'upcoming' && Math.round(g.arrival) === at(6) + Math.round(2.4 * 3600),
+    JSON.stringify(g));
+
+  await pg.close();
+}
+
+// the strip renders on Caney, and stays absent where constants are not backtested
+{
+  const pg = await browser.newPage();
+  await pg.goto(url('caney.html'), { timeout: 20000 });
+  const box = await pg.$('#arrival');
+  const txt = box ? (await pg.$eval('#arrival', e => e.textContent)) : '';
+  assert('caney: arrival strip rendered with a spot selector',
+    !!box && /On the water/.test(txt) && !!(await pg.$('#arSpot')), txt.slice(0, 80));
+  await pg.close();
+}
+
 await browser.close();
 console.log('');
 if (fails) { console.log(`\x1b[31mFAILED ${fails} check(s)\x1b[0m`); process.exit(1); }

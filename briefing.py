@@ -443,7 +443,18 @@ FLYSEL={"matrix":FLYMATRIX,"order":FLYORDER,"lights":LIGHTS,"boxinv":BOXINV_K,
   "now":{"clarity":_kcl,"light":_klight,"fly":FLYMATRIX[_kcl][_klight]},
   "rig":"Water off → tandem midge/sowbug rig under an indicator, long 6–7X leader; sight-fish the flats. On the bump → swing a soft-hackle on the edge, then streamers as it comes up.",
   "sources":[["Trout Zone Anglers","https://troutzoneanglers.com/tennessee-tailwaters/caney-fork-river-fly-fishing-guide/"],["The Perfect Fly Store","https://perfectflystore.com/your-streams/fly-fishing-on-the-caney-fork-river-in-tennessee/"]]}
-DATA={"todayLabel":now_ct.strftime("%A, %B %-d · %-I:%M %p"),"dateLabel":tom.strftime("%A, %B %-d"),"hatch":HATCH,"month":now_ct.month,"chatter":riverlib.load_intel("caney"),"flysel":FLYSEL,
+# R3 — release events for the arrival strip, as machine-readable epochs.
+# Source is GW (gen_windows): maximal runs above 800 cfs, i.e. the actual release EVENT.
+# Deliberately NOT GEN[].relStart — that comes from ramp_blocks, which splits on unit-count
+# change (a 1U->2U->1U day is three blocks but one front) and only ever reports the first
+# block of the day, so a countdown built on it is silently wrong for an afternoon release.
+# Keep windows that ended within the last 6 h so the "water is here" state still resolves.
+_arr_cut = now.timestamp() - 6*3600
+ARRIVAL = {"id":"caney", "mph":WATER_MPH, "validated":True,
+           "spots":[{"name":s["name"], "mfd":s["mfd"]} for s in (HH,BI,SW)],
+           "rel":[[int(a), int(b), round(pk)] for a,b,pk in GW if b >= _arr_cut]}
+DATA={"arrival":ARRIVAL,
+      "todayLabel":now_ct.strftime("%A, %B %-d · %-I:%M %p"),"dateLabel":tom.strftime("%A, %B %-d"),"hatch":HATCH,"month":now_ct.month,"chatter":riverlib.load_intel("caney"),"flysel":FLYSEL,
       "damCap":dam_cap,"clarity":clar_word,"points":points,"riseCurve":RISE_CURVE,"weather":WX,"tips":tips,
       "calendar":cal,"itinerary":itin_steps,"now":NOW,"solunar":SOL,"best":BEST,"dayscores":DAYSCORES,
       "wxDays":WXDAYS,"solDays":SOLDAYS,"gen":GEN,"week":_scores,"weekSynth":WEEK_SYNTH,"wxv":WXV,"riverPoly":RIVER_POLY,
@@ -485,6 +496,7 @@ h1{margin:6px 0 4px;font-size:34px;font-weight:700;letter-spacing:-.6px}
 .cscore{flex:none;font-size:11.5px;font-weight:700;border-radius:20px;padding:3px 9px;text-align:center;min-width:34px}
 .crow.bestrow{background:linear-gradient(90deg,rgba(255,247,224,.7),rgba(255,247,224,0));border-radius:12px;margin:0 -8px;padding-left:8px;padding-right:8px}
 __GENSCHED_CSS__
+__ARRIVAL_CSS__
 .wxverdict{display:flex;align-items:center;gap:10px;font-size:13.5px;color:var(--muted);margin-bottom:12px}
 .wxverdict .vg{flex:none;color:#fff;font-weight:800;font-size:11px;padding:4px 11px;border-radius:8px}.wxverdict b{color:var(--ink);font-weight:600}
 .planwx{font-size:12.5px;color:var(--muted);padding:11px 14px;background:#f3f8fd;border:1px solid #e4eef7;border-radius:12px;margin-bottom:12px;line-height:1.85}.planwx b{color:var(--ink);font-weight:600}
@@ -613,6 +625,7 @@ __LOG_CSS__
  __SWITCHER__
  <div class="eyebrow">Fly-fishing planner · DeKalb County, TN</div><h1>Caney Fork</h1><div class="cap" id="cap"></div>
  <div class="card nowstrip" id="nowstrip"></div>
+ <div class="card arrival" id="arrival"></div>
  <div class="card best" id="best"></div>
 
  <div class="sec fold open" data-t="bWx"><span class="sect" id="wxSecLabel">Conditions</span><span class="ssum" id="sumWx"></span><span class="fchev">›</span></div>
@@ -681,6 +694,7 @@ __LOG_JS__
 __MOONCAL_JS__
 __FLYMATRIX_JS__
 __GENSCHED_JS__
+__ARRIVAL_JS__
 const DATA=__DATA__,P=DATA.points,N=P.length,ICON={wade:'🥾',paddle:'🛶',ramp:'🚤'};
 const COND={wade:{c:'#28c76f',t:'wadeable'},boat:{c:'#0a84ff',t:'prime boat'},high:{c:'#5e5ce6',t:'high & fast'}};
 let mode='drift',fromIdx=0,toIdx=6,launchMin=DATA.launchDefault,dsel=DATA.planDefault,daybase=DATA.planDefault*1440,craft='power';
@@ -731,6 +745,7 @@ function renderPlanWx(di){const w=DATA.wxDays[di],s=DATA.solDays[di],g=DATA.gen[
  p.push('⚡ '+(g&&g.windows.length?g.windows.map(x=>x.units+'U '+x.span).join(', '):'min flow all day'));
  el.innerHTML=p.filter(Boolean).join(' &nbsp;·&nbsp; ');}
 function renderGen(){buildGenSchedule('genc',DATA.gen,DATA.genHint,DATA.genLegend,DATA.genOpts);}
+buildArrival('arrival',DATA.arrival);
 function renderDay(){renderPlan();renderWx(dsel);renderFeed(dsel);renderPlanWx(dsel);}
 (function(){let h='';DATA.tips.forEach(t=>h+='<div class="tip"><div class="i">'+t[0]+'</div><div class="x">'+t[1]+'</div></div>');document.getElementById('tips').innerHTML=h;})();
 buildFlyMatrix('flysel',DATA.flysel);
