@@ -18,7 +18,7 @@ HERE=os.path.dirname(os.path.abspath(__file__)); OUT=os.path.join(HERE,"out"); o
 
 # leading 0.0 compensates the -1h period-ending shift above, so the fitted dam->Stonewall routing (R²=0.89) is preserved
 CALIB_KERNEL=[0.0,0.010,0.010,0.044,0.089,0.131,0.156,0.142,0.110,0.083,0.071,0.060,0.045,0.024,0.013,0.016,0.020,0.016,0.009,0.001]
-CALIB_BASEFLOW=375.0; DAM_RM,STONE_RM=26.6,10.0
+CALIB_BASEFLOW=205.0; DAM_RM,STONE_RM=26.6,10.0   # zero-release intercept; 90-day backtest vs Stonewall gauge (see analysis/backtest_flow.py): least-squares intercept 204, min-flow check 205+166≈372=observed min. Was 375 (ran +170 cfs high).
 # GUIDE'S GROUND TRUTH (decades on the Caney): generating water travels ~3 mph, and the leading edge
 # reaches each ramp at (miles-from-dam)/3 hours. Real distances from the dam: Happy Hollow 6, Betty's
 # Island 9, Stonewall 15. So `mfd` (miles-from-dam) — NOT my river-mile estimate — drives all routing
@@ -48,7 +48,10 @@ def compressed_kernel(f):
         out[lo]+=w*(1-fr)
         if lo+1<=L: out[lo+1]+=w*fr
     s=sum(out) or 1.0; return [x/s for x in out]
-for s in ACCESS: s["kernel"]=compressed_kernel(frac(s["mfd"])); s["baseflow"]=CALIB_BASEFLOW*frac(s["mfd"])
+# baseflow is CONSTANT along the reach (not frac-scaled): the compressed kernel already conserves mass,
+# so every point converges to the same steady flow — a frac-scaled baseflow would settle two points fed the
+# same sustained release at different flows, which is impossible with no tributary gain. (backtest finding)
+for s in ACCESS: s["kernel"]=compressed_kernel(frac(s["mfd"])); s["baseflow"]=CALIB_BASEFLOW
 # on-river coordinates (walked along the real Caney Fork channel from OpenStreetMap) + polyline for the satellite map
 _COORDS={"Long Branch":[36.10008,-85.83181],"Buffalo Valley":[36.10178,-85.8341],"Lancaster":[36.1189,-85.84255],
  "Happy Hollow":[36.13574,-85.82606],"I-40 Welcome Ctr":[36.14672,-85.83753],"Betty's Island":[36.14889,-85.8739],
@@ -121,7 +124,7 @@ try:
         if m is not None and m<700: _resid.append(gv-m)   # only hours where flow ≈ baseflow
     if len(_resid)>=6:
         _resid.sort(); CALIB_ADJ=max(-250,min(250,_resid[len(_resid)//2]))   # clamped median offset
-        for s in ACCESS: s["baseflow"]=(CALIB_BASEFLOW+CALIB_ADJ)*frac(s["mfd"])
+        for s in ACCESS: s["baseflow"]=(CALIB_BASEFLOW+CALIB_ADJ)   # constant along the reach (see above)
         print("gauge auto-calibration: baseflow %+.0f cfs (n=%d low-flow hrs)"%(CALIB_ADJ,len(_resid)))
 except Exception as e: print("calib warn:",e)
 
