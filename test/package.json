@@ -1,0 +1,12 @@
+{
+  "name": "river-tool-tests",
+  "private": true,
+  "type": "module",
+  "description": "Runtime QA for the river fishing tool — loads every generated page in a real browser, asserts zero JS errors, and exercises the HQ filter/sort/interactions.",
+  "scripts": {
+    "test": "node browser.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.58.2"
+  }
+}
