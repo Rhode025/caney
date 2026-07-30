@@ -9,6 +9,62 @@ belongs to a commit goes in the commit message. This file is for *state and inte
 
 ---
 
+## 2026-07-30 (evening) — R1–R5 built, deployed, live
+
+**The tool is on the internet: https://master.caney.pages.dev** (also `caney.pages.dev`).
+Cloudflare Pages, HTTPS, private repo, rebuilt every 3 hours by
+`.github/workflows/deploy.yml`. All five tasks from the CEO review are shipped.
+
+- **R1 — hosting.** `build.sh` is now the single source of the generator list and order
+  (`hq.py` last); `test/run.sh` calls it. Deploy is gated on `verify.py`, so a build failing
+  static QA is never published. `cache_dam.json` is persisted between CI runs.
+- **R2 — build stamp.** Every page states how old its data is, injected via `render()` into
+  `<head>` so no page can forget. Quiet / amber at 3 h / filled at 12 h, plus a distinct
+  state when the device clock runs behind the build.
+- **R3 — arrival strip.** "Water reaches Happy Hollow at 4:24 PM · 2h 16m from now", with a
+  one-tap `.ics` + `VALARM` that hands the reminder to the phone's own calendar. Caney only.
+- **R4 — the trip log now records what the tool predicted**, plus a "water arrived just now"
+  stamp and the delta. This is the field backtest and the evidence engine.
+- **R5 — `escUrl()`** scheme allowlist so a `javascript:` URL cannot reach an `href`.
+
+**Two bugs found by building, both worth remembering.**
+
+1. **The first CI deploy failed and it was the review's Finding 2.2 exactly.** Open-Meteo's
+   TLS handshake timed out for duck and stones on the runner; both generators caught it,
+   printed `wx warn:`, and built the page anyway with no weather, producing a `week[]` the HQ
+   status contract rejects. Fixed by moving retry logic into `riverlib.get()` (2 attempts,
+   2s/4s backoff, re-raise on exhaustion) and having all seven generators delegate to it
+   instead of each carrying its own near-identical `get()`.
+2. **`actions/cache` saves in a post-step, which is skipped when an earlier step fails** — so
+   that failure discarded a good release forecast. Split into `cache/restore` + `cache/save`
+   with `if: always()`.
+
+**And one caught by writing a test:** the first cut of `arrivalPick` checked "upcoming"
+before "arrived", so standing below the dam at 1pm after a 6–9am release it would announce
+the 8pm arrival while you stood in rising water. Arrived wins now. Water also stays "here"
+until `release_end + travel`, not merely until the front arrives.
+
+**Testing gained real capability.** `browser.mjs` now drives `Date.now` (staleness, skew) and
+exercises `window.__arrivalPick` with synthetic split-generation days — the clock-injectable
+testing the review said was missing, without needing a fixture build. `test/smoke.mjs` checks
+the live HTTPS site: 200, secure context, stamp present, zero JS errors, at phone viewport.
+**Secure context confirmed**, which everything deferred behind GPS depends on.
+
+**Open threads.**
+1. **Fish with it and log trips.** R4's prediction-vs-actual deltas are what decide whether
+   2.5 mph is right and whether any of the 13 deferred items are worth building. Nothing
+   deferred should be un-deferred before that data exists.
+2. `briefing.py` prints `gauge auto-calibration: baseflow +58 cfs (n=14 low-flow hrs)` — there
+   is a **runtime auto-calibration layer on top of the backtested 205 cfs constant** that is
+   not described in the CEO plan and interacts with arrival math. Worth understanding.
+3. `briefing.py:265` has the same first-window-only bug class the arrival strip fixed: the
+   itinerary takes the first `GW` window within 5am–9pm only.
+4. `RIVER_SPEC.md` §3 matrix still lists 3 of 7 rivers; line 6 says `briefing.py → index.html`
+   but it builds `caney.html`.
+5. Cloudflare strips `.html`, so every internal link takes a 308 hop.
+
+---
+
 ## 2026-07-30 (later) — CEO review of the mobile/on-water goal; scope cut
 
 **Frame changed.** The active goal is a **robust, customizable personal tool**, not a product.
