@@ -35,12 +35,29 @@ that happens to `~/.claude`.
 ## Build & check
 
 ```bash
-python3 briefing.py          # or duck.py, elk.py, … — each writes its page into out/
-./test/run.sh                # regenerate, then static + runtime checks
+./build.sh                   # regenerate all 7 rivers + HQ into out/ (~25s, stdlib only)
+python3 briefing.py          # or duck.py, elk.py, … — one river at a time
+./test/run.sh                # build, then static + runtime checks
 python3 test/verify.py       # static only, instant, no deps
 ```
 
+`build.sh` is the single source of the generator list and order. `hq.py` runs last because it
+aggregates every `out/status/<id>.json` into `index.html`. There are **no third-party Python
+dependencies** anywhere in this repo; keep it that way.
+
 Install the pre-commit gate once: `ln -sf ../../test/hooks/pre-commit .git/hooks/pre-commit`
+
+## Deploy
+
+`.github/workflows/deploy.yml` builds and publishes to Cloudflare Pages on push to master,
+every 3 hours, and on manual dispatch. Static QA gates the deploy: a build that fails
+`verify.py` is never published.
+
+The cache step in that workflow is load-bearing, not an optimisation. `briefing.py:80-89`
+keeps a last-good Center Hill release forecast in `cache_dam.json` and falls back to it when
+USACE CWMS is thin or down. That file is gitignored, so without the persisted cache a runner
+would build an empty forecast during an outage and the "USING CACHED release data" path would
+never fire. Do not remove it.
 
 ## Invariants
 

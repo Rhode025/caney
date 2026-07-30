@@ -10,11 +10,7 @@ export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-$HOME/Library/Cache
 
 if [ "${1:-}" != "--no-build" ]; then
   echo "▶ regenerating site…"
-  for s in briefing cumberland duck elk elktn cumbnash stones; do
-    python3 "$s.py" >/dev/null 2>&1 || { echo "  ✗ generator crashed: $s"; exit 1; }
-    sleep 2   # be gentle on the USGS / Open-Meteo APIs
-  done
-  python3 hq.py >/dev/null 2>&1 || { echo "  ✗ hq.py crashed"; exit 1; }
+  ./build.sh >/dev/null 2>&1 || { echo "  ✗ build failed — run ./build.sh to see why"; exit 1; }
 fi
 
 echo "▶ static checks (verify.py)…"

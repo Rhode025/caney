@@ -9,6 +9,59 @@ belongs to a commit goes in the commit message. This file is for *state and inte
 
 ---
 
+## 2026-07-30 (later) — CEO review of the mobile/on-water goal; scope cut
+
+**Frame changed.** The active goal is a **robust, customizable personal tool**, not a product.
+`PRODUCT_STRATEGY.md` is not the operating frame; `RIVER_SPEC.md:4` ("Personal tool, not a
+product") is. Market and pricing work was dropped mid-review at the user's direction.
+
+Ran `/plan-ceo-review` (SELECTIVE EXPANSION). Full artifact:
+`~/.gstack/projects/Rhode025-caney/ceo-plans/2026-07-30-mobile-on-water-tool.md`.
+
+**The finding that reframed everything:** most of what looked like a modeling problem is a
+delivery problem, but *less* of it than first assumed. An outside-voice review established
+that the flow model (`compressed_kernel`, `flow_at`, `dam_at`, `gen_windows`, `ramp_blocks`,
+`unit_ct`, baseflow calibration) is **entirely build-time Python**; client JS only interpolates
+a precomputed array. So a live client refetch could only ever update `relStart`, not the flow
+curve, depth, itinerary, grades, or map front. Combined with two other facts — scheduled web
+notifications are impossible on the web, and the riverbank is exactly where there is no signal
+— the expensive live-PWA architecture was cut.
+
+**Also found, and load-bearing for any future work:**
+- `GEN[].relStart` is the **first release window of the day only** (`briefing.py:381`). Caney
+  routinely runs split morning/afternoon generation, so any countdown built on it is wrong all
+  afternoon. Use the *next* window relative to real now.
+- `frontInfo(t)`'s `t` is `launchMin`, a day-relative planning slider, not wall clock.
+- `mfd` exists **only** in Caney's `ACCESS[]`. Zero in the other six generators. `haversine`
+  and `travel_h` are Python, not reusable from JS.
+- Duck and Elk AL have no dam release, so leading-edge speed is undefined there. E3 is four
+  tailwaters, not six rivers; those two get a `—` in the §3 matrix.
+- `cache_dam.json` (the last-good release cache behind `dam_stale`) is gitignored, so a cold CI
+  runner would silently build an empty forecast during a CWMS outage.
+- `esc()` escapes only `& < > "` and does not neutralize a `javascript:` URL at `riverlib.py:587`.
+- All four data sources (USGS, Open-Meteo, CWMS, NWPS) plus the Esri tile host send
+  `Access-Control-Allow-Origin: *`, so browser-side fetching needs no server. Still true, still
+  useful later.
+
+**What to build (5 tasks, R1-R5 in the artifact):** Cloudflare Pages HTTPS hosting with
+`cache_dam.json` persisted across CI runs; a build-age banner and version stamp; an arrival
+strip ("water reaches Betty's at 2:47 PM, 1h 12m from now") computed from the build-time
+schedule and the device clock, targeting the next window, handing off to a **native phone
+alarm**; the trip log capturing the tool's own prediction; and a URL scheme allowlist.
+
+**Why a native alarm:** it is the only mechanism that rings with no signal, a locked screen,
+and the browser closed, which is all three conditions at the river.
+
+**Open threads.**
+1. R1-R5 not started. 13 items deferred with un-defer conditions listed in the artifact.
+2. The trip log capturing predictions (R4) is the evidence engine: a season of it decides
+   whether live refresh, GPS, and the PWA are worth building at all.
+3. `RIVER_SPEC.md` §3 matrix still lists 3 rivers of 7, and line 6 wrongly says
+   `briefing.py → index.html` when it builds `caney.html`.
+4. `PRODUCT_STRATEGY.md` is now committed but explicitly not the operating frame.
+
+---
+
 ## 2026-07-30 — flow-engine backtest, then a strategy detour
 
 **Shipped.** Built the QA harness first (`14e3207` static `verify.py` + runtime

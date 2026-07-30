@@ -1,0 +1,69 @@
+name: Build and deploy
+
+# R1 from the 2026-07-30 CEO review. Builds the site from live data and publishes it to
+# Cloudflare Pages over HTTPS, so the tool is reachable from a phone instead of living
+# only in out/ on a laptop.
+#
+# The cache step is load-bearing, not an optimisation. briefing.py keeps a last-good
+# Center Hill release forecast in cache_dam.json and falls back to it when USACE CWMS is
+# thin or down (briefing.py:80-89). cache_dam.json is gitignored, so a cold runner would
+# build an empty forecast during an outage and the "USING CACHED release data" path would
+# never fire. Persisting it across runs preserves that resilience in CI.
+
+on:
+  push:
+    branches: [master]
+  schedule:
+    - cron: '0 */3 * * *'   # every 3 hours, UTC. GitHub cron is best-effort, not exact.
+  workflow_dispatch:
+
+# Never let a scheduled build race a push build; they write the same out/.
+concurrency:
+  group: build-deploy
+  cancel-in-progress: false
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          # No requirements.txt on purpose: every generator is stdlib only.
+
+      # Restore the last-good release cache. A unique key per run with a prefix
+      # restore-key gives us a rolling cache (cache entries are immutable per key).
+      - name: Restore release cache
+        uses: actions/cache@v4
+        with:
+          path: cache_dam.json
+          key: cache-dam-${{ github.run_id }}
+          restore-keys: cache-dam-
+
+      - name: Build site
+        run: ./build.sh
+
+      # Gate: never publish a build that fails static QA. verify.py checks token
+      # completeness, link integrity, the switcher, the fly-only content policy,
+      # and the HQ status contract.
+      - name: Static QA
+        run: python3 test/verify.py
+
+      - name: Show release-cache state
+        if: always()
+        run: |
+          if [ -f cache_dam.json ]; then
+            python3 -c "import json;print('cache_dam.json ts:', json.load(open('cache_dam.json')).get('ts'))"
+          else
+            echo "::warning::cache_dam.json missing after build — CWMS fallback is unavailable next run"
+          fi
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy out --project-name=caney --branch=master
