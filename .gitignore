@@ -1,5 +1,7 @@
 # generated site + mined intel (rebuilt from the generators + live data)
 out/
+# credentials — reddit_intel.py reads this (or the REDDIT_* env vars)
+reddit_creds.json
 # caches
 cache_dam.json
 __pycache__/
