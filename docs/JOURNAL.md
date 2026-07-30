@@ -54,9 +54,11 @@ the live HTTPS site: 200, secure context, stamp present, zero JS errors, at phon
 1. **Fish with it and log trips.** R4's prediction-vs-actual deltas are what decide whether
    2.5 mph is right and whether any of the 13 deferred items are worth building. Nothing
    deferred should be un-deferred before that data exists.
-2. `briefing.py` prints `gauge auto-calibration: baseflow +58 cfs (n=14 low-flow hrs)` — there
-   is a **runtime auto-calibration layer on top of the backtested 205 cfs constant** that is
-   not described in the CEO plan and interacts with arrival math. Worth understanding.
+2. ~~Runtime auto-calibration may interact with arrival math~~ — **checked, it does not.**
+   `briefing.py:116-131` nudges `baseflow` against the live Stonewall gauge using only hours
+   below 700 cfs (baseflow-dominated), then applies it constant along the reach. It adjusts
+   flow *magnitude*; `WATER_MPH` and `travel_h` are untouched, so arrival times are unaffected.
+   Working as designed, no action needed.
 3. `briefing.py:265` has the same first-window-only bug class the arrival strip fixed: the
    itinerary takes the first `GW` window within 5am–9pm only.
 4. `RIVER_SPEC.md` §3 matrix still lists 3 of 7 rivers; line 6 says `briefing.py → index.html`
