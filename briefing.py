@@ -960,7 +960,18 @@ document.querySelectorAll('.sec.fold').forEach(sec=>{const body=document.getElem
  document.getElementById('sumPlan').textContent='pick a day · craft · drift or work the rise';
  document.getElementById('sumCal').textContent=DATA.calendar[0].label+'–'+DATA.calendar[DATA.calendar.length-1].label;})();
 // --- trip log (shared riverlib component; keeps the legacy caneyLog key) ---
-buildLog('log','caneyLog',P.map(p=>p.name),'sumLog');
+// R4: hand the log a snapshot fn so each entry records what the TOOL predicted, not just
+// what happened. Prediction + outcome together is what makes a wrong call falsifiable, and
+// it is the evidence that decides whether the routing constants need another backtest.
+buildLog('log','caneyLog',P.map(p=>p.name),'sumLog',null,function(spotName){
+  const A=DATA.arrival; if(!A||!A.validated||!window.__arrivalPick) return null;
+  const spot=(A.spots||[]).find(s=>s.name===spotName); if(!spot) return null;
+  const r=window.__arrivalPick(A.rel, spot.mfd, A.mph, Date.now());
+  if(!r || r.state==='none') return null;
+  return {spot:spot.name, mfd:spot.mfd, mph:A.mph, state:r.state,
+          arrival:Math.round(r.arrival), win:r.win,
+          dataAgeMin: window.__builtEpoch ? Math.round((Date.now()/1000-window.__builtEpoch)/60) : null};
+});
 buildMoonCal('mooncal',36.10,-85.83);
 document.getElementById('sumMoon').textContent='monthly feeding view';
 renderGen();renderDay();updateControls();render();

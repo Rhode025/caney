@@ -273,6 +273,7 @@ BUILDSTAMP_CSS = """
 BUILDSTAMP_JS = r"""
 (function(){
   var BUILT=__BUILT_EPOCH__*1000;
+  window.__builtEpoch = BUILT/1000;   // trip log records how stale the data was when you logged
   function ago(ms){
     var m=Math.round(ms/60000);
     if(m<1)return'just now';
@@ -539,16 +540,55 @@ LOG_CSS = (
     ".logmeta{font-size:14px;color:var(--ink)}.logmeta b{font-weight:700}"
     ".logdel{float:right;color:var(--faint);cursor:pointer;font-size:12px;padding:0 4px}"
     ".logfly{font-size:13px;color:#255074;margin-top:3px}.lognote{font-size:13px;color:var(--muted);margin-top:3px;line-height:1.4}"
+    # R4 — prediction-vs-actual row (the field backtest)
+    ".logpred{margin-top:7px;padding:8px 10px;background:#f4f8fb;border-left:3px solid #2f92d4;"
+    "border-radius:0 8px 8px 0;font-size:12.5px;line-height:1.5;color:var(--ink)}"
+    ".logpred .logdim{color:var(--faint)}"
+    ".logdelta{margin-top:4px;color:#255074}"
+    ".logactual{margin-top:6px;border:1px solid #cfe0ee;background:#fff;color:#255074;border-radius:9px;"
+    "padding:8px 10px;font-size:12.5px;font-weight:650;font-family:inherit;cursor:pointer;min-height:36px}"
+    ".logcorrupt{background:#fff6e6;border:1px solid #f2a832;border-radius:10px;padding:10px 12px;"
+    "font-size:12.5px;line-height:1.45;color:var(--ink);margin-bottom:10px}"
 )
 LOG_JS = r"""
-window.buildLog=function(cid,key,spots,sumId,legacyKey){
+window.buildLog=function(cid,key,spots,sumId,legacyKey,snap){
  var el=document.getElementById(cid); if(!el)return;
- var LOG=[]; try{LOG=JSON.parse(localStorage.getItem(key)||'[]');}catch(e){}
+ // A corrupt log used to be swallowed by a bare catch(e){} and silently become an empty one.
+ // Now that entries carry the tool's own predictions (R4), losing them loses the only record
+ // of whether the model was right. Back the bad blob up and say so out loud.
+ var LOG=[], corrupt=null;
+ try{ LOG=JSON.parse(localStorage.getItem(key)||'[]'); if(!Array.isArray(LOG)) throw new Error('not an array'); }
+ catch(e){
+   LOG=[]; corrupt=String(e.message||e);
+   try{ var raw=localStorage.getItem(key); if(raw) localStorage.setItem(key+':corrupt:'+Date.now(), raw); }catch(e2){}
+ }
  if(!LOG.length&&legacyKey){try{var lg=JSON.parse(localStorage.getItem(legacyKey)||'[]');if(lg.length){LOG=lg;localStorage.setItem(key,JSON.stringify(LOG));}}catch(e){}}
  var rating=0;
  function esc(s){return (s==null?'':(''+s)).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
  var opts=(spots||[]).map(function(s){return '<option>'+esc(s)+'</option>';}).join('');
- el.innerHTML='<div class="logform"><div class="logrow"><select id="'+cid+'_spot">'+opts+'</select>'
+ function clk(sec){ try{ return new Date(sec*1000).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}); }
+                    catch(e){ return ''+sec; } }
+ // R4: the field-backtest row. Shows what the tool predicted at log time, lets you stamp
+ // when the water ACTUALLY reached you, and reports the delta. Enough of these and you know
+ // whether 2.5 mph is right for your river — the same evidence analysis/backtest_flow.py
+ // produced offline, gathered continuously and for free.
+ function predHtml(e,idx){
+  var p=e.pred; if(!p||!p.arrival) return '';
+  var s='<div class="logpred"><b>Tool said:</b> water reaches '+esc(p.spot)+' at '+clk(p.arrival);
+  if(p.dataAgeMin!=null) s+=' <span class="logdim">(data '+p.dataAgeMin+' min old, '+p.mph+' mph)</span>';
+  if(e.actual){
+    var dm=Math.round((e.actual-p.arrival)/60);
+    s+='<div class="logdelta">Actual '+clk(e.actual)+' · <b>'
+      +(dm===0?'spot on':(Math.abs(dm)+' min '+(dm>0?'late':'early')))+'</b></div>';
+  } else {
+    s+='<div><button class="logactual" data-i="'+idx+'">⏱ Water arrived just now</button></div>';
+  }
+  return s+'</div>';
+ }
+ el.innerHTML=(corrupt?'<div class="logcorrupt">⚠️ Your saved trips could not be read ('
+     +esc(corrupt)+'). The old data was kept under a backup key rather than thrown away; '
+     +'this list starts empty.</div>':'')
+   +'<div class="logform"><div class="logrow"><select id="'+cid+'_spot">'+opts+'</select>'
    +'<input id="'+cid+'_fly" placeholder="flies that worked (e.g. #4 olive Clouser)"></div>'
    +'<div class="logstars" id="'+cid+'_stars"></div>'
    +'<textarea id="'+cid+'_note" placeholder="notes — water level, weather, what worked / what didn’t" rows="2"></textarea>'
@@ -563,12 +603,20 @@ window.buildLog=function(cid,key,spots,sumId,legacyKey){
   if(!LOG.length){list.innerHTML='<div class="logempty">No trips logged yet. After a day out, jot the spot, flies and how it fished — it builds your own playbook (and helps tune the model).</div>';return;}
   var h='';LOG.slice().reverse().forEach(function(e){var idx=LOG.indexOf(e);
    h+='<div class="logitem"><div class="logmeta"><b>'+esc(e.spot)+'</b> · '+esc(e.date)+' · <span style="color:#f0a52b">'+'★'.repeat(e.stars||0)+'</span><span style="color:#d5dce4">'+'☆'.repeat(5-(e.stars||0))+'</span><span class="logdel" data-i="'+idx+'">✕ delete</span></div>'
-    +(e.fly?'<div class="logfly">🪰 '+esc(e.fly)+'</div>':'')+(e.note?'<div class="lognote">'+esc(e.note)+'</div>':'')+'</div>';});
+    +(e.fly?'<div class="logfly">🪰 '+esc(e.fly)+'</div>':'')+(e.note?'<div class="lognote">'+esc(e.note)+'</div>':'')
+    +predHtml(e,idx)+'</div>';});
   list.innerHTML=h;
-  list.querySelectorAll('.logdel').forEach(function(d){d.onclick=function(){LOG.splice(+d.dataset.i,1);save();render();};});}
+  list.querySelectorAll('.logdel').forEach(function(d){d.onclick=function(){LOG.splice(+d.dataset.i,1);save();render();};});
+  list.querySelectorAll('.logactual').forEach(function(bt){bt.onclick=function(){
+    LOG[+bt.dataset.i].actual=Math.round(Date.now()/1000); save(); render(); };});}
  $('add').onclick=function(){var spot=$('spot').value,fly=$('fly').value.trim(),note=$('note').value.trim();
   if(!fly&&!note&&!rating)return;
-  var d=new Date();LOG.push({date:(d.getMonth()+1)+'/'+d.getDate(),spot:spot,fly:fly,note:note,stars:rating,ts:d.getTime()});
+  var d=new Date(),rec={date:(d.getMonth()+1)+'/'+d.getDate(),spot:spot,fly:fly,note:note,stars:rating,ts:d.getTime()};
+  // R4: capture what the TOOL said at this moment, not just what you did. Without the
+  // prediction alongside the outcome, a wrong call is unfalsifiable after the fact and
+  // there is nothing to tune the model against.
+  if(typeof snap==='function'){ try{ var p=snap(spot); if(p) rec.pred=p; }catch(e){} }
+  LOG.push(rec);
   save();$('fly').value='';$('note').value='';rating=0;[].forEach.call(st.children,function(c){c.textContent='☆';});render();};
  render();
 };
@@ -644,12 +692,15 @@ window.renderChatter=function(elId,data,wrapId){
  var el=document.getElementById(elId),wrap=wrapId?document.getElementById(wrapId):el;
  if(!el)return;
  function esc(s){return (s==null?'':(''+s)).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+ // R5: attribute-escaping does NOT neutralise a javascript: URL. esc() only handles & < > ",
+ // so a hostile href would still execute on click. Anything not plainly http(s) is inert.
+ function escUrl(u){ u=(u==null?'':(''+u)).trim(); return /^https?:\/\//i.test(u) ? esc(u) : '#'; }
  var posts=(data&&data.posts)||[];
  if(!posts.length){if(wrap)wrap.style.display='none';return;}
  if(wrap)wrap.style.display='';
  var h='';
  posts.slice(0,8).forEach(function(p){
-  h+='<a class="ch" href="'+esc(p.url)+'" target="_blank" rel="noopener">'
+  h+='<a class="ch" href="'+escUrl(p.url)+'" target="_blank" rel="noopener">'
    +'<div class="chtop"><span class="chsub">r/'+esc(p.sub)+'</span>'+(p.new?'<span class="chnew">NEW</span>':'')
    +'<span class="chmeta">'+esc(p.date)+' · ▲'+(p.score|0)+' · 💬'+(p.comments|0)+'</span></div>'
    +'<div class="chttl">'+esc(p.title)+'</div>'

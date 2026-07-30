@@ -218,6 +218,86 @@ console.log('── arrival strip: next-window selection ──');
   await pg.close();
 }
 
+// ── trip log (R4): captures the tool's own prediction, then the actual ──
+// Prediction + outcome in the same record is what makes a wrong call falsifiable later.
+console.log('── trip log: prediction capture + field backtest ──');
+{
+  const ctx = await browser.newContext();
+  const pg = await ctx.newPage();
+  await pg.goto(url('caney.html'), { timeout: 20000 });
+  // the trip log lives inside a collapsed fold; open every section so it is interactable
+  await pg.evaluate(() => document.querySelectorAll('.secbody').forEach(e => e.classList.add('open')));
+  await pg.waitForSelector('#log_add', { timeout: 8000 });
+
+  await pg.selectOption('#log_spot', { label: "Betty's Island" }).catch(() => {});
+  await pg.fill('#log_fly', 'zebra midge #20');
+  await pg.click('#log_add');
+  await pg.waitForTimeout(300);
+
+  const rec = await pg.evaluate(() => JSON.parse(localStorage.getItem('caneyLog') || '[]').pop());
+  assert('logged trip carries the tool prediction',
+    !!(rec && rec.pred && rec.pred.arrival && rec.pred.spot === "Betty's Island"),
+    JSON.stringify(rec && rec.pred));
+  assert('prediction records the constants and data age it used',
+    !!(rec && rec.pred && rec.pred.mph === 2.5 && rec.pred.mfd === 9 && rec.pred.dataAgeMin != null),
+    JSON.stringify(rec && rec.pred));
+
+  const predShown = await pg.$eval('#log_list', e => e.textContent);
+  assert('entry shows what the tool said', /Tool said:.*water reaches/i.test(predShown),
+    predShown.slice(0, 90));
+
+  // stamp the actual arrival and check the delta is computed
+  await pg.click('.logactual');
+  await pg.waitForTimeout(250);
+  const after = await pg.$eval('#log_list', e => e.textContent);
+  assert('stamping the actual arrival reports a delta',
+    /Actual .* (spot on|\d+ min (late|early))/.test(after), after.slice(0, 140));
+  const rec2 = await pg.evaluate(() => JSON.parse(localStorage.getItem('caneyLog') || '[]').pop());
+  assert('actual arrival persists alongside the prediction',
+    !!(rec2 && rec2.actual && rec2.pred), JSON.stringify(rec2 && { a: rec2.actual, p: !!rec2.pred }));
+
+  await ctx.close();
+}
+
+// corrupt log must be backed up and announced, never silently emptied
+{
+  const ctx = await browser.newContext();
+  const pg = await ctx.newPage();
+  await pg.goto(url('caney.html'), { timeout: 20000 });
+  await pg.evaluate(() => localStorage.setItem('caneyLog', '{not json at all'));
+  await pg.reload({ timeout: 20000 });
+  await pg.evaluate(() => document.querySelectorAll('.secbody').forEach(e => e.classList.add('open')));
+  await pg.waitForSelector('#log_add', { timeout: 8000 });
+  const warned = await pg.$eval('#log', e => e.textContent);
+  assert('corrupt trip log is announced, not silently emptied',
+    /could not be read/i.test(warned), warned.slice(0, 100));
+  const backedUp = await pg.evaluate(() =>
+    Object.keys(localStorage).some(k => k.indexOf('caneyLog:corrupt:') === 0));
+  assert('corrupt trip log is preserved under a backup key', backedUp);
+  await ctx.close();
+}
+
+// ── chatter URLs (R5): scheme allowlist ──
+console.log('── chatter: URL scheme allowlist ──');
+{
+  const pg = await browser.newPage();
+  await pg.goto(url('caney.html'), { timeout: 20000 });
+  const r = await pg.evaluate(() => {
+    const el = document.createElement('div');
+    el.id = '__t'; document.body.appendChild(el);
+    const wrap = document.createElement('div'); wrap.id = '__tw'; document.body.appendChild(wrap);
+    renderChatter('__t', { posts: [
+      { url: 'javascript:alert(1)', sub: 'x', date: 'now', title: 'hostile', score: 1, comments: 0 },
+      { url: 'https://reddit.com/r/flyfishing/x', sub: 'y', date: 'now', title: 'fine', score: 1, comments: 0 },
+    ] }, '__tw');
+    return [...el.querySelectorAll('a.ch')].map(a => a.getAttribute('href'));
+  }).catch(e => ['ERR: ' + e.message]);
+  assert('javascript: URL is neutralised', r[0] === '#', JSON.stringify(r));
+  assert('https URL passes through intact',
+    (r[1] || '').startsWith('https://reddit.com/'), JSON.stringify(r));
+  await pg.close();
+}
+
 await browser.close();
 console.log('');
 if (fails) { console.log(`\x1b[31mFAILED ${fails} check(s)\x1b[0m`); process.exit(1); }
