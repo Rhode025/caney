@@ -17,7 +17,7 @@ Shared tokens a TEMPLATE may include (all optional; unused tokens are simply bla
 
 See RIVER_SPEC.md for the full standard feature spec every river page targets.
 """
-import json, urllib.request, math, os, datetime as _dt
+import json, urllib.request, math, os, time, datetime as _dt
 
 # ── the single source of truth for which rivers exist ────────────────────────
 # Adding a river here updates the switcher on EVERY page automatically.
@@ -247,6 +247,71 @@ BASE_HEAD = (
 
 CREDIT = ("Public data only · USACE CWMS · USGS · NOAA/NWS · Open-Meteo · OpenStreetMap. "
           "Estimates — tune from the water. Built for personal use.")
+
+# ── BUILD STAMP (R2) — every page says how old its data is ───────────────────
+# Every number on every page is baked at generation time: the flow model, the release
+# schedule, the grades, the outlook. There is no live refetch. So the page's age IS the
+# data's age, and it has to be visible rather than implied — a stale generation schedule
+# read as current is the one failure that can put you in moving water.
+#
+# Injected into <head> by render(), so all 8 pages get it with no TEMPLATE edit and the
+# parity rule holds by construction. The banner self-inserts at the top of <body>.
+# Three states: fresh (quiet), aging >3h (amber), stale >12h (filled amber).
+# Also catches device clock skew, which would otherwise silently shift every arrival time.
+BUILDSTAMP_CSS = """
+.bstamp{font:500 13px/1.35 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:7px 14px;
+ text-align:center;color:#66788a;background:#f7f9fb;border-bottom:1px solid #e6ecf2}
+.bstamp .bsdot{display:inline-block;width:6px;height:6px;border-radius:50%;background:#28c76f;
+ margin-right:7px;vertical-align:middle}
+.bstamp.l1{color:#16202b;background:#fff6e6;border-bottom-color:#f2a832}
+.bstamp.l2{color:#16202b;background:#f2a832;border-bottom-color:#d9931f;font-weight:600}
+.bstamp.skew{color:#16202b;background:#efe9ff;border-bottom-color:#8b6cef}
+.bstamp strong{font-weight:700}
+@media(max-width:680px){.bstamp{font-size:12px;padding:6px 10px}}
+"""
+
+BUILDSTAMP_JS = r"""
+(function(){
+  var BUILT=__BUILT_EPOCH__*1000;
+  function ago(ms){
+    var m=Math.round(ms/60000);
+    if(m<1)return'just now';
+    if(m<60)return m+' min';
+    var h=ms/3600000;
+    if(h<24)return (h<10?(Math.round(h*10)/10+'').replace(/\.0$/,''):Math.round(h))+' h';
+    var d=Math.round(h/24); return d+(d===1?' day':' days');
+  }
+  function fmt(d){
+    try{return d.toLocaleString([],{weekday:'short',hour:'numeric',minute:'2-digit'});}
+    catch(e){return d.toISOString();}
+  }
+  function paint(){
+    var el=document.getElementById('bstamp');
+    if(!el){
+      el=document.createElement('div'); el.id='bstamp';
+      document.body.insertBefore(el,document.body.firstChild);
+    }
+    var age=Date.now()-BUILT, d=new Date(BUILT);
+    // Negative age means this device's clock is behind the build. Every arrival time is
+    // derived from the device clock, so skew silently shifts them all. Say so.
+    if(age < -5*60000){
+      el.className='bstamp skew';
+      el.innerHTML='<strong>This device’s clock looks wrong</strong> · it reads '
+        +ago(-age)+' before this page was built · arrival times will be off by that much';
+      return;
+    }
+    var lvl = age>12*3600000 ? 2 : age>3*3600000 ? 1 : 0;
+    el.className='bstamp l'+lvl;
+    el.innerHTML = lvl===0
+      ? '<span class="bsdot"></span>Data built '+fmt(d)+' · '+ago(age)+' ago'
+      : '<strong>Data is '+ago(age)+' old</strong> · built '+fmt(d)
+        +(lvl===2?' · flows and generation may have changed':'');
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',paint);
+  else paint();
+  setInterval(paint,60000);
+})();
+"""
 
 # ── shared JS: access-point popups with Google Maps links (all rivers) ───────
 # accessPopup(p) builds a rich popup from a point {name, lat, lon, types?, info?, note?, rm?}.
@@ -723,8 +788,13 @@ def switcher(cur):
 
 def render(html, river_id):
     """Fill every shared token for this river. Unknown/unused tokens stay blank-safe."""
+    # Build stamp goes in via <head> rather than a TEMPLATE token, so every page that calls
+    # render() gets it — no page can forget to display how old its data is.
+    _stamp = ("<style>" + BUILDSTAMP_CSS + "</style><script>"
+              + BUILDSTAMP_JS.replace("__BUILT_EPOCH__", str(int(time.time())))
+              + "</script>")
     return (html
-            .replace("<head>", "<head>" + BASE_HEAD, 1)
+            .replace("<head>", "<head>" + BASE_HEAD + _stamp, 1)
             .replace("__SWITCH_CSS__", SWITCH_CSS)
             .replace("__SWITCHER__", switcher(river_id))
             .replace("__CREDIT__", CREDIT)

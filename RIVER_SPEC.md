@@ -73,6 +73,14 @@ html = riverlib.render(TEMPLATE, "duck").replace("__DATA__", json.dumps(DATA))
 **📍 Open in Google Maps** link to the exact coords. `wireHover(mk)` opens it on hover.
 Give each access a `types` list and an `info` string (Caney reuses its `note`/`rm`).
 
+**Auto-injected (no token needed).** `render()` also injects two things into `<head>` for
+every page: `BASE_HEAD` (the font link) and the **build stamp** — a banner that states how
+old the page's data is, escalating from quiet to amber at 3 h and to a filled bar at 12 h,
+and calling out a device clock that runs behind the build. It is injected rather than
+tokenised so no page can forget to display its own age. Every number on these pages is
+baked at generation time, so the page's age *is* the data's age. Covered by `browser.mjs`,
+which drives the device clock through all four states.
+
 **The registry** — `riverlib.RIVERS` is the single source of truth for which rivers
 exist. Add one entry and every page's switcher updates on the next run.
 

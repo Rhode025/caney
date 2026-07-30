@@ -103,6 +103,51 @@ console.log('── HQ interactions ──');
   await pg.close();
 }
 
+// ── build stamp (R2): the page must say how old its data is ──
+// Every number on these pages is baked at generation time, so the page's age IS the
+// data's age. These drive the device clock forward to check each staleness state, and
+// backward to check skew detection — the clock-injection capability the CEO review
+// flagged as missing. Shifts Date.now only; no fixture build required.
+console.log('── build stamp: staleness + clock skew ──');
+{
+  const stampState = async (offsetMs) => {
+    const ctx = await browser.newContext();
+    const pg = await ctx.newPage();
+    if (offsetMs) await pg.addInitScript(off => {
+      const R = Date.now.bind(Date); Date.now = () => R() + off;
+    }, offsetMs);
+    await pg.goto(url('caney.html'), { timeout: 20000 });
+    await pg.waitForSelector('#bstamp', { timeout: 5000 });
+    const r = await pg.$eval('#bstamp', e => ({ cls: e.className, txt: e.textContent.trim() }));
+    await ctx.close();
+    return r;
+  };
+  const H = 3600e3;
+  const fresh = await stampState(0);
+  assert('stamp fresh: quiet state + build time',
+    fresh.cls.includes('l0') && /Data built .* ago/.test(fresh.txt), fresh.txt);
+  const aging = await stampState(5 * H);
+  assert('stamp aging at +5 h: amber + explicit age',
+    aging.cls.includes('l1') && /Data is 5 h old/.test(aging.txt), aging.txt);
+  const stale = await stampState(30 * H);
+  assert('stamp stale at +30 h: warns flows may have changed',
+    stale.cls.includes('l2') && /flows and generation may have changed/.test(stale.txt), stale.txt);
+  const skew = await stampState(-60 * 60e3);
+  assert('stamp detects a device clock running behind the build',
+    skew.cls.includes('skew') && /clock looks wrong/.test(skew.txt), skew.txt);
+
+  // parity rule: it has to be on every page, not just the one we drove
+  const missing = [];
+  for (const p of PAGES) {
+    const pg = await browser.newPage();
+    await pg.goto(url(p), { timeout: 20000 });
+    if (!(await pg.$('#bstamp'))) missing.push(p);
+    await pg.close();
+  }
+  assert('build stamp renders on all ' + PAGES.length + ' pages', missing.length === 0,
+    'missing on ' + missing.join(', '));
+}
+
 await browser.close();
 console.log('');
 if (fails) { console.log(`\x1b[31mFAILED ${fails} check(s)\x1b[0m`); process.exit(1); }
