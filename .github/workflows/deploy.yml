@@ -34,10 +34,14 @@ jobs:
           python-version: '3.12'
           # No requirements.txt on purpose: every generator is stdlib only.
 
-      # Restore the last-good release cache. A unique key per run with a prefix
-      # restore-key gives us a rolling cache (cache entries are immutable per key).
+      # Restore/save are split deliberately. actions/cache's save runs as a post-step, which
+      # is SKIPPED when an earlier step fails — so a QA failure would throw away a perfectly
+      # good release forecast and leave the next run cold. Saving right after the build, with
+      # if: always(), keeps the CWMS fallback intact regardless of what QA decides.
+      # A unique key per run plus a prefix restore-key gives a rolling cache, since cache
+      # entries are immutable per key.
       - name: Restore release cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: cache_dam.json
           key: cache-dam-${{ github.run_id }}
@@ -45,6 +49,13 @@ jobs:
 
       - name: Build site
         run: ./build.sh
+
+      - name: Save release cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: cache_dam.json
+          key: cache-dam-${{ github.run_id }}
 
       # Gate: never publish a build that fails static QA. verify.py checks token
       # completeness, link integrity, the switcher, the fly-only content policy,

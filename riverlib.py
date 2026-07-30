@@ -819,10 +819,29 @@ def render(html, river_id):
 
 # ── shared utilities every float/tailwater page can reuse ────────────────────
 _UA = {"User-Agent": "riverlib/1.0"}
-def get(u, h=None, timeout=60):
-    with urllib.request.urlopen(
-            urllib.request.Request(u, headers={**_UA, **(h or {})}), timeout=timeout) as r:
-        return json.load(r)
+def get(u, h=None, timeout=60, retries=2, backoff=2.0):
+    """Fetch JSON, retrying transient failures.
+
+    Every generator funnels its fetches through here. Without a retry, one flaky TLS
+    handshake silently degrades a page: the generator catches the error, prints a warning,
+    and builds anyway, so a river ends up with no weather and a week[] the HQ status
+    contract rejects. That is exactly what took down the first CI deploy — Open-Meteo timed
+    out for duck and stones on a shared runner, and both pages built broken.
+
+    Raises the last exception if every attempt fails, so a caller's `except: print(warn)`
+    still surfaces a genuine outage rather than a blip.
+    """
+    last = None
+    for attempt in range(retries + 1):
+        try:
+            with urllib.request.urlopen(
+                    urllib.request.Request(u, headers={**_UA, **(h or {})}), timeout=timeout) as r:
+                return json.load(r)
+        except Exception as e:
+            last = e
+            if attempt < retries:
+                time.sleep(backoff * (2 ** attempt))   # 2s, then 4s
+    raise last
 
 def haversine(a, b):
     """Straight-line miles between (lat,lon) points."""

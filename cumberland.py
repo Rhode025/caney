@@ -15,7 +15,9 @@ import riverlib
 CT=ZoneInfo("America/Chicago"); UA={"User-Agent":"cumb/1.0"}
 HERE=os.path.dirname(os.path.abspath(__file__)); OUT=os.path.join(HERE,"out"); os.makedirs(OUT,exist_ok=True)
 def get(u,h=None):
-    with urllib.request.urlopen(urllib.request.Request(u,headers={**UA,**(h or {})}),timeout=90) as r: return json.load(r)
+    # riverlib.get retries transient TLS/DNS/5xx failures; a single flaky fetch used to
+    # build this page with missing data instead of failing (see riverlib.get docstring).
+    return riverlib.get(u,{**UA,**(h or {})},timeout=90)
 def hk(e): return int(e//3600)*3600
 now=datetime.datetime.now(datetime.timezone.utc); now_ct=now.astimezone(CT)
 GLAT,GLON=36.87,-85.15
