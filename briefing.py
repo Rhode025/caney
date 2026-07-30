@@ -19,11 +19,12 @@ HERE=os.path.dirname(os.path.abspath(__file__)); OUT=os.path.join(HERE,"out"); o
 # leading 0.0 compensates the -1h period-ending shift above, so the fitted dam->Stonewall routing (R²=0.89) is preserved
 CALIB_KERNEL=[0.0,0.010,0.010,0.044,0.089,0.131,0.156,0.142,0.110,0.083,0.071,0.060,0.045,0.024,0.013,0.016,0.020,0.016,0.009,0.001]
 CALIB_BASEFLOW=205.0; DAM_RM,STONE_RM=26.6,10.0   # zero-release intercept; 90-day backtest vs Stonewall gauge (see analysis/backtest_flow.py): least-squares intercept 204, min-flow check 205+166≈372=observed min. Was 375 (ran +170 cfs high).
-# GUIDE'S GROUND TRUTH (decades on the Caney): generating water travels ~3 mph, and the leading edge
-# reaches each ramp at (miles-from-dam)/3 hours. Real distances from the dam: Happy Hollow 6, Betty's
-# Island 9, Stonewall 15. So `mfd` (miles-from-dam) — NOT my river-mile estimate — drives all routing
-# & arrival timing. (My old rm put Betty's at 11.6 mi/5.4h; the guide's is 9 mi/3h.)
-WATER_MPH=3.0; MFD_STONE=15.0
+# LEADING-EDGE SPEED — backtested, not folklore. A longtime guide gave the real miles-from-dam
+# (Happy Hollow 6, Betty's Island 9, Stonewall 15) and said the bump runs ~3 mph. A 90-day backtest of
+# 80 generation events at the Stonewall gauge (analysis/backtest_flow.py) CONFIRMS the distances but
+# corrects the speed: the detectable rise at Stonewall (15 mi) has median AND modal lag 6 h (49 of 80
+# events) → ~2.5 mph, size-independent. So `mfd` drives routing and arrival = (miles-from-dam)/2.5 h.
+WATER_MPH=2.5; MFD_STONE=15.0
 _g=sum(CALIB_KERNEL); KERNEL=[w/_g for w in CALIB_KERNEL]; CENTROID=sum(i*w for i,w in enumerate(KERNEL))
 RISE_CURVE=[[260,0.0],[500,0.5],[1000,1.3],[2000,2.7],[3900,4.4],[7500,7.2],[11000,10.1]]
 ACCESS=[
@@ -38,7 +39,7 @@ ACCESS=[
  {"name":"Carthage","note":"Cumberland mouth","rm":0.5,"mfd":24.5,"types":["ramp"],"reach":"lower","d0":8.0},
 ]
 def frac(mfd): return max(0.03, mfd/MFD_STONE)   # kernel-routing position, anchored on the guide's real distances
-def travel_h(mfd): return mfd/WATER_MPH          # leading-edge arrival: the guide's 3-mph rule
+def travel_h(mfd): return mfd/WATER_MPH          # leading-edge arrival: backtested ~2.5-mph rule (see WATER_MPH note)
 def compressed_kernel(f):
     # redistribute kernel mass by area (each weight w[i] lands at output lag i*f) — mass-conserving,
     # correct even for tiny f near the dam (point-sampling used to zero those out)
@@ -224,7 +225,7 @@ SOL=SOLDAYS[1]
 tips=[["🌡️","Bottom-release tailwater — water stays cold (~50°F) year-round. Midges and sowbugs/scuds are the everyday staple; trout feed through the day."]]
 tips.append(["🌊",(f"Generation scheduled ({', '.join(parts)}). Wade early and be off the flats before the bump reaches you; then fish the rise from the boat and nymph the falling limb as it clears." if parts
  else "Minimum flow all day — classic sight-fishing. Wade the flats with light tippet and delicate presentations.")])
-tips.append(["⏱️","How the water travels (a longtime Caney guide's rule): the generating bump moves ~3 mph, so it reaches Happy Hollow ~2 h after release, Betty's Island ~3 h, and Stonewall ~5 h. Wade the flats until it's due, then be in the boat riding the rise. The water's always on time — that predictability is the edge."])
+tips.append(["⏱️","How the water travels (backtested against 80 releases at the Stonewall gauge): the generating bump moves ~2.5 mph, so it reaches Happy Hollow ~2½ h after release, Betty's Island ~3½ h, and Stonewall ~6 h. Wade the flats until it's due, then be in the boat riding the rise. The water's always on time — that predictability is the edge."])
 if WX:
     if WX["pressure"]=="falling": tips.append(["📉","Barometer dropping ahead of weather — often a feeding window. Fish the front edge hard before the rain."])
     elif WX["pressure"]=="rising": tips.append(["📈","Rising/high pressure, bright sky — fish deeper and smaller, lengthen the leader, target shade and riffles."])
@@ -261,7 +262,7 @@ SW=next(s for s in ACCESS if s["name"]=="Stonewall")
 def cond_flow(cfs): return "high" if cfs is not None and cfs>4500 else "wade" if (cfs is not None and cfs<1000) else "boat" if cfs is not None else "na"
 def itinerary(day,short):
     onwin=next(((a,b,pk) for a,b,pk in GW if ep(day,5)<=a<ep(day,21)),None)
-    lag_b=travel_h(BI["mfd"]); lag_s=travel_h(SW["mfd"])   # guide's 3-mph leading edge: Betty's ~3h, Stonewall ~5h
+    lag_b=travel_h(BI["mfd"]); lag_s=travel_h(SW["mfd"])   # backtested ~2.5-mph leading edge: Betty's ~3½h, Stonewall ~6h
     if onwin:
         a,b,pk=onwin; pb=a+lag_b*3600; ps=a+lag_s*3600
         if short: return f"Wade AM · {units(pk)}U release {fmt_ap(a)} · boat PM"
@@ -304,9 +305,9 @@ TOUR=[s for nm in ["Lancaster","Happy Hollow","Betty's Island","Stonewall"] for 
 def day_steps(d):
     sr,ss=_daysun(d); k0=hr_key(sr); k1=hr_key(ss)
     def fl(s,k): return flow_at(s,k) or 0
-    def rise(s):                       # the bump's leading edge arrives — the GUIDE'S 3-mph rule, not the
+    def rise(s):                       # the bump's leading edge arrives — the backtested ~2.5-mph rule, not the
         # kernel's dispersed crossing (which runs early on big releases). Leading edge reaches s at
-        # release-start + (miles-from-dam)/3 mph: Happy Hollow ~2h, Betty's ~3h, Stonewall ~5h.
+        # release-start + (miles-from-dam)/2.5 mph: Happy Hollow ~2½h, Betty's ~3½h, Stonewall ~6h.
         on=next(((a,b,pk) for a,b,pk in GW if k0-2*3600<=a<=k1),None)
         if not on: return None
         t=hr_key(on[0]+travel_h(s["mfd"])*3600)
@@ -378,7 +379,7 @@ for di in range(7):
     spark=[unit_ct(dam_at(d0+h*3600)) for h in range(24)]
     _rb=ramp_blocks(d0,d1)
     _rst=min(b[0] for b in _rb) if _rb else None   # release-start epoch (front origin)
-    # when the bump reaches the key ramps — the guide's 3-mph rule (mfd/3 after release start)
+    # when the bump reaches the key ramps — the backtested ~2.5-mph leading edge (mfd/2.5 after release start)
     _arr=[[s["name"].replace("Happy Hollow","Happy Hollow").replace("Betty's Island","Betty's"),
            fmt_ap(_rst+s["mfd"]/WATER_MPH*3600)] for s in (HH,BI,SW)] if _rst else None
     GEN.append({"label":cal[di]["label"],"date":cal[di]["date"],"windows":wins,"spark":spark,"peak":max(spark),
@@ -444,10 +445,10 @@ DATA={"todayLabel":now_ct.strftime("%A, %B %-d · %-I:%M %p"),"dateLabel":tom.st
       "damCap":dam_cap,"clarity":clar_word,"points":points,"riseCurve":RISE_CURVE,"weather":WX,"tips":tips,
       "calendar":cal,"itinerary":itin_steps,"now":NOW,"solunar":SOL,"best":BEST,"dayscores":DAYSCORES,
       "wxDays":WXDAYS,"solDays":SOLDAYS,"gen":GEN,"week":_scores,"weekSynth":WEEK_SYNTH,"wxv":WXV,"riverPoly":RIVER_POLY,
-      "genHint":"Center Hill generation, midnight→midnight (bar height = units). Then the bump travels ~3 mph downstream — the arrival times are the guide's rule (Happy Hollow ~2h · Betty's ~3h · Stonewall ~5h after release).",
+      "genHint":"Center Hill generation, midnight→midnight (bar height = units). Then the bump travels ~2.5 mph downstream — arrival times backtested at the Stonewall gauge (Happy Hollow ~2½h · Betty's ~3½h · Stonewall ~6h after release).",
       "genLegend":'<span><i style="background:#7db8e0"></i>1 unit</span><span><i style="background:#2f92d4"></i>2 units</span><span><i style="background:#5e5ce6"></i>3 units</span><span>Verify against TVA before you launch.</span>',
       "genOpts":{"minLabel":"minimum flow — wade all day","arrLabel":"bump reaches"},
-      "sliderMin":300,"sliderMax":1200,"sliderStep":15,"launchDefault":420,"planDefault":1}
+      "sliderMin":300,"sliderMax":1200,"sliderStep":15,"launchDefault":420,"planDefault":1,"mph":WATER_MPH}
 
 TEMPLATE=r"""<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
 <title>Caney Fork</title>
@@ -744,7 +745,7 @@ buildFlyMatrix('flysel',DATA.flysel);
     +'<div class="chev">›</div></div><div class="csteps" id="cs'+di+'">'+st+'</div>';});
  document.getElementById('cal').innerHTML=h;
  document.querySelectorAll('#cal .wkrow').forEach(r=>r.onclick=()=>{const p=document.getElementById('cs'+r.dataset.di);r.classList.toggle('open',p.classList.toggle('open'));});})();
-document.getElementById('foot').textContent='UH routing off the Center Hill release forecast (R²=0.89), anchored on a longtime guide’s real miles-from-dam so the leading edge tracks the ~3 mph rule (Happy Hollow ~2h · Betty’s ~3h · Stonewall ~5h from release). Depth from measured Stonewall stage-rise; drift speed ≈ flow (1–4.6 mph); boatable ≈ 1,000–4,000 cfs. Trout reach (dam→Stonewall) calibrated; lower ramps are backwater approximations. Sources: USACE CWMS · USGS · Open-Meteo.';
+document.getElementById('foot').textContent='UH routing off the Center Hill release forecast (R²=0.89), anchored on a longtime guide’s real miles-from-dam with a backtested ~2.5 mph leading edge (Happy Hollow ~2½h · Betty’s ~3½h · Stonewall ~6h from release). Depth from measured Stonewall stage-rise; drift speed ≈ flow (1–4.6 mph); boatable ≈ 1,000–4,000 cfs. Trout reach (dam→Stonewall) calibrated; lower ramps are backwater approximations. Sources: USACE CWMS · USGS · Open-Meteo.';
 
 // river + segs
 const stage=document.getElementById('river'),svg=document.getElementById('rsvg');
@@ -870,9 +871,9 @@ function syncMap(){if(!window._lmap)return;P.forEach((p,i)=>{const mk=LM[i];if(!
       window._risen.setLatLngs(window._polySub(frac)).setStyle({color:c});if(!map.hasLayer(window._risen))window._risen.addTo(map);
     } else {if(map.hasLayer(window._front))map.removeLayer(window._front);if(map.hasLayer(window._risen))map.removeLayer(window._risen);}
   }}
-function frontInfo(t){   // {rm, flow} of the leading edge — the GUIDE'S 3-mph rule: mfd = 3·(t − release start)
+function frontInfo(t){   // {rm, flow} of the leading edge — backtested ~2.5-mph rule: mfd = mph·(t − release start)
   const g=DATA.gen[dsel]; if(!g||g.relStart==null)return null;
-  const mfd=3*(t-g.relStart)/60;                       // miles from dam the leading edge has traveled
+  const mfd=DATA.mph*(t-g.relStart)/60;                // miles from dam the leading edge has traveled
   if(mfd<=0.2||mfd>P[N-1].mfd+1)return null;            // not yet started, or already past the mouth
   if(mfd>=P[N-1].mfd)return {rm:P[N-1].rm,flow:flowAt(N-1,t)};
   for(let i=0;i<N-1;i++){if(P[i].mfd<=mfd&&mfd<=P[i+1].mfd){

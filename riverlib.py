@@ -114,7 +114,7 @@ RIVER_CONFIG = {
             ["Edge / rising","1,000–3,000","the sweet spot — work the leading edge as the release arrives"],
             ["1 unit","~3,900","boat water — drift & swing"],
             ["2–3 units","6,500–11,000+","high & fast — streamers on the bank, stay in the boat"]],
-   "trend_rule":"Generation drives everything — water is cold year-round. A longtime guide's rule: the generating bump travels ~3 mph, so it reaches Happy Hollow (6 mi) ~2h after release, Betty's Island (9 mi) ~3h, and Stonewall (15 mi) ~5h. Fish the minimum-flow flats early, be off before the bump is due, then ride the rise downstream from the boat. Verify the Center Hill schedule against TVA.",
+   "trend_rule":"Generation drives everything — water is cold year-round. Backtested at the Stonewall gauge (90 days, 80 releases): the generating bump travels ~2.5 mph, so it reaches Happy Hollow (6 mi) ~2½h after release, Betty's Island (9 mi) ~3½h, and Stonewall (15 mi) ~6h. Fish the minimum-flow flats early, be off before the bump is due, then ride the rise downstream from the boat. Verify the Center Hill schedule against TVA.",
    "zones":[],
    "launch":{"name":"Long Branch","desc":"Boat ramp & campground at the base of Center Hill Dam. Be off the wadeable flats before the water arrives."},
    "access":[["Long Branch","at the dam — ramp & wade"],["Betty's Island","the flats (~RM 15)"],
