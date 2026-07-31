@@ -7,7 +7,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-GENERATORS=(briefing cumberland duck elk elktn cumbnash stones)
+GENERATORS=(briefing cumberland duck elk elktn cumbnash stones cheatham cordell)
 
 for s in "${GENERATORS[@]}"; do
   echo "  ▸ $s"

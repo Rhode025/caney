@@ -10,7 +10,8 @@ import { chromium } from 'playwright';
 
 const BASE = (process.argv[2] || 'https://master.caney.pages.dev').replace(/\/$/, '');
 const PAGES = ['index.html', 'caney.html', 'cumbnash.html', 'stones.html',
-               'duck.html', 'elktn.html', 'cumberland.html', 'elk.html'];
+               'duck.html', 'elktn.html', 'cumberland.html', 'elk.html',
+               'cheatham.html', 'cordell.html'];
 
 let fails = 0;
 const ok = n => console.log('  \x1b[32m✓\x1b[0m ' + n);

@@ -3,9 +3,12 @@
 The canonical feature spec every river page targets, plus the shared-code rules so a
 change made once lands on every river. Personal tool, not a product.
 
-Pages today: **Caney Fork** (`briefing.py` → `index.html`), **Duck River**
-(`duck.py` → `duck.html`), **Cumberland KY** (`cumberland.py` → `cumberland.html`),
-**Elk River / AL–Wheeler** (`elk.py` → `elk.html`). Shared code: **`riverlib.py`**.
+Pages today (9 rivers + the HQ). `hq.py` builds `index.html`; every river builds its own file:
+**Caney Fork** (`briefing.py` → `caney.html`), **Duck River** (`duck.py`), **Cumberland KY /
+Wolf Creek** (`cumberland.py`), **Elk River / AL–Wheeler** (`elk.py`), **Elk / Tims Ford**
+(`elktn.py`), **Stones River** (`stones.py`), and the three Cumberland tailraces —
+**Nashville** (`cumbnash.py`), **Cheatham** (`cheatham.py`), **Cordell Hull** (`cordell.py`).
+Shared code: **`riverlib.py`**. Build order lives in `build.sh`, `hq.py` last.
 
 *Elk River (added from the Elk River Field Atlas) is the proof the template works: a Duck-style
 smallmouth flow page (USGS 03584600 at Prospect, atlas flow bands, falling-beats-rising) plus a
@@ -138,6 +141,44 @@ When a feature proves out on one river and belongs on all:
 4. Re-run all generators and spot-check each page.
 
 ---
+
+### Cumberland system — three tailraces, three different data situations
+
+Added 2026-07-31. All three run the same warmwater big-river model (navigable pool, so depth
+is stable and **current** is the variable), driven by USACE LRN generation. They differ in
+what live data exists, which is worth recording because it is not obvious:
+
+| Page | Release series (LRN) | Live gauge |
+|---|---|---|
+| `cumbnash` — Nashville | `OHIT1-OLD_HICKORY` (Old Hickory) | USGS 03431500, healthy |
+| `cheatham` — Cheatham Dam → Clarksville | `ASHT1-CHEATHAM` | **none** — 03435000 has published no real-time value in 30+ days |
+| `cordell` — Cordell Hull → Old Hickory Lake | `COHT1-CORDELL_HULL` | **none** — no active gauge on the reach |
+
+Where there is no gauge, **the release IS the hydrograph**: the plotted flow is the USACE
+hourly actual plus forecast, and the footer says so. Do not point a page at a dead gauge.
+
+**Location IDs matter.** `OHHT1` is the *Lock and Dam*, `OHIT1` is the *Tailwater* (they
+return identical values — verified — but tailwater is the convention, as with Center Hill's
+`CETT1`). `COHT1` is Cordell Hull's Lock and Dam and carries the hourly series; `CORT1` is
+its tailwater but only publishes daily. Check `cwms-data/locations` before wiring a new dam.
+
+**Unit counts on these three are estimates, not backtested constants.** `OH_UNIT_CFS` is
+inferred from observed release steps, never fitted to a downstream gauge the way Caney's were
+(`analysis/backtest_flow.py`). The legend on each page says so. Do not let them drift into
+sounding authoritative.
+
+**No arrival times on any of the three.** These are impoundments: a release raises current
+through a pool rather than sending a wading-hazard front down a shallow tailwater, so a
+Caney-style "water reaches you at 2:47" would be a confident fiction. The arrival strip stays
+Caney-only until another river earns it (see §1).
+
+**⚠️ Access points are incomplete on `cheatham` and `cordell`.** Each currently carries exactly
+ONE access point: the USACE tailwater location, which is authoritative (official name and
+coordinates from `cwms-data/locations`). Every other ramp on those reaches appears in OSM as an
+*unnamed* slipway with no official name, owner, or river mile — below the bar §2 sets — and
+several near Cordell Hull sit on the **lake above the dam**, not the tailwater. They are
+deliberately omitted rather than guessed. Fill them in from a verified source before relying
+on these pages for where to launch.
 
 ## 2. Data sources (public only)
 

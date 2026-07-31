@@ -13,7 +13,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "out")
 STATUS = os.path.join(OUT, "status")
 
-RIVERS = ["caney", "cumbnash", "stones", "duck", "elktn", "cumberland", "elk"]
+RIVERS = ["caney", "cumbnash", "stones", "duck", "elktn", "cumberland", "elk", "cheatham", "cordell"]
 RIVER_FILES = {"caney": "caney.html", "cumbnash": "cumbnash.html", "stones": "stones.html",
                "duck": "duck.html", "elktn": "elktn.html", "cumberland": "cumberland.html",
                "elk": "elk.html"}
@@ -67,14 +67,15 @@ for f in ALL_HTML:
     missing = [t for t in targets if not os.path.exists(os.path.join(OUT, t))]
     check("links resolve: " + f, not missing, "missing " + ",".join(missing))
 
-print("── switcher (HQ + 7 rivers = 8 tabs) ──")
+TABS = len(RIVERS) + 1          # HQ + every river; derived, never hardcoded
+print("── switcher (HQ + %d rivers = %d tabs) ──" % (len(RIVERS), TABS))
 for f in ALL_HTML:
     if not os.path.exists(os.path.join(OUT, f)):
         continue
     html = read(f)
     m = re.search(r'<div class="switch">(.*?)</div>', html, re.S)
     n = len(re.findall(r"<a\b", m.group(1))) if m else 0
-    check("switcher 8 tabs: " + f, n == 8, "found %d" % n)
+    check("switcher %d tabs: %s" % (TABS, f), n == TABS, "found %d" % n)
 
 print("── required components per river page ──")
 for rid, f in RIVER_FILES.items():

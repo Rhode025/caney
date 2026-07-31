@@ -12,8 +12,9 @@ import path from 'path';
 
 const OUT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'out');
 const url = f => 'file://' + path.join(OUT, f);
-const RIVERS = ['caney', 'cumbnash', 'stones', 'duck', 'elktn', 'cumberland', 'elk'].map(r => r + '.html');
+const RIVERS = ['caney', 'cumbnash', 'stones', 'duck', 'elktn', 'cumberland', 'elk', 'cheatham', 'cordell'].map(r => r + '.html');
 const PAGES = ['index.html', ...RIVERS];
+const TABS = RIVERS.length + 1;   // HQ + every river; derived, never hardcoded
 
 let fails = 0;
 const ok  = (n) => console.log('  \x1b[32m✓\x1b[0m ' + n);
@@ -35,7 +36,7 @@ for (const p of PAGES) {
   assert('no JS errors: ' + p, real.length === 0, real.join(' | '));
   if (p !== 'index.html') {
     const tabs = await pg.$$eval('.switch a', a => a.length).catch(() => 0);
-    assert('switcher 8 tabs: ' + p, tabs === 8, 'found ' + tabs);
+    assert(`switcher ${TABS} tabs: ` + p, tabs === TABS, 'found ' + tabs);
     const map = await pg.$('#lmap');
     assert('map present: ' + p, !!map);
   }
@@ -52,7 +53,7 @@ console.log('── HQ interactions ──');
   await pg.waitForTimeout(400);
 
   const n0 = await pg.$$eval('#board .rc', e => e.length);
-  assert('board shows 7 river cards', n0 === 7, 'found ' + n0);
+  assert(`board shows ${RIVERS.length} river cards`, n0 === RIVERS.length, 'found ' + n0);
 
   // filter chips never include removed species
   const chips = await pg.$$eval('#spf a', a => a.map(x => x.dataset.s).filter(Boolean));
@@ -65,7 +66,7 @@ console.log('── HQ interactions ──');
   await pg.waitForTimeout(120);
   const troutOnly = await pg.$$eval('#board .rc .tags', els => els.every(t => /Trout/.test(t.textContent)));
   const troutN = await pg.$$eval('#board .rc', e => e.length);
-  assert('filter=Trout keeps only trout rivers', troutOnly && troutN > 0 && troutN < 7, troutN + ' cards');
+  assert('filter=Trout keeps only trout rivers', troutOnly && troutN > 0 && troutN < RIVERS.length, troutN + ' cards');
   await pg.click('.sp a[data-s=""]');            // reset
 
   // sort=name → alphabetical
