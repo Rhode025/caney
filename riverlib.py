@@ -17,7 +17,7 @@ Shared tokens a TEMPLATE may include (all optional; unused tokens are simply bla
 
 See RIVER_SPEC.md for the full standard feature spec every river page targets.
 """
-import json, urllib.request, math, os, time, datetime as _dt
+import json, urllib.request, urllib.parse, math, os, time, datetime as _dt
 
 # ── the single source of truth for which rivers exist ────────────────────────
 # Adding a river here updates the switcher on EVERY page automatically.
@@ -1051,6 +1051,123 @@ def get(u, h=None, timeout=60, retries=2, backoff=2.0):
             if attempt < retries:
                 time.sleep(backoff * (2 ** attempt))   # 2s, then 4s
     raise last
+
+# ── SHARED DAM-RELEASE PLUMBING ──────────────────────────────────────────────
+# briefing.py and cumberland.py each grew their own copy of "fetch CWMS, step-hold the
+# series, merge hours into ramp blocks, emit the days[] buildGenSchedule wants". Adding
+# Cordell Hull, Old Hickory and Cheatham would have made five copies of the same four
+# functions. One implementation, parameterised per dam, lives here instead.
+#
+# USACE Nashville District (office LRN) publishes every project the same way:
+#   actual   <CODE>-<DAM>.Flow.Ave.1Hour.1Hour.man-rev
+#   forecast <Dam Name> Dam.Flow.Ave.1Hour.1Hour.celrn-cwms-forecast   (~120 h forward)
+# Both are PERIOD-ENDING hourly averages: a value stamped T covers T-1h..T, so it is
+# shifted back an hour to true clock time. Getting that wrong slides every arrival by 60 min.
+
+def _hr(e): return int(e // 3600) * 3600
+
+def cwms_series(name, office="LRN", hours_back=48, days_fwd=8, timeout=60):
+    """One CWMS hourly flow series as {epoch_sec: cfs}, shifted off period-ending."""
+    now = _dt.datetime.now(_dt.timezone.utc)
+    begin = (now - _dt.timedelta(hours=hours_back)).strftime("%Y-%m-%dT%H:00:00Z")
+    end = (now + _dt.timedelta(days=days_fwd)).strftime("%Y-%m-%dT%H:00:00Z")
+    u = ("https://cwms-data.usace.army.mil/cwms-data/timeseries?office=" + office
+         + "&name=" + urllib.parse.quote(name)
+         + "&begin=" + begin + "&end=" + end + "&unit=cfs&page-size=500000")
+    js = get(u, {"Accept": "application/json;version=2"}, timeout=timeout)
+    return {_hr(t / 1000) - 3600: v for t, v, q in js["values"] if v is not None}
+
+def dam_release(actual, forecast, office="LRN", **kw):
+    """Observed release, with the forecast filling only the hours observation has not reached.
+
+    Returns (series, warnings). Never raises: a dam page must still build when USACE is down,
+    and the caller decides how loudly to say so — see the build-health note in RIVER_SPEC.
+    """
+    rel, warn = {}, []
+    for label, name in (("actual", actual), ("forecast", forecast)):
+        if not name:
+            continue
+        try:
+            got = cwms_series(name, office=office, **kw)
+            if label == "actual":
+                rel.update(got)
+            else:
+                for k, v in got.items():
+                    rel.setdefault(k, v)      # never let a forecast overwrite an observation
+        except Exception as e:
+            warn.append("%s (%s): %s" % (label, name.split(".")[0], e))
+    return rel, warn
+
+def release_at(rel, k):
+    """Step-hold lookup: the most recent value at or before k."""
+    if k in rel:
+        return rel[k]
+    lo = max((x for x in rel if x <= k), default=None)
+    return rel[lo] if lo is not None else None
+
+def gen_blocks(rel, d0, d1, unit_cfs):
+    """Merge consecutive hours into [start, end, units, peak] blocks, split on unit change.
+
+    NB these are RAMP blocks, not release events: a 1U->2U->1U day is three blocks but one
+    front. Anything computing a leading-edge arrival wants release_events() below instead.
+    """
+    out, cur, k = [], None, d0
+    while k < d1:
+        v = release_at(rel, k) or 0
+        u = max(0, round(v / unit_cfs))
+        if u < 1:
+            if cur: out.append(cur); cur = None
+        elif cur and cur[2] == u:
+            cur[1] = k + 3600; cur[3] = max(cur[3], v)
+        else:
+            if cur: out.append(cur)
+            cur = [k, k + 3600, u, v]
+        k += 3600
+    if cur: out.append(cur)
+    return out
+
+def release_events(rel, on_cfs):
+    """Maximal runs at or above on_cfs → [(start, end, peak)]. THE release event.
+
+    This is what a downstream arrival time must be computed from. See RIVER_SPEC §1
+    ("Selecting the release event") for why ramp blocks are the wrong input.
+    """
+    out, run, pk = [], None, 0
+    for k in sorted(rel):
+        v = rel[k] or 0
+        if v >= on_cfs and run is None: run, pk = k, v
+        elif v >= on_cfs: pk = max(pk, v)
+        elif run is not None: out.append((run, k, pk)); run = None
+    if run is not None: out.append((run, sorted(rel)[-1], pk))
+    return out
+
+def gen_days(rel, tz, unit_cfs, days=6, arrivals=None, start_date=None):
+    """The days[] array buildGenSchedule() expects, for any dam tailwater.
+
+    arrivals: [(label, lag_hours)] — when the release reaches each named spot.
+    """
+    now_l = _dt.datetime.now(tz)
+    d_start = start_date or now_l.date()
+    def ep(d, h): return _hr(_dt.datetime(d.year, d.month, d.day, h, tzinfo=tz).timestamp())
+    def ap(t): return _dt.datetime.fromtimestamp(t, tz).strftime("%-I%p").lower()
+    out = []
+    for i in range(days):
+        d = d_start + _dt.timedelta(days=i)
+        d0 = ep(d, 0); d1 = d0 + 86400
+        blk = gen_blocks(rel, d0, d1, unit_cfs)
+        spark = [max(0, round((release_at(rel, d0 + h * 3600) or 0) / unit_cfs)) for h in range(24)]
+        rst = blk[0][0] if blk else None
+        out.append({
+            "label": "Today" if i == 0 else d.strftime("%a"),
+            "date": d.strftime("%-m/%-d"),
+            "windows": [{"units": b[2], "span": ap(b[0]) + "–" + ap(b[1]),
+                         "cfs": round(b[3]), "hrs": round((b[1] - b[0]) / 3600)} for b in blk],
+            "spark": spark,
+            "peak": max([b[2] for b in blk], default=0),
+            "arr": ([[nm, ap(rst + lag * 3600)] for nm, lag in (arrivals or [])] if rst else None),
+            "genhrs": sum(round((b[1] - b[0]) / 3600) for b in blk),
+        })
+    return out
 
 def haversine(a, b):
     """Straight-line miles between (lat,lon) points."""

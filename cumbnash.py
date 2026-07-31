@@ -147,12 +147,39 @@ POINTS=[
 ]
 POLY=[[36.29774,-86.65989],[36.30089,-86.66868],[36.3005,-86.67336],[36.29803,-86.67768],[36.29354,-86.68152],[36.28862,-86.68557],[36.28597,-86.68684],[36.27998,-86.68656],[36.27507,-86.68483],[36.26911,-86.68145],[36.26332,-86.67545],[36.25924,-86.67231],[36.25505,-86.66847],[36.25091,-86.66259],[36.24572,-86.65897],[36.23617,-86.64935],[36.22647,-86.64455],[36.21235,-86.63954],[36.20791,-86.63871],[36.1985,-86.64832],[36.19365,-86.65862],[36.19295,-86.66755],[36.20196,-86.6739],[36.20695,-86.67648],[36.228,-86.67768],[36.23713,-86.68197],[36.24406,-86.68643],[36.246,-86.69381],[36.24474,-86.70395],[36.23949,-86.7115],[36.23452,-86.71264],[36.22786,-86.70944],[36.21775,-86.70669],[36.2093,-86.70017],[36.19061,-86.69019],[36.18194,-86.69796],[36.17537,-86.70392],[36.16729,-86.7134],[36.16446,-86.72413],[36.16359,-86.73792],[36.16132,-86.74728],[36.15922,-86.75869],[36.16067,-86.77003],[36.16954,-86.77656],[36.17702,-86.78102],[36.18367,-86.78188],[36.19337,-86.78325],[36.19678,-86.78589],[36.20043,-86.79235],[36.20224,-86.80368],[36.20097,-86.8146],[36.19477,-86.82458],[36.18621,-86.83081],[36.17439,-86.83389],[36.1669,-86.83956],[36.16704,-86.84745],[36.17092,-86.85483],[36.17705,-86.86139],[36.18395,-86.86582],[36.19226,-86.87148],[36.20256,-86.88349],[36.20599,-86.89098],[36.2071,-86.89771],[36.20592,-86.90342],[36.20076,-86.90875],[36.19454,-86.91242],[36.18953,-86.91283],[36.18515,-86.91052],[36.17536,-86.90135],[36.16572,-86.89033],[36.15956,-86.88796],[36.14487,-86.89088],[36.13752,-86.89741],[36.13544,-86.90753],[36.1371,-86.91989]]
 
+
+# ---- Old Hickory generation: the thing that actually drives this reach ----
+# This page had a flow number and no schedule behind it, which is the wrong way round: the
+# Nashville Cumberland is a navigable pool, so depth barely moves and CURRENT is the whole
+# story — and current is Old Hickory releasing. USACE LRN publishes hourly actuals plus ~120 h
+# of forecast for every project (see riverlib.dam_release).
+# UNIT_CFS is an ESTIMATE, not a backtested constant: Old Hickory runs 4 Kaplan units and the
+# per-unit discharge here is inferred from observed release steps, not fitted to a downstream
+# gauge the way Caney's constants were (analysis/backtest_flow.py). Treat unit counts as
+# indicative. Arrival lags are deliberately absent — see below.
+OH_UNIT_CFS=6500
+rel,rel_warn=riverlib.dam_release("OHHT1-OLD_HICKORY.Flow.Ave.1Hour.1Hour.man-rev",
+                                  "Old Hickory Dam.Flow.Ave.1Hour.1Hour.celrn-cwms-forecast")
+for w in rel_warn: print("release warn:",w)
+# No arrival times on purpose. This reach is a navigable IMPOUNDMENT (Cheatham pool): a release
+# raises current through the whole pool rather than sending a wading-hazard front down a shallow
+# tailwater, so a Caney-style "water reaches you at 2:47" would be a confident fiction here.
+GEN=riverlib.gen_days(rel,CT,unit_cfs=OH_UNIT_CFS,days=6) if rel else []
+GENHINT=("Old Hickory generation, midnight\u2192midnight (bar height = units). This is a navigable pool, so "
+         "depth stays put \u2014 what changes is CURRENT. Bars up means the ledges and the tailrace turn on.")
+GENLEGEND=('<span><i style="background:#7db8e0"></i>1 unit</span><span><i style="background:#2f92d4"></i>2 units</span>'
+           '<span><i style="background:#5e5ce6"></i>3+ units</span><span>Unit counts are estimated from release volume \u2014 verify against USACE before you rely on them.</span>')
+_relnow=riverlib.release_at(rel,int(now.timestamp())//3600*3600) if rel else None
+
 clar="rising / gen on" if trend=="rising" else "falling" if trend=="falling" else "steady"
 DATA={"today":now_ct.strftime("%A, %B %-d · %-I:%M %p"),"solunar":SOL,"hatch":HATCH,"month":now_ct.month,
       "chatter":riverlib.load_intel("cumbnash"),"flysel":FLYSEL,"tips":tips,"weather":WXT,"series":series,"usace":USACE_URL,
       "cur":{"flow":round(cur_flow) if cur_flow is not None else None,"stage":round(cur_stage,1) if cur_stage is not None else None,
              "trend":trend,"cond":FN,"grade":FG,"col":FCOL,"note":FNOTE,"clar":clar,"asof":asof},
-      "points":POINTS,"poly":POLY}
+      "points":POINTS,"poly":POLY,
+      "gen":GEN,"genHint":GENHINT,"genLegend":GENLEGEND,
+      "genOpts":{"minLabel":"no generation \u2014 slack water","arrLabel":"current builds"},
+      "relNow":round(_relnow) if _relnow is not None else None,"relUnit":OH_UNIT_CFS}
 
 TEMPLATE=r"""<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
 <title>Cumberland River · Nashville — striper & smallmouth</title>
@@ -184,6 +211,7 @@ h1{margin:6px 0 4px;font-size:33px;font-weight:750;letter-spacing:-.6px}.cap{col
 .tips{padding:6px}.tip{display:flex;gap:12px;padding:11px 12px;border-bottom:1px solid var(--line)}.tip:last-child{border-bottom:0}.tip .i{font-size:20px}.tip .x{font-size:14px;line-height:1.5}
 .regs{padding:14px 16px;font-size:13px;color:var(--muted);line-height:1.55}.regs b{color:var(--ink)}
 __SOLUNAR_CSS__
+__GENSCHED_CSS__
 __HATCH_CSS__
 __CHATTER_CSS__
 __LOG_CSS__
@@ -197,6 +225,7 @@ __FLYMATRIX_CSS__
  <h1>Cumberland · Nashville</h1><div class="cap" id="cap"></div>
  <div class="card now" id="now"></div>
  <div class="note0" id="note0"></div>
+ <div class="sec">Old Hickory generation · what turns the current on</div><div class="card gen" id="genc"></div>
  <div class="sec">Flow &amp; current · Nashville gauge (last 4 days)</div><div class="card chartc" id="chartc"></div>
  <div class="note" id="chartnote"></div>
  <div class="sec">Live map · public concrete ramps</div>
@@ -218,6 +247,7 @@ const D=__DATA__;
 __POPUP_JS__
 __MAP_JS__
 __SOLUNAR_JS__
+__GENSCHED_JS__
 __HATCH_JS__
 __CHATTER_JS__
 __LOG_JS__
@@ -248,6 +278,8 @@ document.getElementById('chartnote').textContent='Discharge at the Nashville gau
  h+='<div class="meta"><div>High '+(w.hi??'–')+'° · Low '+(w.lo??'–')+'°</div><div>Sun '+w.sunrise+'–'+w.sunset+'</div></div>';el.innerHTML=h;})();
 renderSolunar('sol',D.solunar,D.cur.grade==='Prime'?'Current on during a major feeding window — that overlap is when the big stripers hunt.':null);
 renderHatch('hatch',D.hatch,D.month);
+if(D.gen&&D.gen.length){buildGenSchedule('genc',D.gen,D.genHint,D.genLegend,D.genOpts);}
+else{document.getElementById('genc').innerHTML='<div style="padding:14px;color:#66788a;font-size:13px">Old Hickory release schedule unavailable right now (USACE feed). The gauge below still shows what the river is doing.</div>';}
 buildMoonCal('mooncal',36.17,-86.74);
 buildFlyMatrix('flysel',D.flysel);
 document.getElementById('regs').innerHTML='<b>Regulations.</b> '+__REGS__;
