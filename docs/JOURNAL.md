@@ -9,6 +9,56 @@ belongs to a commit goes in the commit message. This file is for *state and inte
 
 ---
 
+## 2026-07-31 — Cumberland system: 3 tailraces, 9 rivers
+
+Started from "where's my generation schedule for cumberland?" The answer was that there are
+**two** Cumberland pages and they were very different: `cumberland` (KY / Wolf Creek) had a
+generation schedule; `cumbnash` (Nashville) did not, despite being driven entirely by Old
+Hickory releases. Fixed that, then added the two missing mainstem tailraces.
+
+**Now covering all three Middle TN Cumberland tailraces:** Nashville (Old Hickory),
+Cheatham, Cordell Hull. Same warmwater big-river model — navigable pool, depth stable,
+**current** is the variable.
+
+**The surprise was how little live gauge data exists.**
+
+| Page | Release (LRN) | Gauge |
+|---|---|---|
+| `cumbnash` | `OHIT1-OLD_HICKORY` | USGS 03431500, healthy |
+| `cheatham` | `ASHT1-CHEATHAM` | **none** — 03435000 has published nothing real-time in 30+ days |
+| `cordell` | `COHT1-CORDELL_HULL` | **none** — no active gauge on the reach |
+
+Where there is no gauge, the **release IS the hydrograph** and the footer says so. The QA gate
+caught the dead gauge on the first build (`flow None`), which is exactly its job.
+
+**Things worth not re-deriving:**
+- **Location IDs are traps.** `OHHT1` = Lock and Dam, `OHIT1` = Tailwater (identical values,
+  verified, but tailwater matches Center Hill's `CETT1` convention). `COHT1` carries Cordell
+  Hull's *hourly* series; `CORT1` is its tailwater but publishes daily only. Always check
+  `cwms-data/locations` before wiring a dam.
+- **All LRN dams publish identically**: `<CODE>-<DAM>.Flow.Ave.1Hour.1Hour.man-rev` for actuals
+  and `<Dam Name> Dam.Flow.Ave.1Hour.1Hour.celrn-cwms-forecast` for ~120 h of forecast.
+- Release plumbing now lives in `riverlib` (`cwms_series`, `dam_release`, `release_at`,
+  `gen_blocks`, `release_events`, `gen_days`) instead of a copy per generator.
+
+**Deliberate restraints:** unit counts are labelled *estimates* (inferred from release steps,
+never fitted to a gauge like Caney's constants), and **no arrival times** on any of the three —
+these are impoundments, so a release raises current through a pool rather than sending a
+wading front downstream. A countdown there would be fiction.
+
+**⚠️ Open thread — access points.** `cheatham` and `cordell` carry exactly ONE access point
+each: the USACE tailwater location, which is authoritative. Every other ramp on those reaches
+is an unnamed OSM slipway with no official name, owner, or river mile, and several near Cordell
+Hull sit on the **lake above the dam**. Omitted rather than guessed, per §2. USACE's own site
+(`lrn.usace.army.mil`) has a TLS certificate misconfiguration and could not be fetched.
+**This is the one place local knowledge beats research** — the ramps need naming from a
+verified source before these two pages can tell you where to launch.
+
+**Also:** switcher tab count and HQ card count in the QA suite now derive from the registry
+instead of being hardcoded at 8 and 7, so adding a river no longer breaks the tests by design.
+
+---
+
 ## 2026-07-30 (evening) — R1–R5 built, deployed, live
 
 **The tool is on the internet: https://master.caney.pages.dev** (also `caney.pages.dev`).
