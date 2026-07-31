@@ -36,6 +36,11 @@ RIVERS = {
     "duck":       {"name": "Duck River",   "q": '"Duck River" (smallmouth OR fishing OR float OR fish)'},
     "cumberland": {"name": "Cumberland KY", "q": '"Wolf Creek Dam" OR ("Cumberland River" (trout OR tailwater OR generation))'},
     "elk":        {"name": "Elk River",    "q": '"Elk River" (smallmouth OR Wheeler OR Alabama OR Prospect OR fishing OR jet)'},
+    "elktn":      {"name": "Elk · Tims Ford", "q": '"Tims Ford" OR ("Elk River" Tennessee (trout OR tailwater OR fishing))'},
+    "stones":     {"name": "Stones River", "q": '"Stones River" OR ("Percy Priest" (fishing OR tailrace OR "white bass"))'},
+    "cumbnash":   {"name": "Cumberland · Nashville", "q": '("Cumberland River" (Nashville OR "Old Hickory" OR striper OR "Shelby Bottoms"))'},
+    "cheatham":   {"name": "Cumberland · Cheatham", "q": '"Cheatham Dam" OR ("Cumberland River" (Clarksville OR "Ashland City"))'},
+    "cordell":    {"name": "Cumberland · Cordell Hull", "q": '"Cordell Hull" OR ("Cumberland River" Carthage)'},
 }
 # only keep posts from subreddits that are actually about fishing/the region (cuts noise)
 KEEP_SUBS_HINT = ("fish", "fly", "trout", "bass", "angl", "tenness", "kentuck", "nashville", "outdoor", "troutzone")

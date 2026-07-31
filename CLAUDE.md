@@ -23,7 +23,8 @@ that happens to `~/.claude`.
 | Path | What |
 |---|---|
 | `briefing.py` | Caney Fork — the deepest page (dam routing, generation timing) |
-| `duck.py` `elk.py` `elktn.py` `stones.py` `cumberland.py` `cumbnash.py` | the other six rivers |
+| `duck.py` `elk.py` `elktn.py` `stones.py` `cumberland.py` | the other single-river pages |
+| `cumbnash.py` `cheatham.py` `cordell.py` | the three Cumberland mainstem tailraces |
 | `riverlib.py` | shared components — the parity rule below lives or dies here |
 | `hq.py` | cross-river ranking page |
 | `analysis/` | one-off calibration and backtest scripts (not part of the build) |
@@ -35,7 +36,7 @@ that happens to `~/.claude`.
 ## Build & check
 
 ```bash
-./build.sh                   # regenerate all 7 rivers + HQ into out/ (~25s, stdlib only)
+./build.sh                   # regenerate every river + HQ into out/ (~30s, stdlib only)
 python3 briefing.py          # or duck.py, elk.py, … — one river at a time
 ./test/run.sh                # build, then static + runtime checks
 python3 test/verify.py       # static only, instant, no deps

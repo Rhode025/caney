@@ -158,7 +158,7 @@ POLY=[[36.29774,-86.65989],[36.30089,-86.66868],[36.3005,-86.67336],[36.29803,-8
 # gauge the way Caney's constants were (analysis/backtest_flow.py). Treat unit counts as
 # indicative. Arrival lags are deliberately absent — see below.
 OH_UNIT_CFS=6500
-rel,rel_warn=riverlib.dam_release("OHHT1-OLD_HICKORY.Flow.Ave.1Hour.1Hour.man-rev",
+rel,rel_warn=riverlib.dam_release("OHIT1-OLD_HICKORY.Flow.Ave.1Hour.1Hour.man-rev",
                                   "Old Hickory Dam.Flow.Ave.1Hour.1Hour.celrn-cwms-forecast")
 for w in rel_warn: print("release warn:",w)
 # No arrival times on purpose. This reach is a navigable IMPOUNDMENT (Cheatham pool): a release

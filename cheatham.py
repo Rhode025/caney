@@ -3,7 +3,7 @@
 Cumberland River · Cheatham tailwater — Cheatham Dam down toward Clarksville / Barkley pool.
 Same warmwater big-river model as the Nashville reach: a navigable pool, so depth is stable
 and the variable is CURRENT, which is Cheatham generation. Striped bass, smallmouth, white
-bass & panfish on the fly. Live gauge = USGS 03435000 (Cumberland River below Cheatham Dam).
+bass & panfish on the fly. Live gauge: NONE. USGS 03435000 has not reported in 30+ days, so the USACE release IS the hydrograph.
 Release = USACE LRN, Cheatham Dam tailwater (ASHT1). Sources: USGS, USACE CWMS, Open-Meteo, OSM.
 """
 import json,urllib.request,datetime,os,sys
@@ -17,7 +17,7 @@ def get(u,h=None):
     # build this page with missing data instead of failing (see riverlib.get docstring).
     return riverlib.get(u,{**UA,**(h or {})},timeout=60)
 now=datetime.datetime.now(datetime.timezone.utc); now_ct=now.astimezone(CT)
-CFG=riverlib.RIVER_CONFIG["cheatham"]; SITE=CFG["gauge"]["site"]
+CFG=riverlib.RIVER_CONFIG["cheatham"]   # no SITE: this reach runs on the release, not a gauge
 GLAT,GLON=36.42,-87.30
 USACE_URL="https://www.lrn-wc.usace.army.mil/basin_project.shtml?p=chea"
 
@@ -27,16 +27,15 @@ USACE_URL="https://www.lrn-wc.usace.army.mil/basin_project.shtml?p=chea"
 # stage-only and sits ABOVE the dam. Rather than point at a dead gauge, this page runs on
 # the USACE release the same way cordell.py does. Re-check 03435000 periodically; if it
 # comes back, prefer it and keep the release for the schedule.
-OH_UNIT_CFS=9000
+UNIT_CFS=9000
 rel,rel_warn=riverlib.dam_release("ASHT1-CHEATHAM.Flow.Ave.1Hour.1Hour.man-rev",
                                   "Cheatham Dam.Flow.Ave.1Hour.1Hour.celrn-cwms-forecast")
 for w in rel_warn: print("release warn:",w)
 _nowk=int(now.timestamp())//3600*3600
 FLOW=[(datetime.datetime.fromtimestamp(k,CT),v) for k,v in sorted(rel.items()) if k<=_nowk]
-STAGE=[]
-FLOW.sort(); STAGE.sort()
+FLOW.sort()
 cur_flow=FLOW[-1][1] if FLOW else None
-cur_stage=STAGE[-1][1] if STAGE else None
+cur_stage=None   # no stage series on this reach
 asof=(FLOW[-1][0].astimezone(CT).strftime("%-I:%M %p") if FLOW else now_ct.strftime("%-I:%M %p"))
 trend="steady"
 if len(FLOW)>=2:
@@ -46,13 +45,13 @@ if len(FLOW)>=2:
 
 # ---- fishability: current (=generation), not depth ----
 def fish(flow,rising):
-    if flow is None: return ("—","Fair","#94a3b1",1.3,"no gauge data — check the Old Hickory release schedule")
+    if flow is None: return ("—","Fair","#94a3b1",1.3,"no gauge data — check the Cheatham release schedule")
     if flow>30000: return ("High","Fair","#8b6cef",1.3,"heavy, stained flow — fish eddies, creek mouths & the slack behind wing dams")
     if flow>=7000:
         return ("Gen","Prime" if rising else "Good","#28c76f",(2.9 if rising else 2.3),
             ("current's on and rising — prime; stripers & smallmouth feeding on the ledges & tailrace" if rising
              else "current's on — stripers & smallmouth working the ledges & tailrace"))
-    return ("Slack","Slow","#f2a832",0.9,"little current — Old Hickory idle; slow-fish the ledges, wing dams & structure")
+    return ("Slack","Slow","#f2a832",0.9,"little current — Cheatham idle; slow-fish the ledges, wing dams & structure")
 FN,FG,FCOL,BASE,FNOTE=fish(cur_flow,trend=="rising")
 
 # ---- weather (7-day, for the HQ week outlook) ----
@@ -127,7 +126,7 @@ FLYSEL={"matrix":FLYMATRIX,"order":FLYORDER,"lights":LIGHTS,"boxinv":BOXINV,
   "rig":"When they generate, get a streamer on the current: Clouser or Deceiver on a sink-tip, swung and stripped through the tailrace and along the ledges — that's when the stripers & white bass feed. Slack water → slow down and work a crawfish/bugger deep on the ledges, or a popper up top at first light. 7–8 wt, 12–16 lb tippet for the big fish.",
   "sources":[["TWRA Cheatham","https://www.tn.gov/twra/fishing/where-to-fish/middle-tennessee-r2/cheatham-reservoir.html"],["USACE Nashville District","https://www.lrn-wc.usace.army.mil/basin_project.shtml?p=chea"]]}
 
-tips=[["🌊","It's all about current. Depth is stable — you won't ground out on this navigable pool — so plan around Old Hickory GENERATION, not level. Dam idle → slack, slow fishing. Turbines on → the ledges and tailrace light up. Check the USACE Nashville District release before you launch."]]
+tips=[["🌊","It's all about current. Depth is stable — you won't ground out on this navigable pool — so plan around Cheatham GENERATION, not level. Dam idle → slack, slow fishing. Turbines on → the ledges and tailrace light up. Check the USACE Nashville District release before you launch."]]
 if cur_flow is not None and cur_flow>=7000:
     tips.append(["🎣","Current's on — go. Swing a Clouser or Deceiver on a sink-tip through the tailrace and down-current of the wing dams and ledges. Stripers, hybrids, white bass & big smallmouth stack where the current breaks."])
 else:
@@ -150,7 +149,7 @@ POLY=[[36.30481, -87.15215], [36.30716, -87.15644], [36.30927, -87.16285], [36.3
 # ---- generation schedule off the release fetched above ----
 # No arrival times: below Cheatham the river runs into Barkley pool, so a release raises
 # current through an impoundment rather than sending a wading front down a shallow tailwater.
-GEN=riverlib.gen_days(rel,CT,unit_cfs=OH_UNIT_CFS,days=6) if rel else []
+GEN=riverlib.gen_days(rel,CT,unit_cfs=UNIT_CFS,days=6) if rel else []
 GENHINT=("Cheatham generation, midnight\u2192midnight (bar height = units). This is a navigable pool, so "
          "depth stays put \u2014 what changes is CURRENT. Bars up means the ledges and the tailrace turn on.")
 GENLEGEND=('<span><i style="background:#7db8e0"></i>1 unit</span><span><i style="background:#2f92d4"></i>2 units</span>'
@@ -165,7 +164,7 @@ DATA={"today":now_ct.strftime("%A, %B %-d · %-I:%M %p"),"solunar":SOL,"hatch":H
       "points":POINTS,"poly":POLY,
       "gen":GEN,"genHint":GENHINT,"genLegend":GENLEGEND,
       "genOpts":{"minLabel":"no generation \u2014 slack water","arrLabel":"current builds"},
-      "relNow":round(_relnow) if _relnow is not None else None,"relUnit":OH_UNIT_CFS}
+      "relNow":round(_relnow) if _relnow is not None else None,"relUnit":UNIT_CFS}
 
 TEMPLATE=r"""<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
 <title>Cumberland River · Cheatham tailwater — striper & smallmouth</title>
@@ -207,7 +206,7 @@ __FLYMATRIX_CSS__
 @media(max-width:680px){.app{padding:22px 14px 60px}h1{font-size:28px}.wx .m{min-width:0}}
 </style></head><body><div class="app">
  __SWITCHER__
- <div class="eyebrow">Big-river striper & smallmouth · Old Hickory → Cheatham</div>
+ <div class="eyebrow">Big-river striper &amp; smallmouth · Cheatham Dam → Clarksville</div>
  <h1>Cumberland · Cheatham</h1><div class="cap" id="cap"></div>
  <div class="card now" id="now"></div>
  <div class="note0" id="note0"></div>
@@ -216,7 +215,7 @@ __FLYMATRIX_CSS__
  <div class="note" id="chartnote"></div>
  <div class="sec">Live map · public concrete ramps</div>
  <div class="card" style="padding:8px"><div id="lmap"></div></div>
- <div class="maptip">Real USACE / Metro / TWRA concrete ramps on the OSM channel · Old Hickory Dam → West Nashville · tap a pin for details &amp; a Google Maps link</div>
+ <div class="maptip">USACE Cheatham Dam tailwater on the OSM channel · Cheatham Dam → Barkley pool · tap a pin for details &amp; a Google Maps link</div>
  <div class="sec">Guide's take</div><div class="card tips" id="tips"></div>
  <div class="sec">Weather</div><div class="card wx" id="wx"></div>
  <div class="sec">Moon &amp; feeding</div><div class="card sol" id="sol"></div>
@@ -244,8 +243,8 @@ document.getElementById('cap').innerHTML=D.today+' · Cheatham release (USACE LR
  '<div class="vg" style="background:'+c.col+'">'+c.cond+'</div>'
  +'<div><div class="b1">'+(c.flow!=null?c.flow.toLocaleString()+' cfs':'—')+(c.stage!=null?' · '+c.stage+' ft':'')+' <span style="font-size:14px;color:var(--muted)">'+(c.trend==='rising'?'↑ current rising':c.trend==='falling'?'↓ easing':'→ steady')+'</span></div>'
  +'<div class="b2">'+c.note+'</div></div>'
- +'<div class="rt"><b>'+c.grade+'</b>'+c.clar+'<br><span style="font-size:11px">as of '+c.asof+' · at Nashville</span></div>';})();
-document.getElementById('note0').innerHTML='<div style="font-size:16px">🚤</div><div><b>Current, not depth, is the game.</b> This reach is a navigable impoundment — always deep enough to float and run — so plan around <b>Old Hickory generation</b>. Turbines on = current & feeding fish; dam idle = slack & slow. Check the <a href="'+D.usace+'" target="_blank" rel="noopener">USACE Nashville District release</a> before you launch, and mind barge traffic in the channel.</div>';
+ +'<div class="rt"><b>'+c.grade+'</b>'+c.clar+'<br><span style="font-size:11px">as of '+c.asof+' · below Cheatham Dam</span></div>';})();
+document.getElementById('note0').innerHTML='<div style="font-size:16px">🚤</div><div><b>Current, not depth, is the game.</b> This reach is a navigable impoundment — always deep enough to float and run — so plan around <b>Cheatham generation</b>. Turbines on = current & feeding fish; dam idle = slack & slow. Check the <a href="'+D.usace+'" target="_blank" rel="noopener">USACE Nashville District release</a> before you launch, and mind barge traffic in the channel.</div>';
 (function(){const S=D.series;if(!S.length){document.getElementById('chartc').innerHTML='<div style="padding:20px;color:var(--muted)">gauge data unavailable</div>';return;}
  const W=860,H=200,pad=46,fs=S.map(p=>p.f),fmax=Math.max(12000,...fs)*1.12,fmin=0;
  const x=i=>pad+i*(W-pad-10)/(S.length-1),y=f=>H-24-(f-fmin)/(fmax-fmin)*(H-44);
@@ -257,7 +256,7 @@ document.getElementById('note0').innerHTML='<div style="font-size:16px">🚤</di
  document.getElementById('chartc').innerHTML='<svg viewBox="0 0 '+W+' '+H+'" width="100%">'+bands
   +'<path d="'+path+'" fill="none" stroke="#3a5a8c" stroke-width="2.5"/>'+ax+'</svg>'
   +'<div class="lgd"><span><i style="background:rgba(242,168,50,.6)"></i>slack / no gen</span><span><i style="background:rgba(40,199,111,.6)"></i>generating — bite on</span><span><i style="background:rgba(139,108,239,.5)"></i>high</span></div>';})();
-document.getElementById('chartnote').textContent='Discharge at the Nashville gauge tracks Old Hickory generation — the pulses up and down ARE the turbines cycling. Rising discharge = current turning on = feeding window. The impoundment keeps depth constant regardless.';
+document.getElementById('chartnote').textContent='The plotted line IS the USACE Cheatham release — the pulses up and down ARE the turbines cycling. Rising release = current turning on = feeding window. The impoundment keeps depth constant regardless.';
 (function(){let h='';D.tips.forEach(t=>h+='<div class="tip"><div class="i">'+t[0]+'</div><div class="x">'+t[1]+'</div></div>');document.getElementById('tips').innerHTML=h;})();
 (function(){const w=D.weather,el=document.getElementById('wx');if(!w){el.innerHTML='<div class="meta">weather unavailable</div>';return;}
  let h='';(w.snaps||[]).forEach(s=>h+='<div class="m"><div class="w">'+s.when+'</div><div class="t">'+s.ico+' '+s.temp+'°</div><div class="d">'+s.sky+' · '+s.wind+' mph'+(s.precip?' · '+s.precip+'%':'')+'</div></div>');
@@ -265,7 +264,7 @@ document.getElementById('chartnote').textContent='Discharge at the Nashville gau
 renderSolunar('sol',D.solunar,D.cur.grade==='Prime'?'Current on during a major feeding window — that overlap is when the big stripers hunt.':null);
 renderHatch('hatch',D.hatch,D.month);
 if(D.gen&&D.gen.length){buildGenSchedule('genc',D.gen,D.genHint,D.genLegend,D.genOpts);}
-else{document.getElementById('genc').innerHTML='<div style="padding:14px;color:#66788a;font-size:13px">Old Hickory release schedule unavailable right now (USACE feed). The gauge below still shows what the river is doing.</div>';}
+else{document.getElementById('genc').innerHTML='<div style="padding:14px;color:#66788a;font-size:13px">Cheatham release schedule unavailable right now (USACE feed). The gauge below still shows what the river is doing.</div>';}
 buildMoonCal('mooncal',36.42,-87.30);
 buildFlyMatrix('flysel',D.flysel);
 document.getElementById('regs').innerHTML='<b>Regulations.</b> '+__REGS__;

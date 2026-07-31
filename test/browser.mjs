@@ -124,16 +124,25 @@ console.log('── build stamp: staleness + clock skew ──');
     return r;
   };
   const H = 3600e3;
-  const fresh = await stampState(0);
+  // Offsets must be relative to the page's BAKED build time, not to wall clock: on a build
+  // that is already 4 h old, an offset of 0 is not "fresh". Read __builtEpoch and aim at it.
+  const built = await (async () => {
+    const p = await browser.newPage();
+    await p.goto(url('caney.html'), { timeout: 20000 });
+    const b = await p.evaluate(() => window.__builtEpoch * 1000);
+    await p.close(); return b;
+  })();
+  const at = age => built + age - Date.now();   // offset that makes the page appear `age` old
+  const fresh = await stampState(at(0));
   assert('stamp fresh: quiet state + build time',
     fresh.cls.includes('l0') && /Data built .* ago/.test(fresh.txt), fresh.txt);
-  const aging = await stampState(5 * H);
+  const aging = await stampState(at(5 * H));
   assert('stamp aging at +5 h: amber + explicit age',
     aging.cls.includes('l1') && /Data is 5 h old/.test(aging.txt), aging.txt);
-  const stale = await stampState(30 * H);
+  const stale = await stampState(at(30 * H));
   assert('stamp stale at +30 h: warns flows may have changed',
     stale.cls.includes('l2') && /flows and generation may have changed/.test(stale.txt), stale.txt);
-  const skew = await stampState(-60 * 60e3);
+  const skew = await stampState(at(-60 * 60e3));
   assert('stamp detects a device clock running behind the build',
     skew.cls.includes('skew') && /clock looks wrong/.test(skew.txt), skew.txt);
 
@@ -236,6 +245,16 @@ console.log('── trip log: prediction capture + field backtest ──');
   await pg.waitForTimeout(300);
 
   const rec = await pg.evaluate(() => JSON.parse(localStorage.getItem('caneyLog') || '[]').pop());
+  // snap() returns null when no release is pending — a normal minimum-flow day, not a failure.
+  const hasWindow = await pg.evaluate(() => {
+    const A = DATA.arrival;
+    return !!(A && A.validated && window.__arrivalPick(
+      A.rel, A.spots[1].mfd, A.mph, Date.now()).state !== 'none');
+  });
+  if (!hasWindow) {
+    assert('no generation scheduled: trip logs cleanly with no prediction',
+      !!rec && rec.pred == null, JSON.stringify(rec));
+  } else {
   assert('logged trip carries the tool prediction',
     !!(rec && rec.pred && rec.pred.arrival && rec.pred.spot === "Betty's Island"),
     JSON.stringify(rec && rec.pred));
@@ -256,6 +275,7 @@ console.log('── trip log: prediction capture + field backtest ──');
   const rec2 = await pg.evaluate(() => JSON.parse(localStorage.getItem('caneyLog') || '[]').pop());
   assert('actual arrival persists alongside the prediction',
     !!(rec2 && rec2.actual && rec2.pred), JSON.stringify(rec2 && { a: rec2.actual, p: !!rec2.pred }));
+  }
 
   await ctx.close();
 }

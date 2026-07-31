@@ -202,14 +202,10 @@ RIVER_CONFIG = {
    "bands":[["Slack / no gen","under ~7,000 cfs","Old Hickory idle — little current; work the ledges, wing dams & structure slow & deep"],
             ["Generating","~7,000–30,000","current on — stripers & smallmouth feed; swing streamers through the tailrace"],
             ["High / heavy","over ~30,000","strong, stained flow — fish eddies, creek mouths & slack behind the wing dams"]],
-   "trend_rule":"Depth is stable — this is a navigable impoundment (Cheatham pool), so you never ground out. CURRENT is the variable, and current is Old Hickory generation. Dam idle → slack, slow deep streamer fishing. When they generate, the current turns on and the striped bass & smallmouth feed hard on the ledges and in the tailrace — swing a big streamer, and a rising generation pulse is prime. Check the USACE Nashville District release before you launch.",
+   "trend_rule": "Depth is stable \u2014 below Cheatham the river runs into Barkley pool, so you never ground out. CURRENT is the variable, and current is Cheatham generation. There is no live USGS gauge on this reach (03435000 stopped reporting), so the USACE release IS the flow signal.",
    "zones":[],
-   "launch":{"name":"Shelby Bottoms / Shelby Park","desc":"Metro concrete ramp just east of downtown — closest to town and mid-reach. Run up toward Pennington Bend or down through the city; big water, so mind barge traffic and wakes."},
-   "access":[["Old Hickory Dam Tailwater","USACE ramp just below the dam — the striper & smallmouth tailrace (~RM 216)"],
-             ["Peeler Park","Metro ramp, Neely's Bend (~RM 205)"],
-             ["Lock Two","Metro ramp, Pennington Bend (~RM 201)"],
-             ["Shelby Bottoms","Metro ramp, closest to downtown (~RM 193)"],
-             ["Cleeces Ferry","TWRA ramp, West Nashville (~RM 185)"]],
+   "launch": {"name": "Cheatham Dam tailwater", "desc": "USACE tailwater access below the lock and dam (official USACE location, LRN ASHT1). The striper & smallmouth tailrace; strong current when they generate."},
+   "access": [["Cheatham Dam Tailwater", "USACE tailwater access below the lock and dam \u2014 official USACE location (LRN, ASHT1). Other ramps on this reach are not yet verified to RIVER_SPEC \u00a72 and are deliberately omitted."]],
    "hazards":["Generation turns the current on fast — the tailrace below Old Hickory gets strong; stay off the dam and respect the pull.",
               "Commercial barge traffic runs the navigation channel — cross it, don't linger, and take big wakes at an angle.",
               "Submerged wing dams & rock ledges — idle unfamiliar water; they're all through the metro reach."],
@@ -228,14 +224,10 @@ RIVER_CONFIG = {
    "bands":[["Slack / no gen","under ~7,000 cfs","Old Hickory idle — little current; work the ledges, wing dams & structure slow & deep"],
             ["Generating","~7,000–30,000","current on — stripers & smallmouth feed; swing streamers through the tailrace"],
             ["High / heavy","over ~30,000","strong, stained flow — fish eddies, creek mouths & slack behind the wing dams"]],
-   "trend_rule":"Depth is stable — this is a navigable impoundment (Cheatham pool), so you never ground out. CURRENT is the variable, and current is Old Hickory generation. Dam idle → slack, slow deep streamer fishing. When they generate, the current turns on and the striped bass & smallmouth feed hard on the ledges and in the tailrace — swing a big streamer, and a rising generation pulse is prime. Check the USACE Nashville District release before you launch.",
+   "trend_rule": "Depth is stable \u2014 the tailwater feeds Old Hickory Lake, so you never ground out. CURRENT is the variable, and current is Cordell Hull generation. There is no USGS gauge on this reach at all, so the USACE release IS the flow signal.",
    "zones":[],
-   "launch":{"name":"Shelby Bottoms / Shelby Park","desc":"Metro concrete ramp just east of downtown — closest to town and mid-reach. Run up toward Pennington Bend or down through the city; big water, so mind barge traffic and wakes."},
-   "access":[["Old Hickory Dam Tailwater","USACE ramp just below the dam — the striper & smallmouth tailrace (~RM 216)"],
-             ["Peeler Park","Metro ramp, Neely's Bend (~RM 205)"],
-             ["Lock Two","Metro ramp, Pennington Bend (~RM 201)"],
-             ["Shelby Bottoms","Metro ramp, closest to downtown (~RM 193)"],
-             ["Cleeces Ferry","TWRA ramp, West Nashville (~RM 185)"]],
+   "launch": {"name": "Cordell Hull Dam tailwater", "desc": "USACE tailwater access below the lock and dam at Carthage (official USACE location, LRN CORT1). Strong current when they generate."},
+   "access": [["Cordell Hull Dam Tailwater", "USACE tailwater access below the lock and dam at Carthage \u2014 official USACE location (LRN, CORT1). Other ramps on this reach are not yet verified to RIVER_SPEC \u00a72 and are deliberately omitted; several nearby OSM slipways sit on the LAKE above the dam."]],
    "hazards":["Generation turns the current on fast — the tailrace below Old Hickory gets strong; stay off the dam and respect the pull.",
               "Commercial barge traffic runs the navigation channel — cross it, don't linger, and take big wakes at an angle.",
               "Submerged wing dams & rock ledges — idle unfamiliar water; they're all through the metro reach."],
@@ -274,7 +266,7 @@ RIVER_CONFIG = {
 
 # The switcher block ALSO carries the shared design-polish rules (a /design-review pass): because
 # __SWITCH_CSS__ is injected into every page's <style> AFTER its own :root, the overrides here win
-# the cascade and reach all 8 pages from one place — real display typeface, WCAG-passing greys, 44px
+# the cascade and reach every page from one place — real display typeface, WCAG-passing greys, 44px
 # touch targets. Paired with BASE_HEAD (font <link>) injected by render().
 SWITCH_CSS = (
     ".switch{display:inline-flex;max-width:100%;border:1px solid var(--line);border-radius:11px;"
@@ -308,7 +300,7 @@ CREDIT = ("Public data only · USACE CWMS · USGS · NOAA/NWS · Open-Meteo · O
 # data's age, and it has to be visible rather than implied — a stale generation schedule
 # read as current is the one failure that can put you in moving water.
 #
-# Injected into <head> by render(), so all 8 pages get it with no TEMPLATE edit and the
+# Injected into <head> by render(), so EVERY page gets it with no TEMPLATE edit and the
 # parity rule holds by construction. The banner self-inserts at the top of <body>.
 # Three states: fresh (quiet), aging >3h (amber), stale >12h (filled amber).
 # Also catches device clock skew, which would otherwise silently shift every arrival time.

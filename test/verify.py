@@ -14,9 +14,9 @@ OUT = os.path.join(ROOT, "out")
 STATUS = os.path.join(OUT, "status")
 
 RIVERS = ["caney", "cumbnash", "stones", "duck", "elktn", "cumberland", "elk", "cheatham", "cordell"]
-RIVER_FILES = {"caney": "caney.html", "cumbnash": "cumbnash.html", "stones": "stones.html",
-               "duck": "duck.html", "elktn": "elktn.html", "cumberland": "cumberland.html",
-               "elk": "elk.html"}
+# Derived, never hand-maintained: a hand-written copy of this map silently skipped
+# cheatham.html and cordell.html from every per-file check for one release.
+RIVER_FILES = {r: r + ".html" for r in RIVERS}
 ALL_HTML = ["index.html"] + list(RIVER_FILES.values())
 
 # fly-only: these must never appear in output (baitfish = a fly's imitation target, allowed)
@@ -106,7 +106,7 @@ for jf in glob.glob(os.path.join(STATUS, "*.json")):
         cards[rid] = json.load(open(jf))
     except Exception as e:
         check("valid JSON: " + rid, False, str(e))
-check("all 7 status cards present", set(cards) == set(RIVERS),
+check("all %d status cards present" % len(RIVERS), set(cards) == set(RIVERS),
       "have " + ",".join(sorted(cards)))
 for rid, c in cards.items():
     ok = (isinstance(c.get("species"), list) and c.get("name") and c.get("file")
