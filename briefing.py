@@ -471,7 +471,10 @@ DATA={"arrival":ARRIVAL,
       "genHint":"Center Hill generation, midnight→midnight (bar height = units). Then the bump travels ~2.5 mph downstream — arrival times backtested at the Stonewall gauge (Happy Hollow ~2½h · Betty's ~3½h · Stonewall ~6h after release).",
       "genLegend":'<span><i style="background:#7db8e0"></i>1 unit</span><span><i style="background:#2f92d4"></i>2 units</span><span><i style="background:#5e5ce6"></i>3 units</span><span>Verify against TVA before you launch.</span>',
       "genOpts":{"minLabel":"minimum flow — wade all day","arrLabel":"bump reaches"},
-      "sliderMin":300,"sliderMax":1200,"sliderStep":15,"launchDefault":420,"planDefault":1,"mph":WATER_MPH}
+      "sliderMin":300,"sliderMax":1200,"sliderStep":15,"launchDefault":420,"planDefault":1,"mph":WATER_MPH,
+      "wadeMax":riverlib.WATER_MODEL["caney"]["wade_marginal"],
+      "arrivalStages":{k:{"mph":v["mph"],"early":v["mph_early"],"late":v["mph_late"],"label":v["label"]}
+                       for k,v in riverlib.ARRIVAL_STAGES.items()}}
 
 TEMPLATE=r"""<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
 <title>Caney Fork</title>
@@ -710,7 +713,9 @@ const COND={wade:{c:'#28c76f',t:'wadeable'},boat:{c:'#0a84ff',t:'prime boat'},hi
 let mode='drift',fromIdx=0,toIdx=6,launchMin=DATA.launchDefault,dsel=DATA.planDefault,daybase=DATA.planDefault*1440,craft='power';
 function interp(c,x){if(x<=c[0][0])return c[0][1];for(let i=1;i<c.length;i++){if(x<=c[i][0]){const a=c[i-1],b=c[i];return a[1]+(b[1]-a[1])*(x-a[0])/(b[0]-a[0]);}}const n=c.length,a=c[n-2],b=c[n-1];return b[1]+(b[1]-a[1])*(x-b[0])/(b[0]-a[0]);}
 function depthAt(i,cfs){return P[i].d0+interp(DATA.riseCurve,cfs);}
-function condFor(i,cfs){const d=depthAt(i,cfs);return cfs>4500?'high':(cfs<1000&&d<3.2)?'wade':'boat';}
+// Wade threshold is MEASURED (USGS gaugings, see riverlib.WATER_MODEL) and arrives via
+// DATA.wadeMax — the page must never carry its own copy of a calibrated number.
+function condFor(i,cfs){const d=depthAt(i,cfs);return cfs>4500?'high':(cfs<DATA.wadeMax&&d<3.2)?'wade':'boat';}
 // "fish the edge" scoring: prize RISING water in the sweet holdable band (peak ~2,200 cfs)
 const IDEAL=2200;
 // only the trout reach, and only water that is actually RISING (the leading edge), scored by nearness to ideal flow
@@ -854,7 +859,33 @@ function render(){document.getElementById('tread').textContent=timeStr(launchMin
    else if(rising&&f<4800)note=Math.round(f).toLocaleString()+' cfs · coming up';
    else note=Math.round(f).toLocaleString()+' cfs · ~'+dep.toFixed(1)+' ft <span class="badge" style="background:'+COND[k].c+'">'+COND[k].t+'</span>';
    lbl.innerHTML=head(i)+'<div class="gval">'+tag+' '+note+'</div>';});
-  let seq=[];for(let i=0;i<N;i++){let t=null;for(let m=launchMin;m<=20*60;m+=30){if(edgeScore(i,m)>0.42){t=m;break;}}if(t!==null)seq.push([t,i]);}
+  // REACHABILITY. A target is only a plan if you can physically get to it: the boat has
+  // to cover the distance in the time available, and the water in between has to float it.
+  // Without this the planner sorted every rising point by time and picked the earliest,
+  // which is always the one nearest the dam — so it would tell you to launch at Stonewall
+  // and be at Long Branch, 15 miles upstream, through six stretches it had just labelled
+  // wade water.
+  const UP_MPH=6.0;      // 60/40 jet working upstream against current, conservative
+  function reachable(i,byMin){
+    if(i===fromIdx)return true;
+    const up=(i<fromIdx);                                  // lower index = closer to the dam = upstream
+    if(up&&!CRAFT[craft].up)return false;                  // drift craft do not go up
+    const miles=Math.abs(P[i].mfd-P[fromIdx].mfd);
+    const mins=byMin-launchMin;
+    if(mins<=0)return false;
+    // travel time: motoring up at UP_MPH, or drifting down at the reach's own drift speed
+    const spd=up?UP_MPH:Math.max(1.0,driftSpeed(flowAt(i,byMin)));
+    if(miles/spd*60>mins)return false;                     // cannot get there in time
+    // and every access you must pass has to be floatable at the time you would pass it
+    const lo=Math.min(i,fromIdx),hi=Math.max(i,fromIdx);
+    for(let k=lo;k<=hi;k++){
+      const t=launchMin+(Math.abs(P[k].mfd-P[fromIdx].mfd)/spd)*60;
+      const tt=Math.min(t,byMin);
+      if(condFor(k,flowAt(k,tt))==='wade')return false;   // too skinny to run a boat through
+    }
+    return true;
+  }
+  let seq=[];for(let i=0;i<N;i++){let t=null;for(let m=launchMin;m<=20*60;m+=30){if(edgeScore(i,m)>0.42&&reachable(i,m)){t=m;break;}}if(t!==null)seq.push([t,i]);}
   seq.sort((a,b)=>a[0]-b[0]);
   const lc=flowAt(fromIdx,launchMin),C=CRAFT[craft];
   s='⬆ '+(C.up?'Launch low at ':'Put in up top at ')+'<b>'+P[fromIdx].name+'</b> <b>'+timeStr(launchMin)+'</b> ('+Math.round(lc).toLocaleString()+' cfs). ';
@@ -863,13 +894,21 @@ function render(){document.getElementById('tread').textContent=timeStr(launchMin
    s+=rest.length?'Drift down with the front: '+rest.map(e=>'<b>'+P[e[1]].name+'</b> ~'+timeStr(e[0])).join(' → ')+'.':'Ride it out to the take-out as it builds.';
   } else {
    const nx=seq.find(e=>e[0]>launchMin);
-   if(nx)s+='Nothing rising yet — pre-fish the flats, and be on the edge at <b>'+P[nx[1]].name+'</b> ~<b>'+timeStr(nx[0])+'</b> when the bump gets there.';
+   if(nx){const w=frontWindow(nx[1]);
+    s+='Nothing rising yet — pre-fish the flats. <b>'+P[nx[1]].name+'</b> starts moving <b>'
+      +(w?timeStr(w[0])+'\u2013'+timeStr(w[1]):'~'+timeStr(nx[0]))+'</b>'
+      +(w?' (most likely '+timeStr(frontArrival(nx[1]))+')':'')+' — be set up before the early end.';}
    else if(P.some((p,i)=>flowAt(i,launchMin)<900))s+='Minimum flow, no bump coming — wade the flats (small midges, light tippet) or wait for a release.';
    else s+='Water is up hard everywhere — fish the drop with streamers, or wait for it to fall back into the sweet 1,500–3,000 cfs.';
   }
  }
+ // Arrival is a BAND, not a moment. Measured over 144 releases (analysis/onset_lag.py):
+ // the first rise at 15 mi has median 6 h but p25 3 h and p75 7 h. Printing a single
+ // clock time claims a precision the river does not have, and it is why the same event
+ // appeared twice on this page with different times.
  if(craft!=='wade'){const fp=frontArrival(fromIdx),ft=frontArrival(toIdx),parts=[];
-   if(fp!=null)parts.push('<b>'+P[fromIdx].name+'</b> ~'+timeStr(fp));
+   const bw=frontWindow(fromIdx);
+   if(fp!=null)parts.push('<b>'+P[fromIdx].name+'</b> '+(bw?timeStr(bw[0])+'\u2013'+timeStr(bw[1]):'~'+timeStr(fp)));
    if(ft!=null&&toIdx!==fromIdx)parts.push('<b>'+P[toIdx].name+'</b> ~'+timeStr(ft));
    if(parts.length)s+=' <span class="frn">⚡ release reaches '+parts.join(' · ')+'</span>';}
  document.getElementById('summary').innerHTML=s;
@@ -909,7 +948,15 @@ function frontInfo(t){   // {rm, flow} of the leading edge — backtested ~2.5-m
   return null;}
 function unitCol(f){return f>9000?'#5e5ce6':f>5200?'#4f5bd5':f>1800?'#0a84ff':'#22d3ee';}   // colour by the water it's carrying
 function frontIcon(col){return L.divIcon({className:'',iconSize:[18,18],iconAnchor:[9,9],html:'<div class="frontmk"><span class="fr" style="background:'+col+'"></span><span class="core" style="border-color:'+col+';box-shadow:0 0 10px 3px '+col+'"></span></div>'});}
-function frontArrival(i){for(let m=300;m<=1290;m+=15){if(flowAt(i,m)>=1000&&flowAt(i,m-30)<1000)return m;}return null;}
+// Arrival = the MEASURED first-rise rule (mfd / 2.5 mph), the same model the generation
+// schedule and the arrival strip use. Previously this scanned for a 1,000 cfs crossing of
+// the routed hydrograph, an arbitrary threshold that fired hours before the strip said the
+// water arrived — two clocks on one page for the same release.
+function frontArrival(i){const g=DATA.gen[dsel];if(!g||g.relStart==null)return null;
+ const st=DATA.arrivalStages.first;const m=g.relStart+(P[i].mfd/st.mph)*60;return (m>=0&&m<=1439)?m:null;}
+function frontWindow(i){const g=DATA.gen[dsel];if(!g||g.relStart==null)return null;
+ const st=DATA.arrivalStages.first;
+ return [g.relStart+(P[i].mfd/st.early)*60, g.relStart+(P[i].mfd/st.late)*60];}
 // satellite map (Esri imagery) — access points on the real channel; clicking a pin sets the put-in
 let LM=[];
 if(typeof L!=='undefined'){

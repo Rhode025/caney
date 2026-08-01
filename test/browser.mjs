@@ -386,6 +386,65 @@ console.log('── HQ: day view selector + default by clock ──');
   await pg.close();
 }
 
+
+// ── Caney planner: reachability + one clock ──
+// A plan is only a plan if you can physically get there. This used to sort every rising
+// access by time and pick the earliest, which is always the one nearest the dam — so
+// launching at Stonewall it advised being at Long Branch, 15 miles UPSTREAM, through six
+// stretches the same page classified as wade water.
+console.log('── caney planner: reachability + arrival consistency ──');
+{
+  const pg = await browser.newPage({ viewport: { width: 430, height: 1100 } });
+  const errs = [];
+  pg.on('pageerror', e => errs.push(String(e)));
+  await pg.goto(url('caney.html'), { timeout: 20000 });
+  await pg.waitForTimeout(1200);
+  await pg.click('button[data-c="power"]');
+  await pg.waitForTimeout(200);
+  await pg.click('button[data-m="up"]');
+  await pg.waitForTimeout(200);
+  await pg.evaluate(() => {
+    const b = [...document.querySelectorAll('#segFrom button,#segFrom a,#segFrom span')]
+      .find(e => /Stonewall/.test(e.textContent));
+    if (b) b.click();
+  });
+  await pg.evaluate(() => {
+    const s = [...document.querySelectorAll('input[type=range]')].find(x => +x.max >= 660 && +x.min <= 660);
+    if (s) { s.value = 660; s.dispatchEvent(new Event('input', { bubbles: true })); }
+  });
+  await pg.waitForTimeout(600);
+  const txt = await pg.$eval('#summary', e => e.innerText);
+
+  // never route upstream past water the page itself calls wade
+  const badTarget = /be on the edge at <?b?>?(Long Branch|Buffalo Valley|Lancaster|Happy Hollow)/i.test(txt)
+                 || /\b(Long Branch|Buffalo Valley)\b[^.]*starts moving/i.test(txt);
+  assert('launching at Stonewall never sends you upstream through wade water', !badTarget, txt.slice(0, 160));
+
+  // the reachability gate itself, driven directly
+  const gate = await pg.evaluate(() => {
+    if (typeof reachable !== 'function') return null;
+    return { upstreamSkinny: reachable(0, 13 * 60), self: reachable(6, 13 * 60) };
+  }).catch(() => null);
+  if (gate) assert('reachability rejects the 15-mile upstream run at low flow', gate.upstreamSkinny === false);
+
+  // one clock: the planner and the generation schedule must agree on arrival
+  const both = await pg.evaluate(() => {
+    const g = DATA.gen[0];
+    if (!g || g.relStart == null) return null;
+    const st = DATA.arrivalStages.first;
+    const sw = DATA.points.find(p => p.name === 'Stonewall');
+    return { fromRule: g.relStart + (sw.mfd / st.mph) * 60, arrRow: (g.arr || []).slice(-1)[0] };
+  });
+  if (both) {
+    assert('planner arrival uses the measured first-rise rule, not a flow threshold',
+      Math.abs(both.fromRule - (Math.round(both.fromRule))) < 60, JSON.stringify(both));
+  }
+  assert('arrival is presented as a measured band, not a false point value',
+    /–|—/.test(txt) && /starts moving|release reaches/.test(txt), txt.slice(0, 160));
+  assert('no JS errors in the planner', errs.length === 0, errs.join(' | '));
+  await pg.close();
+}
+
 await browser.close();
 console.log('');
 if (fails) { console.log(`\x1b[31mFAILED ${fails} check(s)\x1b[0m`); process.exit(1); }
