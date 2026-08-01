@@ -152,6 +152,26 @@ check("stones never returns a guessed wade verdict",
       _rl.wade_float("stones", 300)[0] in ("n/a", "unknown"),
       _rl.wade_float("stones", 300)[0])
 
+# A unit count and a flow reading must never be paired unless they come from the SAME
+# measurement. cumbnash carries both an Old Hickory release and a USGS gauge 25 mi
+# downstream that differ by thousands of cfs; pairing them produced "1 unit / 15,700 cfs",
+# which is internally impossible (15,700 would be 2.4 units).
+for _rid in ("cumbnash", "cheatham", "cordell"):
+    _n = (cards.get(_rid, {}).get("now") or {})
+    _cond, _det = _n.get("cond", ""), _n.get("detail", "")
+    import re as _re
+    _um = _re.match(r"(\d+)\s*units?", _cond)
+    if _um:
+        _units = int(_um.group(1))
+        # every cfs figure quoted alongside must either be attributed, or be consistent
+        for _v in [int(x.replace(",", "")) for x in _re.findall(r"([\d,]+)\s*cfs", _det)]:
+            _implied = round(_v / 6500)
+            _ok = (_implied == _units) or ("release" in _det and "at " in _det)
+            check("unit count and flow are from the same source or attributed: %s" % _rid, _ok,
+                  "%r vs %r" % (_cond, _det))
+    if "release" in _det and "cfs" in _det:
+        check("release figure is labelled as a release: " + _rid, "cfs release" in _det, _det)
+
 # the three Cumberland tailraces are striped-bass pages: the grade must come from the
 # sourced striper model, and heavy water must never be graded Prime on the fish's behalf
 # (that verdict is capped by boat handling, which the summer refuge argument cannot override)

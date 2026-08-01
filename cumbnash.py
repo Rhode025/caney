@@ -283,7 +283,9 @@ else{document.getElementById('genc').innerHTML='<div style="padding:14px;color:#
 (function(){
   const S=D.striper,el=document.getElementById('striper'); if(!S||!el)return;
   el.innerHTML='<div><span class="sgrade" style="background:'+S.col+'">'+S.grade+'</span>'
-    +'<span class="scond">'+S.cond+(S.units?' \u00b7 '+S.units+' generating':'')+'</span></div>'
+    +'<span class="scond">'+S.cond+' at the dam'+(S.units?' \u00b7 '+S.units+' generating':'')
+    +(D.relNow!=null?' \u00b7 '+D.relNow.toLocaleString()+' cfs release':'')
+    +(D.cur.flow!=null?' \u00b7 '+D.cur.flow.toLocaleString()+' cfs at Nashville':'')+'</span></div>'
     +'<div class="snote">'+S.note+'</div>'
     +(S.where?'<div class="srow"><span class="k">Where</span><span>'+S.where+'</span></div>':'')
     +(S.technique?'<div class="srow"><span class="k">How</span><span>'+S.technique+'</span></div>':'')
@@ -309,10 +311,10 @@ open(os.path.join(OUT,"cumbnash.html"),"w").write(html)
 # because nothing measures turbidity on this reach.
 def _lvl(c):
     if c is None: return "unknown", ""
-    if c < 7000:  return "low",   "%s cfs · little current" % format(round(c), ",")
-    if c < 15000: return "prime", "%s cfs · current on" % format(round(c), ",")
-    if c < 30000: return "high",  "%s cfs · heavy" % format(round(c), ",")
-    return "blown", "%s cfs · blown out" % format(round(c), ",")
+    if c < 7000:  return "low",   "%s cfs release · little current" % format(round(c), ",")
+    if c < 15000: return "prime", "%s cfs release · current on" % format(round(c), ",")
+    if c < 30000: return "high",  "%s cfs release · heavy" % format(round(c), ",")
+    return "blown", "%s cfs release · blown out" % format(round(c), ",")
 def _clr(c):
     if c is None: return "unknown"
     return "clear" if c < 7000 else "stained" if c < 15000 else "colored" if c < 30000 else "muddy"
@@ -342,8 +344,16 @@ def _dayst(off):
                        else "No generation — slack water"))
 DAYS = {"today": _dayst(0), "tomorrow": _dayst(1)}
 
+# TWO DIFFERENT MEASUREMENTS, never to be shown as one. The unit count comes from the Old
+# Hickory RELEASE (CWMS); cur_flow is the USGS gauge at Nashville, ~25 river miles down, which
+# includes the Stones River and other tributary inflow and lags the release. They differed by
+# 9,248 cfs when this was caught, so the card read "1 unit \u00b7 15,700 cfs" — and 15,700 would be
+# 2.4 units. Each number is now labelled with where it came from.
+_rel_txt=("%s cfs release"%format(round(_relnow),",")) if _relnow is not None else "release n/a"
+_gauge_txt=("%s cfs at Nashville"%format(round(cur_flow),",")) if cur_flow is not None else ""
 riverlib.emit_status("cumbnash",
-    {"grade":FG,"cond":FN,"col":FCOL,"note":FNOTE,"detail":(("%s cfs"%format(round(cur_flow),",")) if cur_flow is not None else "—"),"asof":asof},
+    {"grade":FG,"cond":(FN+" at the dam"),"col":FCOL,"note":FNOTE,
+     "detail":" \u00b7 ".join(x for x in (_rel_txt,_gauge_txt) if x),"asof":asof},
     wx, BASE, CT, ["Striped bass"],
     "Warmwater big river", "~15–30 min · in Nashville", days=DAYS)
 print("wrote out/cumbnash.html | flow %s cfs %s | grade %s | series %d"%(cur_flow,trend,FG,len(series)))

@@ -378,6 +378,17 @@ console.log('── HQ: day view selector + default by clock ──');
   assert('today view marks the current hour on the curve',
     (await pg.$$eval('#board .curve line', e => e.length)) > 0);
 
+  // the live badge is always TODAY; on another day's view it must say so, or a Prime badge
+  // sits unlabelled above a headline describing a different day
+  await pg.click('#viewsel button[data-v="tomorrow"]');
+  await pg.waitForTimeout(200);
+  const badgeLabelled = await pg.$$eval('#board .rc .badge', e => e.every(x => /now/i.test(x.innerText)));
+  assert('on a non-today view the live badge is labelled "now"', badgeLabelled);
+  await pg.click('#viewsel button[data-v="today"]');
+  await pg.waitForTimeout(200);
+  const badgePlain = await pg.$$eval('#board .rc .badge', e => e.every(x => !/now/i.test(x.innerText)));
+  assert('on the today view the badge carries no redundant label', badgePlain);
+
   await pg.click('#viewsel button[data-v="week"]');
   await pg.waitForTimeout(150);
   const wk = await pg.$$eval('#board .wk .wd', e => e.length);

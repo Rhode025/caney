@@ -224,8 +224,13 @@ function render(){
   h+='<a class="rc" href="'+c.file+'">'
    +'<div class="rc-h"><span class="em">'+c.emoji+'</span>'
    +'<div class="rc-t"><div class="nm">'+c.name+'</div><div class="kd">'+(c.kind||'')+' · '+(c.drive||'')+'</div></div>'
+   // The badge is the LIVE grade, which is always today. On a Tomorrow or Week view that
+   // sat unlabelled next to a headline about another day — a Prime badge above "no
+   // generation - slack water". Say which day the badge belongs to.
    +'<div class="rc-now"><div class="sub"><b>'+n.cond+'</b>'+(n.detail||'')+'</div>'
-   +'<div class="badge" style="background:'+n.col+'">'+n.grade+'</div></div></div>';
+   +'<div class="badge" style="background:'+n.col+'">'+n.grade
+     +(view==='today'?'':'<small style="display:block;font-size:9px;opacity:.85;font-weight:600">now</small>')
+     +'</div></div></div>';
   if(view==='week'){
     h+='<div class="wxrow">';(c.week||[]).forEach(w=>{
      h+='<div class="wxc"><span class="wi">'+(w.ico||'')+'</span><span class="wt">'+w.hi+'°</span>'
