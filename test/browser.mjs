@@ -607,6 +607,39 @@ console.log('── caney layout: day picker placement ──');
   await pg.close();
 }
 
+
+// ── striper card: styled to the design system, not browser defaults ──
+// The card shipped unstyled once: the CSS was inserted on an anchor that did not exist in
+// these files, so it rendered at 16px default with no muted tones. innerText looked fine,
+// which is exactly why that slipped through — computed style is the check that catches it.
+console.log('── cumberland striper card: design system ──');
+{
+  for (const f of ['cumbnash.html', 'cheatham.html', 'cordell.html']) {
+    const pg = await browser.newPage({ viewport: { width: 390, height: 900 } });
+    await pg.goto(url(f), { timeout: 20000 });
+    await pg.waitForTimeout(900);
+    const m = await pg.evaluate(() => {
+      const el = document.getElementById('striper');
+      if (!el) return null;
+      const cs = s => { const e = el.querySelector(s); return e ? getComputedStyle(e) : null; };
+      const g = cs('.sgrade'), c = cs('.scond'), n = cs('.snote'), k = cs('.srow .k');
+      const faint = getComputedStyle(document.documentElement).getPropertyValue('--faint').trim();
+      return {
+        grade: g && g.fontSize, cond: c && c.fontSize, note: n && n.fontSize,
+        keyColor: k && k.color, faintTok: faint,
+        overflow: el.scrollWidth > el.clientWidth + 1,
+        dupUnits: /(\d+ units? generating)/.test(el.innerText) && /^\s*\w+\s*\n\s*\d+ units?\s*$/m.test(el.innerText),
+      };
+    });
+    assert(`${f}: striper card is styled, not browser default`, m && m.grade === '12px' && m.note === '14px',
+      JSON.stringify(m));
+    assert(`${f}: labels use the faint token`, m && m.keyColor === 'rgb(97, 110, 123)', m && m.keyColor);
+    assert(`${f}: contrast override is the one in force`, m && m.faintTok === '#616e7b', m && m.faintTok);
+    assert(`${f}: card does not overflow its container`, m && !m.overflow);
+    await pg.close();
+  }
+}
+
 await browser.close();
 console.log('');
 if (fails) { console.log(`\x1b[31mFAILED ${fails} check(s)\x1b[0m`); process.exit(1); }

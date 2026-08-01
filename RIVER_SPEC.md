@@ -283,6 +283,17 @@ prose → styled multi-sheet HTML → headless-Chrome `--print-to-pdf`.
 ## 4. Design system (shared visual language)
 
 Tokens: `--ink #16202b · --muted #66788a · --faint #93a3b3 · --line #e6ecf2 · --card #fff`.
+
+**Contrast override (this is what actually renders).** `riverlib.SWITCH_CSS` re-declares two
+of those tokens app-wide because the originals failed WCAG AA on the page and card
+backgrounds: `--faint #93a3b3` measured 2.6:1 and `--muted #66788a` 3.7:1, against a 4.5:1
+requirement. The values in force everywhere are:
+
+    --faint: #616e7b     --muted: #566270     --blue: #0068d6
+
+Build against the token NAMES, never the hex above — a component that hardcodes `#93a3b3`
+silently opts out of the contrast fix. Anything measuring computed colour in a test should
+expect `rgb(97,110,123)` for faint, not `rgb(147,163,179)`.
 Grades: Prime `#28c76f` · Good/High `#f2a832` · Low/Skinny `#20b2aa` · Blown/Tough `#8b6cef`.
 Cards `border-radius:18px` soft shadow; section labels `.sec`; `max-width:900px` app;
 `-apple-system` font. Mobile breakpoint `680px`. Keep new rivers on these tokens.

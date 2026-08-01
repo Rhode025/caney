@@ -218,6 +218,20 @@ __MOONCAL_CSS__
 __FLYMATRIX_CSS__
 .foot{text-align:center;color:var(--faint);font-size:11.5px;margin-top:26px;line-height:1.6}
 @media(max-width:680px){.app{padding:22px 14px 60px}h1{font-size:28px}.wx .m{min-width:0}}
+
+/* Striped-bass read. Design-system tokens only (RIVER_SPEC §4): --ink/--muted/--faint/
+   --line, 18px card radius, 680px mobile breakpoint. */
+.strip{padding:16px 18px}
+.strip .shead{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.strip .sgrade{color:#fff;font-weight:800;font-size:12px;letter-spacing:.02em;padding:7px 12px;border-radius:11px;white-space:nowrap}
+.strip .scond{font-size:13px;font-weight:700;color:var(--ink)}
+.strip .snote{font-size:14px;line-height:1.5;margin-top:11px;color:var(--ink)}
+.strip .smeta{display:flex;flex-wrap:wrap;gap:6px;margin-top:11px}
+.strip .smeta span{font-size:11px;font-weight:650;color:#4a5a6a;background:#f0f3f7;border-radius:999px;padding:4px 10px;white-space:nowrap}
+.strip .srow{display:flex;gap:10px;margin-top:10px;font-size:13px;line-height:1.45;color:var(--ink)}
+.strip .srow .k{flex:none;width:52px;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);font-weight:700;padding-top:3px}
+.strip .sseason{margin-top:12px;padding-top:10px;border-top:1px solid var(--line);font-size:11.5px;color:var(--faint);line-height:1.45}
+@media(max-width:680px){.strip{padding:14px}.strip .srow .k{width:46px}}
 </style></head><body><div class="app">
  __SWITCHER__
  <div class="eyebrow">Big-river striper & smallmouth · Old Hickory → Cheatham</div>
@@ -282,10 +296,14 @@ if(D.gen&&D.gen.length){buildGenSchedule('genc',D.gen,D.genHint,D.genLegend,D.ge
 else{document.getElementById('genc').innerHTML='<div style="padding:14px;color:#66788a;font-size:13px">Old Hickory release schedule unavailable right now (USACE feed). The gauge below still shows what the river is doing.</div>';}
 (function(){
   const S=D.striper,el=document.getElementById('striper'); if(!S||!el)return;
-  el.innerHTML='<div><span class="sgrade" style="background:'+S.col+'">'+S.grade+'</span>'
-    +'<span class="scond">'+S.cond+' at the dam'+(S.units?' \u00b7 '+S.units+' generating':'')
-    +(D.relNow!=null?' \u00b7 '+D.relNow.toLocaleString()+' cfs release':'')
-    +(D.cur.flow!=null?' \u00b7 '+D.cur.flow.toLocaleString()+' cfs at Nashville':'')+'</span></div>'
+  // Each figure is attributed to its own measurement — the release and the downstream gauge
+  // are different numbers and were previously run together in one caption.
+  const chips=[];
+  if(D.relNow!=null) chips.push(D.relNow.toLocaleString()+' cfs release');
+  if(D.cur&&D.cur.flow!=null) chips.push(D.cur.flow.toLocaleString()+' cfs at Nashville');
+  el.innerHTML='<div class="shead"><span class="sgrade" style="background:'+S.col+'">'+S.grade+'</span>'
+    +'<span class="scond">'+S.cond+'</span></div>'
+    +(chips.length?'<div class="smeta"><span>'+chips.join('</span><span>')+'</span></div>':'')
     +'<div class="snote">'+S.note+'</div>'
     +(S.where?'<div class="srow"><span class="k">Where</span><span>'+S.where+'</span></div>':'')
     +(S.technique?'<div class="srow"><span class="k">How</span><span>'+S.technique+'</span></div>':'')
