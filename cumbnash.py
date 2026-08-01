@@ -323,7 +323,8 @@ def _dayst(off):
     span = (" (%s–%s)" % (_ap(on[0]), _ap(on[-1] + 1))) if on else ""
     night = any((cv or [None]*24)[h] and cv[h] >= OH_UNIT_CFS for h in list(range(0, 6)) + list(range(21, 24)))
     return riverlib.day_state(
-        vessel="boat", vessel_why="navigable pool — always deep enough to float; no wadeable water",
+        vessel=riverlib.craft_label("cumbnash", mid)[0],
+        vessel_why=riverlib.craft_label("cumbnash", mid)[2],
         clarity=_clr(mid), clarity_why="inferred from release volume, not measured",
         level=lk, level_detail=ld,
         curve=cv, curve_unit="cfs", curve_label="Old Hickory release", curve_src="forecast",

@@ -407,13 +407,11 @@ def _gauge_day(off):
     med = sorted(vals)[len(vals) // 2]
     lk, ld = _lvl_g(med)
     # Vessel from the sourced model (riverlib.WATER_MODEL) rather than a fixed guess.
-    _w, _fl, _conf = riverlib.wade_float("elk", med)
-    _vk = "both" if _w == "yes" else "boat"
-    _vw = {"measured": "wade threshold measured from USGS gaugings at this site",
-           "reported": "wade threshold from angler reports",
-           "structural": "navigable water", "unknown": "no wade data for this reach"}[_conf]
+    # craft_label honours the user-stated craft set for this reach (riverlib.WATER_MODEL),
+    # so the board never suggests a vessel this river does not take.
+    _vk, _vlabel, _vw, _conf = riverlib.craft_label("elk", med)
     ck = "clear" if med < _LO * 4 else "stained" if med < _LO * 12 else "colored"
-    return riverlib.day_state(vessel=_vk, vessel_why=_vw,
+    return riverlib.day_state(vessel=_vk, vessel_why=_vw, vessel_label=_vlabel,
         clarity=ck, clarity_why="inferred from flow, not measured",
         level=lk, level_detail=ld,
         curve=cv, curve_unit="cfs", curve_label="Observed flow (gauge)", curve_src="observed",

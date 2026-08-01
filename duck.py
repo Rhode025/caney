@@ -455,17 +455,13 @@ def _duck_day(off):
         return riverlib.day_state(headline="No NWPS reading for this day")
     med = sorted(vals)[len(vals) // 2]
     # Vessel from the sourced model (riverlib.WATER_MODEL), not from guessed bands.
-    _w, _fl, _conf = riverlib.wade_float("duck", med)
-    vk = "both" if (_w in ("yes", "marginal") and _fl in ("yes", "marginal")) else ("wade" if _w == "yes" else "boat")
-    vw = {"measured": "wade/float split measured from USGS gaugings at this site",
-          "reported": "wade/float split from angler reports",
-          "structural": "navigable water", "unknown": "no wade data for this reach"}[_conf]
+    vk, _vlabel, vw, _conf = riverlib.craft_label("duck", med)
     lk = "low" if med < 400 else "prime" if med < 3000 else "high" if med < 8000 else "blown"
     ck = "clear" if med < 1200 else "stained" if med < 4000 else "colored" if med < 8000 else "muddy"
     # Anything past the last observation is forecast; before that it is measured.
     last_obs = OBS[-1][0].timestamp() if OBS else 0
     src = "forecast" if (d0 + 86400) > last_obs else "observed"
-    return riverlib.day_state(vessel=vk, vessel_why=vw,
+    return riverlib.day_state(vessel=vk, vessel_why=vw, vessel_label=_vlabel,
         clarity=ck, clarity_why="inferred from flow; Duck colours up fast after rain",
         level=lk, level_detail=format(round(med), ",") + " cfs",
         curve=cv, curve_unit="cfs", curve_label="Duck at Centerville (NWPS)", curve_src=src,

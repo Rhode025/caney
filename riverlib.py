@@ -1327,8 +1327,13 @@ def today_wx(wx, tz):
 # channel-shape property and DOES transfer: it says how fast the river deepens when
 # flow doubles (2^f), which is what "is it coming up fast" actually means.
 
+# "craft" is the set of vessels that actually work on each reach. It is USER-STATED
+# ground truth (2026-08-01) and OUTRANKS everything below it: no flow number should ever
+# suggest wading a river you cannot wade, or a power boat on water you only kayak. The
+# flow thresholds decide WHICH available craft fits today, never whether one exists.
 WATER_MODEL = {
  "caney": {
+   "craft": ["wade","float","boat"], "craft_why": "wade, drift/float, or power boat depending on release",
    "wade_ok": 400, "wade_marginal": 600, "no_wade": 1000,
    "depth_exp": 0.514, "fit_r2": 0.76, "n_meas": 110, "substrate": "gravel",
    "src": "USGS field measurements at 03424860: waded 80% at 272 cfs, 75% at 398, "
@@ -1338,6 +1343,7 @@ WATER_MODEL = {
    "note": "Any generation ends wading regardless of the number — the bump arrives before the gauge shows it.",
  },
  "elktn": {
+   "craft": ["kayak","wade"], "craft_why": "kayak or wade only — no power boat on this reach",
    "wade_ok": 300, "wade_marginal": 400, "no_wade": 500,
    "depth_exp": 0.603, "fit_r2": 0.75, "n_meas": 665, "substrate": "unspecified",
    "src": "Angler reports (thefuntimesguide / Tennessee Fly Fishers): zero generation "
@@ -1348,6 +1354,7 @@ WATER_MODEL = {
    "note": "TVA warns: do not wade during, or within 4 hours after, generation.",
  },
  "elk": {
+   "craft": ["boat"], "craft_why": "boat only — the 60/40 jet (StealthCraft 1654)",
    "wade_ok": 250, "wade_marginal": 400, "no_wade": 550,
    "depth_exp": 0.455, "fit_r2": 0.68, "n_meas": 200, "substrate": "unspecified",
    "src": "USGS field measurements at 03584600: waded 78% at 153 cfs, 29% at 246, "
@@ -1356,6 +1363,7 @@ WATER_MODEL = {
    "note": "",
  },
  "duck": {
+   "craft": ["boat"], "craft_why": "boat only — the 60/40 jet",
    "wade_ok": 560, "wade_marginal": 915, "no_wade": 1200,
    "depth_exp": 0.633, "fit_r2": 0.87, "n_meas": 255, "substrate": "unspecified",
    "src": "USGS field measurements at 03599500, the cleanest gradient of any river "
@@ -1364,6 +1372,7 @@ WATER_MODEL = {
    "note": "Free-flowing: no generation to watch, but it rises fast after rain.",
  },
  "cumberland": {
+   "craft": ["boat","wade"], "craft_why": "boat or wade, gated on generation",
    "wade_ok": None, "wade_marginal": None, "no_wade": 1500,
    "depth_exp": 0.367, "fit_r2": 0.97, "n_meas": 57, "substrate": "cobbles",
    "src": "KY Fish & Wildlife / guide consensus: 'if no turbines are running you can "
@@ -1373,6 +1382,7 @@ WATER_MODEL = {
    "note": "Wadeable only with the dam off, at the dam and Kendall shoals.",
  },
  "stones": {
+   "craft": ["boat"], "craft_why": "boat only",
    "wade_ok": None, "wade_marginal": None, "no_wade": None,
    "depth_exp": 0.245, "fit_r2": 0.67, "n_meas": 130, "substrate": "cobbles",
    "src": "NO USABLE THRESHOLD. The gauge (03430200, US-70 near Donelson) sits in "
@@ -1384,15 +1394,18 @@ WATER_MODEL = {
  # The three Cumberland mainstem pools are never wadeable at any release: navigable
  # impoundments maintained for barge traffic. That is a fact about the river, not a
  # missing measurement, so it is stated rather than modelled.
- "cumbnash":  {"wade_ok": None, "wade_marginal": None, "no_wade": 0,
+ "cumbnash":  {
+   "craft": ["boat"], "craft_why": "boat only — navigable pool","wade_ok": None, "wade_marginal": None, "no_wade": 0,
                "depth_exp": 0.163, "fit_r2": 0.77, "n_meas": 99, "substrate": "silt/mud",
                "src": "Navigable impoundment (Cheatham pool). USGS measured mean depth "
                       "9.6 ft at 100 cfs; never waded in 99 measurements.", "note": ""},
- "cheatham":  {"wade_ok": None, "wade_marginal": None, "no_wade": 0,
+ "cheatham":  {
+   "craft": ["boat"], "craft_why": "boat only — navigable pool","wade_ok": None, "wade_marginal": None, "no_wade": 0,
                "depth_exp": None, "fit_r2": None, "n_meas": 0, "substrate": "silt/mud",
                "src": "Navigable impoundment below Cheatham Dam. No working gauge on the "
                       "reach (03435000 stopped reporting), so no fit exists.", "note": ""},
- "cordell":   {"wade_ok": None, "wade_marginal": None, "no_wade": 0,
+ "cordell":   {
+   "craft": ["boat"], "craft_why": "boat only — navigable pool","wade_ok": None, "wade_marginal": None, "no_wade": 0,
                "depth_exp": None, "fit_r2": None, "n_meas": 0, "substrate": "unspecified",
                "src": "Navigable impoundment into Old Hickory Lake. No gauge on the reach.",
                "note": ""},
@@ -1406,27 +1419,65 @@ WATER_MODEL = {
 def wade_float(river_id, cfs, generating=False):
     """(wade_verdict, float_verdict, confidence) for this river at this flow.
 
+    CRAFT IS THE OUTER GATE. A river the user does not wade returns wade="n/a" no matter
+    how low the flow is, and a river with no power boat never returns a boat verdict. The
+    flow thresholds only choose among craft that actually exist on that reach.
+
     confidence: "measured" (USGS crossover), "reported" (angler/agency source),
                 "structural" (a fact about the river), "unknown".
     """
     m = WATER_MODEL.get(river_id)
     if not m:
         return ("unknown", "unknown", "unknown")
+    craft = m.get("craft") or []
+    can_wade = "wade" in craft
+    can_paddle = "kayak" in craft
+    can_boat = any(c in craft for c in ("boat", "float"))
     conf = ("measured" if "USGS field measurements" in m["src"]
             else "structural" if m.get("no_wade") == 0
             else "reported" if m["src"] else "unknown")
+
+    def gate(w, f):
+        return ("n/a" if not (can_wade or can_paddle) else w,
+                "n/a" if not can_boat else f, conf)
+
     if m.get("no_wade") == 0:
-        return ("never", "always", "structural")
+        return gate("never", "always")
     if m["wade_ok"] is None and m["no_wade"] is None:
-        return ("unknown", "unknown", "unknown")
+        return gate("unknown", "unknown")
     if generating or cfs is None:
-        return (("no" if generating else "unknown"), "yes", conf)
+        return gate(("no" if generating else "unknown"), "yes")
     if m["wade_ok"] is None:                      # generation-gated (Cumberland KY)
-        return (("yes" if cfs < m["no_wade"] else "no"),
-                ("marginal" if cfs < m["no_wade"] else "yes"), conf)
-    if cfs <= m["wade_ok"]:      return ("yes", "marginal", conf)
-    if cfs <= m["wade_marginal"]: return ("marginal", "yes", conf)
-    return ("no", "yes", conf)
+        return gate(("yes" if cfs < m["no_wade"] else "no"),
+                    ("marginal" if cfs < m["no_wade"] else "yes"))
+    if cfs <= m["wade_ok"]:       return gate("yes", "marginal")
+    if cfs <= m["wade_marginal"]: return gate("marginal", "yes")
+    return gate("no", "yes")
+
+def craft_label(river_id, cfs, generating=False):
+    """The vessel read for the HQ board: kind, label and why, honouring the craft set."""
+    m = WATER_MODEL.get(river_id) or {}
+    craft = m.get("craft") or []
+    w, f, conf = wade_float(river_id, cfs, generating)
+    can_boat = any(c in craft for c in ("boat", "float"))
+    wadeable = w in ("yes", "marginal")
+    # A boat river is a boat river even where no flow threshold was ever established
+    # (stones has no usable gauge). The craft set answers it; only an explicit "no"
+    # from the flow model takes the boat away.
+    floatable = can_boat and f not in ("no", "n/a")
+    paddle = "kayak" in craft
+    if wadeable and floatable:
+        kind = "both"
+        label = "Kayak or wade" if (paddle and "boat" not in craft) else "Wade or boat"
+    elif wadeable:
+        kind = "wade"; label = "Kayak or wade" if paddle else "Wade day"
+    elif floatable:
+        kind = "boat"; label = "Boat day"
+    elif paddle:
+        kind = "wade"; label = "Kayak day"
+    else:
+        kind = "na"; label = "—"
+    return kind, label, (m.get("craft_why") or ""), conf
 
 def depth_ratio(river_id, cfs, ref_cfs):
     """How much deeper the river is at cfs than at ref_cfs, from the measured exponent.
@@ -1471,7 +1522,7 @@ LEVEL_KINDS = {
     "unknown": {"label": "—",         "col": "#93a3b3"},
 }
 
-def day_state(vessel="na", vessel_why="", clarity="unknown", clarity_why="",
+def day_state(vessel="na", vessel_why="", vessel_label=None, clarity="unknown", clarity_why="",
               level="unknown", level_detail="", curve=None, curve_unit="cfs",
               curve_label="", curve_src="forecast", windows=None, headline=""):
     """One river's read for one day, normalised for the HQ board.
@@ -1494,7 +1545,10 @@ def day_state(vessel="na", vessel_why="", clarity="unknown", clarity_why="",
             vals = None
     known = [x for x in (vals or []) if x is not None]
     return {
-        "vessel": {"kind": vessel, "why": vessel_why, **v},
+        # vessel_label lets a river override the generic kind label with its craft-aware
+        # one ("Kayak or wade" where there is no power boat, not just "Wade day").
+        "vessel": {"kind": vessel, "why": vessel_why, **v,
+                   **({"label": vessel_label} if vessel_label else {})},
         "clarity": {"kind": clarity, "why": clarity_why, **c},
         "level": {"kind": level, "detail": level_detail, **l},
         "curve": ({"vals": vals, "unit": curve_unit, "label": curve_label,

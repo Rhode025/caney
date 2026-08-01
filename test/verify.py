@@ -145,9 +145,33 @@ for _rid, _m in _rl.WATER_MODEL.items():
     _w, _f, _c = _rl.wade_float(_rid, 500)
     check("wade_float returns a confidence: " + _rid,
           _c in ("measured", "reported", "structural", "unknown"), repr(_c))
-# a river with no threshold must resolve to unknown, never to a guessed verdict
-check("stones is explicitly unknown, not guessed",
-      _rl.wade_float("stones", 300)[0] == "unknown")
+# A river with no wade threshold must never produce a guessed wade verdict. Stones now
+# returns "n/a" rather than "unknown" — stronger, because the craft set settles it: you
+# do not wade this reach, so there is nothing to be uncertain about.
+check("stones never returns a guessed wade verdict",
+      _rl.wade_float("stones", 300)[0] in ("n/a", "unknown"),
+      _rl.wade_float("stones", 300)[0])
+
+# craft is user-stated ground truth and must gate every verdict: the board must never
+# suggest a vessel a river does not take, whatever the flow says.
+_CRAFT_SPEC = {"caney": {"wade", "float", "boat"}, "duck": {"boat"}, "cumbnash": {"boat"},
+               "cumberland": {"boat", "wade"}, "elktn": {"kayak", "wade"}, "stones": {"boat"}}
+for _rid, _want in _CRAFT_SPEC.items():
+    check("craft set matches the stated spec: " + _rid,
+          set(_rl.WATER_MODEL[_rid].get("craft") or []) == _want,
+          "have " + ",".join(sorted(_rl.WATER_MODEL[_rid].get("craft") or [])))
+for _rid, _m in _rl.WATER_MODEL.items():
+    _c = set(_m.get("craft") or [])
+    check("craft set is non-empty and explained: " + _rid, bool(_c) and bool(_m.get("craft_why")))
+    # sweep flows; a craft the river does not have must never be offered
+    for _q in (50, 250, 600, 1500, 5000, 20000):
+        _w, _f, _ = _rl.wade_float(_rid, _q)
+        if not (_c & {"wade", "kayak"}):
+            check("never offers wading on a boat-only river: %s@%s" % (_rid, _q), _w == "n/a", _w)
+        if not (_c & {"boat", "float"}):
+            check("never offers a boat where there is none: %s@%s" % (_rid, _q), _f == "n/a", _f)
+_k, _lbl, _why, _ = _rl.craft_label("elktn", 260)
+check("kayak-only river is labelled as such", "Kayak" in _lbl, _lbl)
 
 # a river with no forward flow forecast must SAY so rather than render an empty card
 for rid in ("elk", "elktn", "stones"):
