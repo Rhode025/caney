@@ -152,6 +152,28 @@ check("stones never returns a guessed wade verdict",
       _rl.wade_float("stones", 300)[0] in ("n/a", "unknown"),
       _rl.wade_float("stones", 300)[0])
 
+# the three Cumberland tailraces are striped-bass pages: the grade must come from the
+# sourced striper model, and heavy water must never be graded Prime on the fish's behalf
+# (that verdict is capped by boat handling, which the summer refuge argument cannot override)
+for _rid in ("cumbnash", "cheatham", "cordell"):
+    _c = cards.get(_rid, {})
+    check("striper page targets only striped bass: " + _rid,
+          _c.get("species") == ["Striped bass"], str(_c.get("species")))
+for _u, _cfs in ((1, 6500), (2, 13000), (3, 19500)):
+    _r = _rl.striper_read(_cfs, 6500, 7)
+    check("summer generation grades Prime at %d units" % _u, _r["grade"] == "Prime", _r["grade"])
+_hi = _rl.striper_read(40000, 6500, 7)
+check("very heavy water is not graded Prime on the fish's behalf", _hi["grade"] != "Prime", _hi["grade"])
+check("very heavy water names boat handling as the limit", "boat" in _hi["note"].lower(), _hi["note"][:60])
+_slack = _rl.striper_read(0, 6500, 7)
+check("no generation is graded down", _slack["grade"] in ("Slow", "Fair"), _slack["grade"])
+check("every striper read says where to fish", all(
+    _rl.striper_read(q, 6500, m).get("where") for q in (0, 6500, 20000) for m in (1, 5, 7, 10)))
+check("winter note names the Nov-Mar stretch",
+      "Nov-Mar" in _rl.striper_read(13000, 6500, 1)["note"], "")
+check("spring note names the run",
+      "Spring run" in _rl.striper_read(13000, 6500, 5)["note"], "")
+
 # craft is user-stated ground truth and must gate every verdict: the board must never
 # suggest a vessel a river does not take, whatever the flow says.
 _CRAFT_SPEC = {"caney": {"wade", "float", "boat"}, "duck": {"boat"}, "cumbnash": {"boat"},

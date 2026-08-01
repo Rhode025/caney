@@ -43,16 +43,6 @@ if len(FLOW)>=2:
     dv=FLOW[-1][1]-ref[1]
     trend="rising" if dv>1500 else "falling" if dv<-1500 else "steady"
 
-# ---- fishability: current (=generation), not depth ----
-def fish(flow,rising):
-    if flow is None: return ("—","Fair","#94a3b1",1.3,"no gauge data — check the Cheatham release schedule")
-    if flow>30000: return ("High","Fair","#8b6cef",1.3,"heavy, stained flow — fish eddies, creek mouths & the slack behind wing dams")
-    if flow>=7000:
-        return ("Gen","Prime" if rising else "Good","#28c76f",(2.9 if rising else 2.3),
-            ("current's on and rising — prime; stripers & smallmouth feeding on the ledges & tailrace" if rising
-             else "current's on — stripers & smallmouth working the ledges & tailrace"))
-    return ("Slack","Slow","#f2a832",0.9,"little current — Cheatham idle; slow-fish the ledges, wing dams & structure")
-FN,FG,FCOL,BASE,FNOTE=fish(cur_flow,trend=="rising")
 
 # ---- weather (7-day, for the HQ week outlook) ----
 wx=None
@@ -97,7 +87,8 @@ HATCH={"rows":[
  {"name":"Striper run","icon":"🎣","pattern":"swing streamers in the tailrace","m":[1,2,3,3,2,1,1,1,1,1,2,2]},
  {"name":"Crawfish","icon":"🦞","pattern":"craw fly on the ledges","m":[1,1,2,3,3,3,3,3,3,2,1,1]},
  {"name":"White bass","icon":"🎏","pattern":"chartreuse Clouser on the current","m":[1,1,2,3,3,2,1,1,2,2,1,1]},
- {"name":"Bluegill / panfish","icon":"🐡","pattern":"popper & bream bug on the beds","m":[0,0,1,2,3,3,3,3,2,1,0,0]},
+ {"name":"Spring run","icon":"🎣","pattern":"biggest fish of the year move up to the dam","m":[1,1,2,3,3,2,1,1,1,1,1,1]},
+ {"name":"Thermal refuge","icon":"🌡️","pattern":"heat stacks them in the cool tailrace","m":[0,0,0,0,1,3,3,3,2,1,0,0]},
 ]}
 FLYMATRIX={
  "clear":   {"label":"Slack · <7k","dawn":"Topwater popper","low":"Sneaky Pete","bright":"Sparse Clouser","wind":"Popper"},
@@ -155,13 +146,21 @@ GENHINT=("Cheatham generation, midnight\u2192midnight (bar height = units). This
 GENLEGEND=('<span><i style="background:#7db8e0"></i>1 unit</span><span><i style="background:#2f92d4"></i>2 units</span>'
            '<span><i style="background:#5e5ce6"></i>3+ units</span><span>Unit counts are estimated from release volume \u2014 verify against USACE before you rely on them.</span>')
 _relnow=riverlib.release_at(rel,int(now.timestamp())//3600*3600) if rel else None
+# ---- fishability: STRIPED BASS, from riverlib.striper_read ----
+# This page is a striped-bass page. The grade is the striper grade: current is the trigger
+# (they hold on the seam and eat what the turbines disorient), summer is refuge season, and
+# heavy water is capped by boat handling rather than by the fish.
+_SR=riverlib.striper_read(_relnow, UNIT_CFS, now_ct.month,
+                          water_f=None, at_dam=True)
+FN,FG,FCOL,FNOTE=_SR["cond"],_SR["grade"],_SR["col"],_SR["note"]
+BASE=riverlib.GRADE_SCORE.get(FG,1.5)
 
 clar="rising / gen on" if trend=="rising" else "falling" if trend=="falling" else "steady"
 DATA={"today":now_ct.strftime("%A, %B %-d · %-I:%M %p"),"solunar":SOL,"hatch":HATCH,"month":now_ct.month,
       "chatter":riverlib.load_intel("cheatham"),"flysel":FLYSEL,"tips":tips,"weather":WXT,"series":series,"usace":USACE_URL,
       "cur":{"flow":round(cur_flow) if cur_flow is not None else None,"stage":round(cur_stage,1) if cur_stage is not None else None,
              "trend":trend,"cond":FN,"grade":FG,"col":FCOL,"note":FNOTE,"clar":clar,"asof":asof},
-      "points":POINTS,"poly":POLY,
+      "points":POINTS,"poly":POLY,"striper":_SR,
       "gen":GEN,"genHint":GENHINT,"genLegend":GENLEGEND,
       "genOpts":{"minLabel":"no generation \u2014 slack water","arrLabel":"current builds"},
       "relNow":round(_relnow) if _relnow is not None else None,"relUnit":UNIT_CFS}
@@ -210,6 +209,7 @@ __FLYMATRIX_CSS__
  <h1>Cumberland · Cheatham</h1><div class="cap" id="cap"></div>
  <div class="card now" id="now"></div>
  <div class="note0" id="note0"></div>
+ <div class="sec">Striped bass · today's read</div><div class="card strip" id="striper"></div>
  <div class="sec">Cheatham generation · what turns the current on</div><div class="card gen" id="genc"></div>
  <div class="sec">Observed release · Cheatham (last 4 days)</div><div class="card chartc" id="chartc"></div>
  <div class="note" id="chartnote"></div>
@@ -265,6 +265,15 @@ renderSolunar('sol',D.solunar,D.cur.grade==='Prime'?'Current on during a major f
 renderHatch('hatch',D.hatch,D.month);
 if(D.gen&&D.gen.length){buildGenSchedule('genc',D.gen,D.genHint,D.genLegend,D.genOpts);}
 else{document.getElementById('genc').innerHTML='<div style="padding:14px;color:#66788a;font-size:13px">Cheatham release schedule unavailable right now (USACE feed). The gauge below still shows what the river is doing.</div>';}
+(function(){
+  const S=D.striper,el=document.getElementById('striper'); if(!S||!el)return;
+  el.innerHTML='<div><span class="sgrade" style="background:'+S.col+'">'+S.grade+'</span>'
+    +'<span class="scond">'+S.cond+(S.units?' \u00b7 '+S.units+' generating':'')+'</span></div>'
+    +'<div class="snote">'+S.note+'</div>'
+    +(S.where?'<div class="srow"><span class="k">Where</span><span>'+S.where+'</span></div>':'')
+    +(S.technique?'<div class="srow"><span class="k">How</span><span>'+S.technique+'</span></div>':'')
+    +'<div class="sseason">'+S.season.toUpperCase()+' \u00b7 '+(S.season_note||'')+'</div>';
+})();
 buildMoonCal('mooncal',36.42,-87.30);
 buildFlyMatrix('flysel',D.flysel);
 document.getElementById('regs').innerHTML='<b>Regulations.</b> '+__REGS__;
@@ -320,6 +329,6 @@ DAYS = {"today": _dayst(0), "tomorrow": _dayst(1)}
 
 riverlib.emit_status("cheatham",
     {"grade":FG,"cond":FN,"col":FCOL,"note":FNOTE,"detail":(("%s cfs"%format(round(cur_flow),",")) if cur_flow is not None else "—"),"asof":asof},
-    wx, BASE, CT, ["Striped bass","Smallmouth","Largemouth","White bass","Panfish"],
+    wx, BASE, CT, ["Striped bass"],
     "Warmwater big river", "~45 min NW of Nashville", days=DAYS)
 print("wrote out/cheatham.html | flow %s cfs %s | grade %s | series %d"%(cur_flow,trend,FG,len(series)))
