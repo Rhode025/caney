@@ -593,8 +593,14 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:30px;heigh
 .sec.fold.open .fchev{transform:rotate(90deg);background:#e3f0ff;color:var(--blue)}
 .secbody{display:none}.secbody.open{display:block}
 /* date selector */
+.daybar{position:sticky;top:0;z-index:30;margin:14px -4px 16px;padding:10px 4px 4px;
+ background:linear-gradient(180deg,#eef2f6 78%,rgba(238,242,246,0));backdrop-filter:blur(6px)}
+.daybar-h{display:flex;align-items:baseline;justify-content:space-between;margin:0 4px 6px}
+.dl-lbl{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);font-weight:700}
+.dl-when{font-size:12.5px;font-weight:650;color:var(--muted)}
+.dl-when.notoday{color:#0a5ec2}
 .dates{display:flex;gap:5px;background:#eef2f7;border-radius:13px;padding:4px;overflow:auto;margin-bottom:14px}
-.dates button{flex:1;min-width:56px;border:0;background:transparent;border-radius:10px;padding:8px 6px;font-size:13px;font-weight:650;color:var(--muted);cursor:pointer;white-space:nowrap;font-family:inherit;transition:.16s;line-height:1.15}
+.dates button{flex:1;min-width:56px;border:0;background:transparent;border-radius:10px;padding:9px 6px;min-height:46px;font-size:13px;font-weight:650;color:var(--muted);cursor:pointer;white-space:nowrap;font-family:inherit;transition:.16s;line-height:1.15}
 .dates button.on{background:#fff;color:var(--ink);box-shadow:0 2px 8px rgba(20,50,80,.12)}
 .dates button small{display:block;font-size:10px;color:var(--faint);font-weight:500;margin-top:1px}.dates button.on small{color:var(--muted)}
 __HATCH_CSS__
@@ -638,7 +644,17 @@ __LOG_CSS__
  __SWITCHER__
  <div class="eyebrow">Fly-fishing planner · DeKalb County, TN</div><h1>Caney Fork</h1><div class="cap" id="cap"></div>
  <div class="card nowstrip" id="nowstrip"></div>
+ <!-- Day picker is a PAGE-LEVEL control: it drives the weather, the feed, the generation
+      read, the timed plan and the river diagram. It used to live inside "Plan & river",
+      six collapsed sections below the things it changes, so you could not see the effect
+      of your own click. Everything it governs now sits underneath it. "Right now" stays
+      above it, because right now is always today whatever day you are planning. -->
+ <div class="daybar" id="daybar">
+   <div class="daybar-h"><span class="dl-lbl">Planning for</span><span class="dl-when" id="dayWhen"></span></div>
+   <div class="dates" id="dates"></div>
+ </div>
  <div class="card arrival" id="arrival"></div>
+
  <div class="card best" id="best"></div>
 
  <div class="sec fold open" data-t="bWx"><span class="sect" id="wxSecLabel">Conditions</span><span class="ssum" id="sumWx"></span><span class="fchev">›</span></div>
@@ -647,23 +663,8 @@ __LOG_CSS__
  <div class="sec fold" data-t="bGen"><span class="sect">Generation schedule</span><span class="ssum" id="sumGen"></span><span class="fchev">›</span></div>
  <div class="secbody" id="bGen"><div class="card gen" id="genc"></div></div>
 
- <div class="sec fold" data-t="bTips"><span class="sect">Guide's take</span><span class="ssum" id="sumTips"></span><span class="fchev">›</span></div>
- <div class="secbody" id="bTips"><div class="card tips" id="tips"></div></div>
-
- <div class="sec fold" data-t="bFb"><span class="sect">Fly box</span><span class="ssum" id="sumFb"></span><span class="fchev">›</span></div>
- <div class="secbody" id="bFb"><div class="card" id="flysel"></div></div>
- <div class="sec fold" data-t="bHatch"><span class="sect">Hatch calendar</span><span class="ssum" id="sumHatch"></span><span class="fchev">›</span></div>
- <div class="secbody" id="bHatch"><div class="card hatch" id="hatch"></div></div>
- <div class="sec fold" data-t="bMoon"><span class="sect">Moon &amp; feeding calendar</span><span class="ssum" id="sumMoon"></span><span class="fchev">›</span></div>
- <div class="secbody" id="bMoon"><div class="card mcal" id="mooncal"></div></div>
- <div id="chatterSec" style="display:none">
-  <div class="sec fold" data-t="bChat"><span class="sect">River chatter</span><span class="ssum" id="sumChat"></span><span class="fchev">›</span></div>
-  <div class="secbody" id="bChat"><div class="card chatter" id="chatter"></div></div>
- </div>
-
  <div class="sec fold open" data-t="bPlan"><span class="sect">Plan &amp; river</span><span class="ssum" id="sumPlan"></span><span class="fchev">›</span></div>
  <div class="secbody open" id="bPlan">
-   <div class="dates" id="dates"></div>
    <div class="planwx" id="planwx"></div>
    <div class="viewtog"><button data-v="sat" class="on">🛰 Satellite</button><button data-v="diagram">📈 Diagram</button></div>
    <div class="card mapcard"><div id="lmap"></div><div class="stage" id="river" style="display:none"><svg id="rsvg" width="620" height="780"></svg></div></div>
@@ -694,6 +695,20 @@ __LOG_CSS__
  <div class="sec fold open" data-t="bCal"><span class="sect">7-day outlook</span><span class="ssum" id="sumCal"></span><span class="fchev">›</span></div>
  <div class="secbody open" id="bCal"><div class="card cal" id="cal"></div></div>
 
+ <div class="sec fold" data-t="bTips"><span class="sect">Guide's take</span><span class="ssum" id="sumTips"></span><span class="fchev">›</span></div>
+ <div class="secbody" id="bTips"><div class="card tips" id="tips"></div></div>
+
+ <div class="sec fold" data-t="bFb"><span class="sect">Fly box</span><span class="ssum" id="sumFb"></span><span class="fchev">›</span></div>
+ <div class="secbody" id="bFb"><div class="card" id="flysel"></div></div>
+ <div class="sec fold" data-t="bHatch"><span class="sect">Hatch calendar</span><span class="ssum" id="sumHatch"></span><span class="fchev">›</span></div>
+ <div class="secbody" id="bHatch"><div class="card hatch" id="hatch"></div></div>
+ <div class="sec fold" data-t="bMoon"><span class="sect">Moon &amp; feeding calendar</span><span class="ssum" id="sumMoon"></span><span class="fchev">›</span></div>
+ <div class="secbody" id="bMoon"><div class="card mcal" id="mooncal"></div></div>
+ <div id="chatterSec" style="display:none">
+  <div class="sec fold" data-t="bChat"><span class="sect">River chatter</span><span class="ssum" id="sumChat"></span><span class="fchev">›</span></div>
+  <div class="secbody" id="bChat"><div class="card chatter" id="chatter"></div></div>
+ </div>
+
  <div class="sec fold" data-t="bLog"><span class="sect">My log</span><span class="ssum" id="sumLog"></span><span class="fchev">›</span></div>
  <div class="secbody" id="bLog"><div class="card logc" id="log"></div></div>
 
@@ -710,7 +725,12 @@ __GENSCHED_JS__
 __ARRIVAL_JS__
 const DATA=__DATA__,P=DATA.points,N=P.length,ICON={wade:'🥾',paddle:'🛶',ramp:'🚤'};
 const COND={wade:{c:'#28c76f',t:'wadeable'},boat:{c:'#0a84ff',t:'prime boat'},high:{c:'#5e5ce6',t:'high & fast'}};
-let mode='drift',fromIdx=0,toIdx=6,launchMin=DATA.launchDefault,dsel=DATA.planDefault,daybase=DATA.planDefault*1440,craft='power';
+// Which day to open on is decided at VIEW time, not build time. This page is static and
+// cached, so a baked-in default goes stale the moment the build ages. Same rule the HQ
+// board uses: before noon you are deciding about today, after noon you are planning the
+// next trip.
+const _openDay=(new Date().getHours()<12)?0:Math.min(1,(DATA.calendar||[]).length-1);
+let mode='drift',fromIdx=0,toIdx=6,launchMin=DATA.launchDefault,dsel=_openDay,daybase=_openDay*1440,craft='power';
 function interp(c,x){if(x<=c[0][0])return c[0][1];for(let i=1;i<c.length;i++){if(x<=c[i][0]){const a=c[i-1],b=c[i];return a[1]+(b[1]-a[1])*(x-a[0])/(b[0]-a[0]);}}const n=c.length,a=c[n-2],b=c[n-1];return b[1]+(b[1]-a[1])*(x-b[0])/(b[0]-a[0]);}
 function depthAt(i,cfs){return P[i].d0+interp(DATA.riseCurve,cfs);}
 // Wade threshold is MEASURED (USGS gaugings, see riverlib.WATER_MODEL) and arrives via
@@ -748,7 +768,7 @@ const GCOL={Prime:'#28c76f',Good:'#0a84ff',Fair:'#f2a832',Tough:'#94a3b1',Great:
  el.innerHTML='<div class="tg" style="background:'+GCOL[t.grade]+'">'+t.grade+'</div>'
    +'<div class="bmid"><div class="bt">Today, '+t.date+' — '+t.verdict+'</div>'
    +'<div class="bb">'+move+' · <b>prime window '+t.window+'</b></div></div><div class="go">plan →</div>';
- el.onclick=()=>{dsel=0;daybase=0;document.querySelectorAll('#dates button').forEach((x,j)=>x.classList.toggle('on',j===0));renderDay();render();document.getElementById('bPlan').scrollIntoView({behavior:'smooth'});};})();
+ el.onclick=()=>{dsel=0;daybase=0;document.querySelectorAll('#dates button').forEach((x,j)=>x.classList.toggle('on',j===0));renderDay();render();markDay();document.getElementById('daybar').scrollIntoView({behavior:'smooth',block:'start'});};})();
 function renderFeed(di){const s=DATA.solDays[di],el=document.getElementById('feed');if(!s){el.innerHTML='<div class="fh">Feeding times</div><div class="fx">unavailable</div>';return;}
  const stars=s.rating!=null?'★'.repeat(Math.max(1,Math.min(5,Math.round(s.rating))))+'☆'.repeat(5-Math.max(1,Math.min(5,Math.round(s.rating)))):'';
  let h='<div class="fh">Feeding times '+(stars?'<span class="stars">'+stars+'</span>':'')+'</div>';
@@ -767,8 +787,15 @@ function renderPlanWx(di){const w=DATA.wxDays[di],s=DATA.solDays[di],g=DATA.gen[
  p.push('⚡ '+(g&&g.windows.length?g.windows.map(x=>x.units+'U '+x.span).join(', '):'min flow all day'));
  el.innerHTML=p.filter(Boolean).join(' &nbsp;·&nbsp; ');}
 function renderGen(){buildGenSchedule('genc',DATA.gen,DATA.genHint,DATA.genLegend,DATA.genOpts);}
-buildArrival('arrival',DATA.arrival);
-function renderDay(){renderPlan();renderWx(dsel);renderFeed(dsel);renderPlanWx(dsel);}
+function renderArrival(){
+  // Anchor to the selected day so the strip stops describing "now" while the rest of the
+  // page describes another day. Today keeps the live ticking countdown.
+  const cfg=Object.assign({},DATA.arrival);
+  if(dsel>0){const d=new Date();d.setDate(d.getDate()+dsel);d.setHours(0,0,0,0);cfg.anchorMs=d.getTime();}
+  buildArrival('arrival',cfg);
+}
+renderArrival();
+function renderDay(){renderPlan();renderWx(dsel);renderFeed(dsel);renderPlanWx(dsel);renderArrival();}
 (function(){let h='';DATA.tips.forEach(t=>h+='<div class="tip"><div class="i">'+t[0]+'</div><div class="x">'+t[1]+'</div></div>');document.getElementById('tips').innerHTML=h;})();
 buildFlyMatrix('flysel',DATA.flysel);
 (function(){const gcol={Prime:'#28c76f',Good:'#0a84ff',Fair:'#f2a832',Tough:'#94a3b1'};
@@ -997,7 +1024,14 @@ document.querySelectorAll('.viewtog button').forEach(b=>b.onclick=()=>{const sat
   render();});
 // date selector — drives the timed plan + the river planner
 (function(){const el=document.getElementById('dates');DATA.calendar.forEach((d,i)=>{const b=document.createElement('button');b.innerHTML=d.label+'<small>'+d.date+'</small>';b.id='dt'+i;if(i===dsel)b.className='on';
- b.onclick=()=>{dsel=i;daybase=i*1440;document.querySelectorAll('#dates button').forEach((x,j)=>x.classList.toggle('on',j===i));renderDay();render();};el.appendChild(b);});})();
+ b.onclick=()=>{dsel=i;daybase=i*1440;document.querySelectorAll('#dates button').forEach((x,j)=>x.classList.toggle('on',j===i));renderDay();render();markDay();};el.appendChild(b);});})();
+// Say which day is in view, and say it loudly when it is not today — everything below the
+// bar changes with this control, so a stale mental model here mis-reads the whole page.
+function markDay(){const d=DATA.calendar[dsel],el=document.getElementById('dayWhen');if(!el)return;
+ const today=(dsel===0);
+ el.textContent=d.label+' '+d.date+(today?'':' \u2014 not today');
+ el.className='dl-when'+(today?'':' notoday');}
+markDay();
 // craft selector — reconfigures the planner for how you're on the water
 const CRAFT={wade:{},raft:{hold:'row to hold with the oars',lo:1000,hi:3000,up:false,verb:'put in up top and drift down onto'},power:{hold:'hold with the trolling motor / oars',lo:1000,hi:4000,up:true,verb:'launch low and motor up to'}};
 function updateControls(){const isWade=craft==='wade';
@@ -1023,7 +1057,7 @@ document.querySelectorAll('.sec.fold').forEach(sec=>{const body=document.getElem
  renderChatter('chatter',DATA.chatter,'chatterSec');
  (function(){var d=DATA.chatter;if(d&&d.posts&&d.posts.length){var n=d.posts.filter(p=>p.new).length;
   document.getElementById('sumChat').textContent=d.posts.length+' recent'+(n?' · '+n+' new':'');}})();
- document.getElementById('sumPlan').textContent='pick a day · craft · drift or work the rise';
+ document.getElementById('sumPlan').textContent='craft · drift or work the rise · timed plan';
  document.getElementById('sumCal').textContent=DATA.calendar[0].label+'–'+DATA.calendar[DATA.calendar.length-1].label;})();
 // --- trip log (shared riverlib component; keeps the legacy caneyLog key) ---
 // R4: hand the log a snapshot fn so each entry records what the TOOL predicted, not just

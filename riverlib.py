@@ -951,6 +951,11 @@ window.__arrivalPick = arrivalPick;
 
 function buildArrival(elId, cfg){
   var el=document.getElementById(elId); if(!el) return;
+  // cfg.anchorMs lets the page point this at a SELECTED day rather than always at now.
+  // Without it the strip showed a live countdown while the rest of the page described a
+  // different day — the one component that silently ignored the day picker.
+  var ANCHOR=function(){ return (cfg.anchorMs!=null)?cfg.anchorMs:Date.now(); };
+  var LIVE=function(){ return cfg.anchorMs==null; };
   if(!cfg || !cfg.validated || !cfg.rel || !cfg.spots || !cfg.spots.length){ el.style.display='none'; return; }
   var KEY='arrivalSpot:'+(cfg.id||'river'), LKEY='arrivalLead';
   function pref(k,d){ try{ var v=localStorage.getItem(k); return v==null?d:v; }catch(e){ return d; } }
@@ -987,7 +992,7 @@ function buildArrival(elId, cfg){
   }
 
   function paint(){
-    var spot=cfg.spots[spotIx], r=arrivalPick(cfg.rel, spot.mfd, cfg.mph, Date.now());
+    var spot=cfg.spots[spotIx], r=arrivalPick(cfg.rel, spot.mfd, cfg.mph, ANCHOR());
     var opts=cfg.spots.map(function(s,i){
       return '<option value="'+i+'"'+(i===spotIx?' selected':'')+'>'+s.name+' · '+s.mfd+' mi</option>'; }).join('');
     var leadOpts=[30,45,60,90].map(function(m){
@@ -995,9 +1000,11 @@ function buildArrival(elId, cfg){
 
     var cls='card arrival', big, sub, act='', win='';
     if(r.state==='upcoming'){
-      var away=r.arrival-Date.now()/1000;
+      var away=r.arrival-ANCHOR()/1000;
       big='Water reaches '+spot.name+'<br>at '+fmtClock(r.arrival)+dayWord(r.arrival);
-      sub='<span class="arcount">'+dur(away)+'</span> from now'+(r.gen?' · release already running':'');
+      sub=LIVE()
+        ? ('<span class="arcount">'+dur(away)+'</span> from now'+(r.gen?' · release already running':''))
+        : ('<span class="arcount">'+dur(away)+'</span> after the release starts · scheduled, not live');
       act='<button id="arIcs">⏰ Set phone alarm</button>';
       win='Release '+fmtClock(r.win[0])+'–'+fmtClock(r.win[1])+' · peak '+Math.round(r.win[2]).toLocaleString()+' cfs';
     } else if(r.state==='arrived'){
@@ -1034,7 +1041,7 @@ function buildArrival(elId, cfg){
     };
   }
   paint();
-  setInterval(paint, 30000);
+  if(LIVE()) setInterval(paint, 30000);   // only tick when it is actually live
 }
 """
 

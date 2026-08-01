@@ -483,6 +483,50 @@ console.log('── caney planner: reachability + arrival consistency ──');
   await pg.close();
 }
 
+
+// ── Caney layout: the day picker must sit above what it controls ──
+// It used to live inside "Plan & river", six collapsed sections BELOW the weather and feed
+// it re-renders — so you changed the day and the effect happened off-screen.
+console.log('── caney layout: day picker placement ──');
+{
+  const pg = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const errs = [];
+  pg.on('pageerror', e => errs.push(String(e)));
+  await pg.goto(url('caney.html'), { timeout: 20000 });
+  await pg.waitForTimeout(1200);
+
+  const pos = await pg.evaluate(() => {
+    const y = s => { const e = document.querySelector(s); return e ? e.getBoundingClientRect().top : null; };
+    const order = [...document.querySelectorAll('.app > .sec.fold')].map(e => e.dataset.t);
+    return { day: y('#daybar'), now: y('#nowstrip'), arr: y('#arrival'), wx: y('#bWx'), order };
+  });
+  assert('day picker is above the fold on a phone', pos.day !== null && pos.day < 844, 'top ' + pos.day);
+  assert('day picker sits above everything it re-renders',
+    pos.day < pos.wx && pos.day < pos.arr, JSON.stringify(pos));
+  assert('"right now" stays above the picker (now is always today)', pos.now < pos.day);
+  assert('day-scoped sections are contiguous under the picker',
+    pos.order.slice(0, 4).join(',') === 'bWx,bGen,bPlan,bCal', pos.order.join(','));
+
+  // it must stay reachable once you are deep in the page
+  await pg.evaluate(() => window.scrollTo(0, 1800));
+  await pg.waitForTimeout(250);
+  const stuck = await pg.$eval('#daybar', e => e.getBoundingClientRect().top);
+  assert('day picker stays pinned when scrolled', stuck < 80, 'top ' + stuck);
+
+  // changing the day must move the weather card, not just the planner
+  await pg.evaluate(() => window.scrollTo(0, 0));
+  await pg.waitForTimeout(150);
+  const before = await pg.$eval('#wx', e => e.innerText);
+  await pg.evaluate(() => { const b = document.querySelectorAll('#dates button'); (b[3] || b[1]).click(); });
+  await pg.waitForTimeout(350);
+  const after = await pg.$eval('#wx', e => e.innerText);
+  assert('changing the day updates the weather card', before !== after, 'weather did not change');
+  const lbl = await pg.$eval('#dayWhen', e => e.textContent);
+  assert('a non-today selection is labelled as such', /not today/.test(lbl), lbl);
+  assert('no JS errors in the layout pass', errs.length === 0, errs.join(' | '));
+  await pg.close();
+}
+
 await browser.close();
 console.log('');
 if (fails) { console.log(`\x1b[31mFAILED ${fails} check(s)\x1b[0m`); process.exit(1); }
