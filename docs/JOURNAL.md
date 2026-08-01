@@ -9,6 +9,64 @@ belongs to a commit goes in the commit message. This file is for *state and inte
 
 ---
 
+## 2026-08-01 (later) — Timed plan rebuilt per craft; wade scoring corrected
+
+**Correction to the entry below.** That entry claims "dawn is the worst time to wade Caney".
+That is true **at Stonewall** and false for the rest of the river, and the wade window I shipped
+with it was wrong. `_sc_window` measured wadeability at Stonewall alone (mfd 15) and reported it
+as the day's window. Modelled hour by hour, per access:
+
+```
+                 mfd   6a  7a  8a  9a 10a 11a 12p  1p  2p  3p  4p  5p
+Long Branch      0.0    w   w   w   w   w   w   w   .   .   .   .   .
+Lancaster        2.5    w   w   w   w   w   w   w   ~   .   .   .   .
+Happy Hollow     6.0    w   w   w   w   w   w   w   w   ~   .   .   .
+Betty's Island   9.0    w   w   w   w   w   w   w   w   w   ~   .   .
+Stonewall       15.0    .   .   .   ~   ~   ~   ~   w   w   w   ~   .
+```
+
+The upper bars wade from first light; Stonewall only opens as the previous evening's release
+finally clears it. Wadeability is a property of a **place**, not of the river. Wade Level and
+Window now read the whole reach (`WADE_SPOTS`, `wade_open()`), and the window names where as
+well as when. The 14-day gauge climatology in the entry below is still correct — it is a
+Stonewall gauge, so it only ever described Stonewall.
+
+**The timed plan was one narrative that assumed a powerboat and then told you to wade.** Every
+day opened "launch at Stonewall and run up" (powerboat), continued "wade the bars" (on foot),
+and closed "hold on the rise on the oars" (drift boat) — three craft in one plan, none of them
+the one selected. It is now written per craft off one organising fact, that the bump walks
+downstream at ~2.5 mph:
+
+- **wade** — retreat downstream ahead of the rise; each spot closing means *move down*, not go home
+- **power** — run up and meet the rise, then ride it back down
+- **float** — put in above it and let it catch you
+
+Also added: a thunderstorm step that sorts ahead of fishing advice in its hour and a matching
+"storms should be through" step; the falling limb (when the tail passes and the river drops out);
+all release blocks in a day rather than only the first; `DRIFT_SWEET` as one named constant
+instead of "1,500–3,000" retyped into prose.
+
+**Two bugs found on the way, both pre-existing:**
+
+1. `gen_windows()` closed a still-open run *at its own start timestamp*, so whenever the last
+   forecast sample was generating it emitted a zero-length release window. The timed plan would
+   have generated arrival steps for a release with no duration. Now closes an hour later (each
+   sample stands for the hour it opens) and degenerate windows are dropped.
+2. `verify.py` divided all three Cumberland tailraces by 6,500 cfs/unit. Old Hickory is 6,500,
+   Cheatham 9,000, Cordell Hull 8,000 — so Cordell's perfectly consistent "2 units / 16,330 cfs"
+   (16,330/8,000 = 2.04) failed. Now reads each river's own published `relUnit`.
+
+**A test encoded the wrong conclusion.** "wade verdict does not promise dawn on a generating day"
+was written from the Stonewall-only finding and started failing once the reach-aware model
+correctly said dawn. Replaced with the weaker, true invariant: the verdict must agree with the
+computed window, whichever way it falls. Worth remembering that a test written in the same
+breath as a conclusion inherits its errors.
+
+**Open:** `DRIFT_SWEET` (1,500–3,000 cfs) is guide practice with no measurement behind it —
+flagged in the code, unlike `WATER_MPH` and `CALIB_BASEFLOW` which are backtested.
+
+---
+
 ## 2026-08-01 — Day scoring reweighted, and scored per craft
 
 Started from "why is Tue labelled Tough?" The breakdown built to answer that immediately

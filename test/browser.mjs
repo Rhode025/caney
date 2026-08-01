@@ -752,6 +752,51 @@ console.log('── caney outlook: craft-aware scoring ──');
   await pg.close();
 }
 
+console.log('── caney timed plan: craft-aware ──');
+{
+  const pg = await browser.newPage({ viewport: { width: 390, height: 900 } });
+  const errs = [];
+  pg.on('pageerror', e => errs.push(String(e)));
+  await pg.goto(url('caney.html'), { timeout: 20000 });
+  await pg.waitForTimeout(1200);
+  await pg.evaluate(() => document.querySelectorAll('.secbody').forEach(e => e.classList.add('open')));
+  await pg.waitForTimeout(200);
+
+  const seen = {};
+  for (const c of ['wade', 'raft', 'power']) {
+    await pg.evaluate(k => setCraft(k), c);
+    await pg.waitForTimeout(300);
+    seen[c] = await pg.$eval('#itin', e => e.innerText);
+    assert(`the timed plan renders for ${c}`, seen[c].trim().length > 40, seen[c].slice(0, 60));
+  }
+  assert('each craft gets a different timed plan',
+    seen.wade !== seen.power && seen.power !== seen.raft && seen.wade !== seen.raft);
+  assert('the plan header names the craft',
+    /Powerboat/.test(await pg.$eval('#planh', e => e.textContent)));
+
+  // craft language must not bleed across plans -- the whole reason this was rebuilt
+  assert('the wade plan never tells you to launch a boat',
+    !/\blaunch\b|\brun up\b/i.test(seen.wade), seen.wade.slice(0, 120));
+  assert('the powerboat plan never tells you to wade',
+    !/\bwade\b|\bwading\b/i.test(seen.power), seen.power.slice(0, 120));
+
+  // switching craft in the planner must move the plan too
+  await pg.click('#crafts button[data-c="wade"]');
+  await pg.waitForTimeout(300);
+  assert('the planner craft buttons move the timed plan',
+    (await pg.$eval('#itin', e => e.innerText)) === seen.wade);
+
+  // and switching the DAY must keep the craft
+  await pg.evaluate(() => { const b = document.querySelectorAll('#dates button'); if (b[2]) b[2].click(); });
+  await pg.waitForTimeout(400);
+  assert('changing day keeps the selected craft',
+    /Wade/.test(await pg.$eval('#planh', e => e.textContent)),
+    await pg.$eval('#planh', e => e.textContent));
+
+  assert('no JS errors in the timed plan', errs.length === 0, errs.join(' | '));
+  await pg.close();
+}
+
 await browser.close();
 console.log('');
 if (fails) { console.log(`\x1b[31mFAILED ${fails} check(s)\x1b[0m`); process.exit(1); }

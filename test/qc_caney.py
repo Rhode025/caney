@@ -157,27 +157,45 @@ try:
         _m=_re.search(r"^def %s\([^\n]*\n(?:[ \t][^\n]*\n|[ \t]*\n)*"%_re.escape(_fn),_src,_re.M)
         if _m: exec(_m.group(0),_ns)
     _ns["_WM"]=_ns["riverlib"].WATER_MODEL["caney"]
+    # Wade scoring now reads the whole reach via wade_open(), which needs live ACCESS geometry
+    # and the flow model. Stub a uniform 7-spot reach and smuggle the test flow in through the
+    # d0 argument, so the CURVE can still be probed without touching the network.
+    _ns["WADE_SPOTS"]=[{"name":"S%d"%i,"mfd":i*2.5} for i in range(7)]
+    def _stub_open(_q,_h):
+        _M=_ns["_WM"]
+        if _q<=_M["wade_ok"]: _w=1.0
+        elif _q<=_M["wade_marginal"]: _w=_ns["_lerp"](_q,_M["wade_ok"],_M["wade_marginal"],1.0,0.45)
+        else: return []
+        return [(s,_q,_w) for s in _ns["WADE_SPOTS"]]
+    _ns["wade_open"]=_stub_open
+    _ns["_where"]=lambda o: "the whole reach" if o else ""
+    _ns["_ap12"]=lambda h: "%dpm"%h
     _lv=_ns.get("_sc_level"); _cl=_ns.get("_sc_clarity"); _sw=_ns.get("_sc_weather")
 except Exception as e:
     chk("scoring helpers are probeable", False, str(e))
 
 if _lv:
     f=lambda c,lo,hi: _lv(c,lo,hi)[0]
+    fw=lambda q: _lv("wade",q,q,q,6,6)[0]          # d0 carries the reach flow for the stub
     # direction: minimum flow favours the wader, hurts the jet boat
-    chk("minimum flow: wade beats powerboat", f("wade",250,600)>f("power",250,600),
-        "wade %.2f vs power %.2f"%(f("wade",250,600),f("power",250,600)))
+    chk("minimum flow: wade beats powerboat", fw(250)>f("power",250,600),
+        "wade %.2f vs power %.2f"%(fw(250),f("power",250,600)))
     # direction: a big release favours the boat, ends wading
-    chk("heavy release: powerboat beats wade", f("power",4000,7000)>f("wade",4000,7000),
-        "power %.2f vs wade %.2f"%(f("power",4000,7000),f("wade",4000,7000)))
-    # wade score must fall monotonically as the day's LOW rises
-    _w=[f("wade",lo,9000) for lo in (200,400,600,900,1400)]
-    chk("wade score falls monotonically with the day's low", all(_w[i]>=_w[i+1] for i in range(len(_w)-1)), str(_w))
+    chk("heavy release: powerboat beats wade", f("power",4000,7000)>fw(4000),
+        "power %.2f vs wade %.2f"%(f("power",4000,7000),fw(4000)))
+    # wade score must fall monotonically as the reach comes up
+    _w=[fw(q) for q in (200,400,500,600,900,1400)]
+    chk("wade score falls monotonically as the reach rises", all(_w[i]>=_w[i+1] for i in range(len(_w)-1)), str(_w))
+    chk("a wadeable reach scores well", fw(300)>=0.9, "%.2f"%fw(300))
+    chk("an unwadeable reach scores near zero", fw(1200)<=0.05, "%.2f"%fw(1200))
     # a blown-out river is bad for everyone
-    for c in ("wade","raft","power"):
+    for c in ("raft","power"):
         chk("blown out is poor for %s"%c, f(c,9000,16000)<0.5, "%.2f"%f(c,9000,16000))
+    chk("blown out is poor for wade", fw(9000)<0.5, "%.2f"%fw(9000))
     # every craft, every plausible flow: bounded 0..1
     chk("level score stays in range", all(0.0<=f(c,lo,hi)<=1.0
-        for c in ("wade","raft","power") for lo in (200,500,1200,5000,12000) for hi in (600,3000,8000,20000) if hi>=lo))
+        for c in ("raft","power") for lo in (200,500,1200,5000,12000) for hi in (600,3000,8000,20000) if hi>=lo)
+        and all(0.0<=fw(q)<=1.0 for q in (200,400,600,1200,5000,12000)))
     # clarity is monotone in antecedent rain
     _c=[_cl(r)[0] for r in (0.0,0.2,0.6,1.5,3.0)]
     chk("clarity falls monotonically with recent rain", all(_c[i]>=_c[i+1] for i in range(len(_c)-1)), str(_c))
@@ -197,22 +215,83 @@ if _lv:
 # light, so the wadeable window is a MIDDAY LULL. The page used to advise "wade dawn to the
 # bump" on every generating day, which is exactly backwards. Guard both halves: the verdict must
 # agree with the computed window, and it must never send someone to wade at dawn on a gen day.
+import re as _re2
 for _d in D['week']:
     _b=_d['byCraft']['wade']; _w=next(p for p in _b['why']['parts'] if p['k']=='Window')
     _v=_b['verdict']
     if _d['units'] and _w['pts']>0:
-        chk("wade verdict does not promise dawn on a generating day: "+_d['label'],
-            'dawn' not in _v.lower() or 'dawn to' not in _v.lower() or _w['why'].startswith('every'),
-            _v+" | "+_w['why'])
+        _sr=int(((D['wxDays'][_d['i']] or {}).get('sunrise') or '06:00')[:2])
+        _first=_re2.search(r'(\d{1,2})(am|pm)',_w['why']) if _re2 else None
+        if 'dawn' in _v.lower() and _first:
+            _fh=int(_first.group(1))%12+(12 if _first.group(2)=='pm' else 0)
+            chk("verdict says dawn only when the window starts at first light: "+_d['label'],
+                abs(_fh-_sr)<=1, "window starts %s, sunrise %02d:00"%(_first.group(0),_sr))
         # any clock time in the ACTION half of the verdict must appear in the computed window.
         # The limiter half ("Storms 5pm-6pm . ...") names the storm, not the wade window.
-        import re as _re2
         _act=_v.split(' \u00b7 ')[-1]
         _ts=_re2.findall(r'\d{1,2}(?:am|pm)',_act)
         chk("wade verdict times come from the computed window: "+_d['label'],
             all(t in _w['why'] for t in _ts), _act+" | "+_w['why'])
     chk("wade window is internally consistent: "+_d['label'],
         (_w['pts']==0)==(_w['why'].startswith('no daylight hour')), _w['why'])
+
+# ---- timed plan ----
+# The plan used to be one narrative that assumed a powerboat and then told you to wade: every
+# day opened "launch at Stonewall and run up", continued "wade the bars", and finished "on the
+# oars" -- three craft in one plan, none of them chosen by the user. It is now per craft.
+import re as _rp
+_STRIP=lambda x:_rp.sub('<[^>]+>','',x)
+_WADEMAX=600     # riverlib.WATER_MODEL['caney']['wade_marginal']
+for _c in D['craftOrder']:
+    for _i,_cal in enumerate(D['calendar']):
+        _sb=(_cal.get('stepsBy') or {}).get(_c)
+        chk("every day has a %s plan: day %d"%(_c,_i), bool(_sb))
+        if not _sb: continue
+        _txt=" ".join(_STRIP(x['x']) for x in _sb)
+        # craft language must not bleed across plans
+        if _c=='wade':
+            chk("wade plan never says launch/run up: day %d"%_i,
+                not _rp.search(r'\blaunch\b|\brun up\b|\bon the oars\b|take-out',_txt,_rp.I), _txt[:120])
+            # every spot the wade plan sends you to must actually be wadeable
+            for _m in _rp.finditer(r'Drop down to ([A-Za-z0-9 .\'→-]+?) \(~([\d,]+) cfs\)',_txt):
+                _q=int(_m.group(2).replace(',',''))
+                chk("wade plan only sends you to wadeable water: day %d %s"%(_i,_m.group(1).strip()),
+                    _q<=_WADEMAX, "%s cfs"%_m.group(2))
+            # and it must not tell you to keep fishing after saying the water is gone
+            _idx=[n for n,x in enumerate(_sb) if 'last wadeable water gone' in _STRIP(x['x'])]
+            if _idx:
+                _after=[_STRIP(x['x']) for x in _sb[_idx[0]+1:]]
+                chk("nothing follows 'out of the river' but safety/dusk: day %d"%_i,
+                    all(('Storm' in a or 'storm' in a or 'Last light' in a) for a in _after), " | ".join(_after)[:140])
+        if _c=='raft':
+            chk("float plan never instructs running back up: day %d"%_i,
+                not _rp.search(r"(?<!can't )(?<!cannot )run back up",_txt,_rp.I), _txt[:120])
+        if _c=='power':
+            chk("powerboat plan does not tell you to wade: day %d"%_i,
+                not _rp.search(r'\bwade\b|\bwading\b',_txt,_rp.I), _txt[:120])
+        # a plan must read as a sequence: ordered, no repeats
+        def _mins(t):
+            m=_rp.match(r'(\d+):(\d+)(am|pm)',t)
+            if not m: return None
+            hh=int(m.group(1))%12+(12 if m.group(3)=='pm' else 0)
+            return hh*60+int(m.group(2))
+        _ts=[_mins(x['t']) for x in _sb]
+        chk("%s plan is in time order: day %d"%(_c,_i),
+            all(a is not None and b is not None and a<=b for a,b in zip(_ts,_ts[1:])), str([x['t'] for x in _sb]))
+        chk("%s plan has no repeated step: day %d"%(_c,_i),
+            len({_STRIP(x['x']) for x in _sb})==len(_sb))
+        # storms are a safety gate: they must be present and must sort first in their hour
+        if D['week'][_i].get('storm'):
+            _si=[n for n,x in enumerate(_sb) if 'Storms due' in _STRIP(x['x'])]
+            chk("storm day carries a storm warning: %s day %d"%(_c,_i), bool(_si))
+            if _si:
+                n=_si[0]
+                _same=[m for m,x in enumerate(_sb) if x['t']==_sb[n]['t']]
+                chk("storm warning sorts first in its hour: %s day %d"%(_c,_i), n==min(_same),
+                    str([_sb[m]['t'] for m in _same]))
+        else:
+            chk("no storm warning on a storm-free day: %s day %d"%(_c,_i),
+                'Storms due' not in _txt)
 
 print("QC LAYER A — DATA integrity")
 print("  passed : %d"%len(OK))

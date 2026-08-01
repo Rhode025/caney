@@ -182,8 +182,13 @@ def gen_windows():
         if v>=800 and run is None: run,pk=k,v
         elif v>=800: pk=max(pk,v)
         elif run is not None: res.append((run,k,pk)); run=None
-    if run is not None: res.append((run,sorted(dam)[-1],pk))
-    return res
+    # A run still open at the end of the forecast was closed AT its own start timestamp,
+    # producing a zero-length window (start==end) whenever the last sample happened to be
+    # generating. Each sample stands for the hour it opens, so the run ends an hour after the
+    # last one. Degenerate windows are dropped outright: a release with no duration has no water
+    # in it, and the timed plan would still emit arrival steps for a release that never happens.
+    if run is not None: res.append((run,sorted(dam)[-1]+3600,pk))
+    return [w for w in res if w[1]>w[0]]
 GW=gen_windows()
 def unit_ct(v): return max(0,round(((v or 0)-250)/3650))
 def ramp_blocks(d0,d1):   # merge consecutive hours by unit count -> the actual 1->2->3->2->1 ramp
@@ -244,7 +249,7 @@ def wx_pack(day):
                 except Exception: pass
     return {"hi":round(g("temperature_2m_max")) if di is not None else None,"lo":round(g("temperature_2m_min")) if di is not None else None,
             "sunrise":(g("sunrise") or "")[11:16],"sunset":(g("sunset") or "")[11:16],"pressure":ptr,"snaps":snaps,"precipMax":g("precipitation_probability_max"),
-            "storm":bool(storm_hrs),"stormSpan":("%s–%s"%(_ap12(storm_hrs[0]),_ap12(storm_hrs[-1]+1)) if storm_hrs else None),
+            "storm":bool(storm_hrs),"stormFrom":(storm_hrs[0] if storm_hrs else None),"stormTo":((storm_hrs[-1]+1) if storm_hrs else None),"stormSpan":("%s–%s"%(_ap12(storm_hrs[0]),_ap12(storm_hrs[-1]+1)) if storm_hrs else None),
             "gust":gust,"rain":round(g("precipitation_sum") or 0,2) if di is not None else 0,"rain3":round(rain3,2)}
 WXDAYS=[wx_pack(now_ct.date()+datetime.timedelta(days=di)) for di in range(7)]
 WX=WXDAYS[1]
@@ -390,43 +395,193 @@ def _daysun(d):
     return _hm2ep(d,None,6),_hm2ep(d,None,20)
 # the wade-fishing tour, upstream -> downstream (the bars you actually work)
 TOUR=[s for nm in ["Lancaster","Happy Hollow","Betty's Island","Stonewall"] for s in ACCESS if s["name"]==nm]
-def day_steps(d):
-    sr,ss=_daysun(d); k0=hr_key(sr); k1=hr_key(ss)
+_WM=riverlib.WATER_MODEL["caney"]
+def _lerp(x,x0,x1,y0,y1):
+    if x1==x0: return y0
+    return y0+(y1-y0)*max(0.0,min(1.0,(x-x0)/(x1-x0)))
+def _cf(n): return format(int(round(n)),",")
+
+# Wade-capable accesses in the trout reach, upstream -> downstream. Wadeability is per PLACE:
+# the upper bars clear hours before Stonewall does, because Stonewall is 15 miles down and still
+# passing last night's release at first light.
+WADE_SPOTS=[s for s in ACCESS if s.get("reach")=="trout" and "wade" in s.get("types",[])]
+WADE_SPOTS.sort(key=lambda s:s["mfd"])
+def wade_open(d0,h):
+    """Which wade spots are in range at hour h -> [(spot, cfs, quality 0..1)] upstream-first."""
+    out=[]
+    for s in WADE_SPOTS:
+        q=flow_at(s,d0+h*3600)
+        if q is None: continue
+        if q<=_WM["wade_ok"]: out.append((s,q,1.0))
+        elif q<=_WM["wade_marginal"]: out.append((s,q,_lerp(q,_WM["wade_ok"],_WM["wade_marginal"],1.0,0.45)))
+    return out
+def _where(open_):
+    """Name a run of open spots the way you would say it out loud."""
+    if not open_: return ""
+    ns=[s["name"] for s,_,_ in open_]
+    if len(ns)==1: return ns[0]
+    if len(ns)==len(WADE_SPOTS): return "the whole reach"
+    return "%s\u2192%s"%(ns[0],ns[-1])
+
+
+CRAFTS=["wade","raft","power"]
+CRAFT_NAME={"wade":"Wade","raft":"Float","power":"Powerboat"}
+CRAFT_ICO={"wade":"\U0001f97e","raft":"\U0001f6f6","power":"\U0001f6a4"}
+SCORE_W={"wade": {"Level":35,"Clarity":20,"Weather":25,"Window":10,"Moon":10},
+         "raft": {"Level":35,"Clarity":18,"Weather":27,"Window":10,"Moon":10},
+         "power":{"Level":35,"Clarity":15,"Weather":30,"Window":10,"Moon":10}}
+
+# ---------------------------------------------------------------------------
+# The timed plan.
+#
+# Rebuilt from a single-narrative version that assumed a powerboat and then told you to wade.
+# Every day opened "launch at Stonewall and run up" (a powerboat move), continued "wade the
+# bars" (on foot), and finished "hold on the rise on the oars" (a drift boat) -- three
+# different craft in one plan, none of which the user had chosen.
+#
+# It is now written per craft, and the page shows the one matching the craft toggle.
+#
+# The organising fact is that the bump WALKS DOWNSTREAM at ~2.5 mph, so the river is a
+# different river at each mile at each hour. That single fact reads three ways:
+#   wade  -- retreat downstream ahead of the rise; you get pushed off the top first
+#   power -- run up and MEET the rise, then ride it back down
+#   float -- put in above it and let it catch you
+#
+# Drift band: the flow window where a boat covers water at a fishable speed instead of racing
+# through it. This is guide practice, NOT backtested -- unlike WATER_MPH and CALIB_BASEFLOW it
+# carries no measurement behind it, so it is stated once here and quoted from this constant
+# rather than retyped into prose (see the "no hardcoded calibrated numbers" invariant).
+DRIFT_SWEET=(1500,3000)
+def _band(t): return "%s–%s cfs"%(_cf(t[0]),_cf(t[1]))
+def _wxfor(d):
+    i=(d-now_ct.date()).days
+    return (WXDAYS[i] or {}) if 0<=i<len(WXDAYS) else {}
+
+def day_steps(d,craft="power"):
+    sr,ss=_daysun(d); k0=hr_key(sr); k1=hr_key(ss); d0=ep(d,0)
+    h0=datetime.datetime.fromtimestamp(sr,CT).hour; h1=datetime.datetime.fromtimestamp(ss,CT).hour
+    wxd=_wxfor(d)
     def fl(s,k): return flow_at(s,k) or 0
-    def rise(s):                       # the bump's leading edge arrives — the backtested ~2.5-mph rule, not the
-        # kernel's dispersed crossing (which runs early on big releases). Leading edge reaches s at
-        # release-start + (miles-from-dam)/2.5 mph: Happy Hollow ~2½h, Betty's ~3½h, Stonewall ~6h.
-        on=next(((a,b,pk) for a,b,pk in GW if k0-2*3600<=a<=k1),None)
-        if not on: return None
-        t=hr_key(on[0]+travel_h(s["mfd"])*3600)
-        return t if t<=k1+2*3600 else None
-    km=k0+2*3600; sflow=fl(_st,k0)
-    srw=[s for s in TOUR if condp(s,fl(s,k0))=="wade"]      # wadeable at first light
-    mw=[s for s in TOUR if condp(s,fl(s,km))=="wade"]        # wadeable a couple hrs in (after carryover drains)
     ev=[]
-    if srw:
-        s0="First light — launch at <b>Stonewall</b> (~%0.0f cfs) and run up. Wade the bars top-down: <b>%s</b> — the upper spots take the bump first, so fish down through the morning."%(sflow," → ".join(s["name"] for s in srw))
-    elif mw:
-        s0="First light — launch at <b>Stonewall</b> (~%0.0f cfs). Overnight water is still draining; as it drops out mid-morning, wade the bars top-down: <b>%s</b>."%(sflow," → ".join(s["name"] for s in mw))
-    else:
-        s0="First light — launch at <b>Stonewall</b> (~%0.0f cfs). The reach is boat water — fish from the boat: streamers on the swing, nymph the seams."%sflow
-    ev.append((k0,fmt_hm(sr),s0))
-    gen=False
-    for a,b,pk in GW:
-        if k0<=a<=k1: gen=True; ev.append((a,fmt_hm(a),"%d-unit release starts at Center Hill — get on the leading edge up top and ride it down."%units(pk)))
-    rises=sorted([(c,s) for c,s in ((rise(s),s) for s in TOUR) if c is not None],key=lambda e:e[0])
-    for n,(c,s) in enumerate(rises):
-        if n<len(rises)-1:
-            tx="Leading edge at <b>%s</b> (~%0.0f cfs) — hold on the rise in the sweet 1,500–3,000 cfs (on the oars) and drift down with it toward <b>%s</b>; no need to stop unless it goes flat."%(s["name"],fl(s,c),rises[n+1][1]["name"])
+    # Every release block that can still matter today: one that started up to 6 h before first
+    # light is a block whose water is only now reaching the lower reach. The old code took the
+    # FIRST block in a fixed window and ignored any second release of the day.
+    blocks=[(a,b,pk) for a,b,pk in GW if not(b<=k0-8*3600 or a>=k1)]
+    onday=[(a,b,pk) for a,b,pk in blocks if k0<=a<=k1]
+    def arrivals(spots):
+        """(arrival epoch, spot, cfs) for each spot, for whichever block reaches it first today."""
+        out=[]
+        for s in spots:
+            best=None
+            for a,b,pk in blocks:
+                t=hr_key(a+travel_h(s["mfd"])*3600)
+                if k0-3600<=t<=k1+2*3600 and (best is None or t<best): best=t
+            if best is not None: out.append((best,s,fl(s,best)))
+        return sorted(out,key=lambda e:e[0])
+
+    if craft=="wade":
+        # --- where can you actually stand, and when does that change? ---
+        op0=wade_open(d0,h0)
+        if op0:
+            _last=op0[-1][0]["name"]
+            ev.append((k0,fmt_hm(sr),"First light — the upper bars are already in range. Start at <b>%s</b> (~%s cfs)%s; the top takes the bump first, so fishing downstream keeps you ahead of it."
+                       %(op0[0][0]["name"],_cf(op0[0][1]),
+                         (" and work down toward <b>%s</b>"%_last) if _last!=op0[0][0]["name"] else "")))
         else:
-            tx="Edge reaches <b>%s</b> (~%0.0f cfs) — ride it out fishing the prime water down to the take-out."%(s["name"],fl(s,c))
-        ev.append((c,fmt_hm(c),tx))
-    if not gen and not rises:
-        ev.append((hr_key(ss)-3600,fmt_hm(ss-3600),"Low and clear all day — no bump coming, so work the bars top-to-bottom (%s) at your own pace; the last hour at dusk is prime (caddis/sulphurs)."%", ".join(s["name"] for s in TOUR)))
-    ev.append((ss+1,fmt_hm(ss),"Last light — off the water."))
-    ev.sort(key=lambda e:e[0]); return [{"t":e[1],"x":e[2]} for e in ev]
-for _i in range(7): cal[_i]["steps"]=day_steps(now_ct.date()+datetime.timedelta(days=_i))
-itin_steps=day_steps(tom)
+            nxt=next((h for h in range(h0,h1+1) if wade_open(d0,h)),None)
+            if nxt is None:
+                ev.append((k0,fmt_hm(sr),"First light — nothing in the reach drops into wading range today (~%s cfs at <b>%s</b>). This is a boat day."
+                           %(_cf(fl(WADE_SPOTS[0],k0)),WADE_SPOTS[0]["name"])))
+            else:
+                op=wade_open(d0,nxt)
+                ev.append((k0,fmt_hm(sr),"First light — still too much water to wade (~%s cfs at <b>%s</b>): last night's release is still running through. It drops into range around <b>%s</b>."
+                           %(_cf(fl(WADE_SPOTS[0],k0)),WADE_SPOTS[0]["name"],_ap12(nxt))))
+                ev.append((d0+nxt*3600,fmt_hm(d0+nxt*3600),"<b>%s</b> comes into range (~%s cfs) — get in and fish up."%(op[0][0]["name"],_cf(op[0][1]))))
+        # A spot closing is the actionable moment: it means move DOWN, not go home. All the spots
+        # that close in the same hour are ONE instruction -- emitting them separately produced
+        # four consecutive steps at 1pm all saying "drop down to Betty's Island".
+        prev={s["name"]:bool([x for x in wade_open(d0,h0) if x[0]["name"]==s["name"]]) for s in WADE_SPOTS}
+        for h in range(h0+1,h1+1):
+            k=d0+h*3600
+            nm={s["name"] for s,_,_ in wade_open(d0,h)}
+            closed=[s for s in WADE_SPOTS if prev[s["name"]] and s["name"] not in nm]
+            opened=[s for s in WADE_SPOTS if (not prev[s["name"]]) and s["name"] in nm and s["mfd"]>=12]
+            if closed:
+                lbl=closed[0]["name"] if len(closed)==1 else "%s\u2192%s"%(closed[0]["name"],closed[-1]["name"])
+                verb="is" if len(closed)==1 else "are"
+                below=[x for x in wade_open(d0,h) if x[0]["mfd"]>max(c["mfd"] for c in closed)]
+                if below:
+                    ev.append((k,fmt_hm(k),"<b>%s</b> %s coming up (~%s cfs) — the rise is here. Drop down to <b>%s</b> (~%s cfs) and keep fishing ahead of it."
+                               %(lbl,verb,_cf(fl(closed[-1],k)),below[0][0]["name"],_cf(below[0][1]))))
+                else:
+                    ev.append((k,fmt_hm(k),"<b>%s</b> %s coming up (~%s cfs) — that's the last wadeable water gone. Out of the river."%(lbl,verb,_cf(fl(closed[-1],k)))))
+            for s2 in opened:
+                ev.append((k,fmt_hm(k),"<b>%s</b> drops into wading range (~%s cfs) — the lower reach opens up while the top stays high."%(s2["name"],_cf(fl(s2,k)))))
+            for s2 in WADE_SPOTS: prev[s2["name"]]=s2["name"] in nm
+        for a,b,pk in onday:
+            hh=next((s for s in WADE_SPOTS if s["mfd"]>=2),WADE_SPOTS[0])
+            ev.append((a,fmt_hm(a),"%d-unit release starts at Center Hill — the leading edge reaches <b>%s</b> about %s."
+                       %(units(pk),hh["name"],fmt_hm(hr_key(a+travel_h(hh["mfd"])*3600)))))
+
+    elif craft=="power":
+        ev.append((k0,fmt_hm(sr),"First light — launch at <b>%s</b> (~%s cfs) and run up. Fish the seams on the way; you want to be up top before the release."
+                   %(_st["name"],_cf(fl(_st,k0)))))
+        for a,b,pk in onday:
+            ev.append((a,fmt_hm(a),"%d-unit release starts at Center Hill — be up top by now and get on the leading edge as it comes."%units(pk)))
+        rs=arrivals(TOUR)
+        for n,(c,s,q) in enumerate(rs):
+            if n<len(rs)-1:
+                ev.append((c,fmt_hm(c),"Leading edge at <b>%s</b> (~%s cfs) — hold on the front and work down with it toward <b>%s</b>.%s"
+                           %(s["name"],_cf(q),rs[n+1][1]["name"]," It fishes best in the %s band; if it flattens out, run back up and meet it again."%_band(DRIFT_SWEET) if n==0 else "")))
+            else:
+                ev.append((c,fmt_hm(c),"Edge reaches <b>%s</b> (~%s cfs) — ride it out down to the take-out."%(s["name"],_cf(q))))
+        if not blocks:
+            ev.append((k0+3600,fmt_hm(sr+3600),"No release today — the reach stays at minimum flow. It is skinny over the shoals, so run slow and pick your line."))
+
+    else:   # raft / drift boat: you cannot run back up, so the plan is about being in the right place first
+        put=next((x for x in ACCESS if x.get("reach")=="trout" and ({"ramp","paddle"}&set(x.get("types",[])))),WADE_SPOTS[0])
+        ev.append((k0,fmt_hm(sr),"First light — put in up top at <b>%s</b> (~%s cfs). You can't run back up, so start above the bump and let it come to you."
+                   %(put["name"],_cf(fl(put,k0)))))
+        for a,b,pk in onday:
+            ev.append((a,fmt_hm(a),"%d-unit release starts at Center Hill — from here the water builds behind you; expect the drift to speed up."%units(pk)))
+        rs=arrivals(TOUR)
+        for n,(c,s,q) in enumerate(rs):
+            if n<len(rs)-1:
+                ev.append((c,fmt_hm(c),"The rise catches you at <b>%s</b> (~%s cfs)%s — stay on the front and work the banks toward <b>%s</b>."
+                           %(s["name"],_cf(q),", and %s is the band that fishes best on the oars"%_band(DRIFT_SWEET) if n==0 else "",rs[n+1][1]["name"])))
+            else:
+                ev.append((c,fmt_hm(c),"Rise reaches <b>%s</b> (~%s cfs) — ride it to the take-out."%(s["name"],_cf(q))))
+        if not blocks:
+            ev.append((k0+3600,fmt_hm(sr+3600),"No release today — a slow float on minimum flow. Long day on the oars; plan a short beat."))
+
+    # --- the falling limb: when the water leaves, which is when the river fishes again ---
+    if blocks and craft!="wade":
+        endk=max(b for a,b,pk in blocks)
+        drop=hr_key(endk+travel_h(_st["mfd"])*3600)
+        if k0<=drop<=k1:
+            ev.append((drop,fmt_hm(drop),"Release is off and the tail passes <b>%s</b> — the river drops out behind it. Fish the falling water; it often turns on as it goes."%_st["name"]))
+
+    # --- safety gate. This outranks the fishing and is deliberately unmissable. ---
+    if wxd.get("stormFrom") is not None:
+        kst=d0+wxd["stormFrom"]*3600
+        ev.append((kst,fmt_hm(kst),"⛈ <b>Storms due %s</b> — lightning. Be off the water and away from the bank before this, whatever the fishing is doing."%wxd.get("stormSpan"),-1))
+        kend=d0+(wxd.get("stormTo") or (wxd["stormFrom"]+1))*3600
+        if kend<ss-3600:
+            ev.append((kend,fmt_hm(kend),"Storms should be through — back on the water if the sky has actually cleared."))
+    if craft!="wade" or wade_open(d0,h1):
+        ev.append((ss+1,fmt_hm(ss),"Last light — off the water."))
+    ev=[(e+(0,))[:4] for e in ev]                  # default priority
+    ev.sort(key=lambda e:(e[0],e[3]))
+    out=[];seen=set()
+    for k,t,x,_pr in ev:
+        if x in seen: continue
+        seen.add(x); out.append({"t":t,"x":x})
+    return out
+for _i in range(7):
+    _d=now_ct.date()+datetime.timedelta(days=_i)
+    cal[_i]["steps"]=day_steps(_d,"power")                       # legacy default
+    cal[_i]["stepsBy"]={c:day_steps(_d,c) for c in CRAFTS}
+itin_steps=day_steps(tom,"power")
 
 # ---- score each of the 7 days -> "best bet this week" ----
 def moon_rating(d):
@@ -452,28 +607,20 @@ def moon_rating(d):
 #   Moon     10  solunar timing is real but modest, and it is the least evidenced
 #                input on this page. It used to carry 40, which let it swing a day
 #                two grades on phase alone while the water was identical.
-CRAFTS=["wade","raft","power"]
-CRAFT_NAME={"wade":"Wade","raft":"Float","power":"Powerboat"}
-CRAFT_ICO={"wade":"\U0001f97e","raft":"\U0001f6f6","power":"\U0001f6a4"}
-SCORE_W={"wade": {"Level":35,"Clarity":20,"Weather":25,"Window":10,"Moon":10},
-         "raft": {"Level":35,"Clarity":18,"Weather":27,"Window":10,"Moon":10},
-         "power":{"Level":35,"Clarity":15,"Weather":30,"Window":10,"Moon":10}}
-_WM=riverlib.WATER_MODEL["caney"]
-def _lerp(x,x0,x1,y0,y1):
-    if x1==x0: return y0
-    return y0+(y1-y0)*max(0.0,min(1.0,(x-x0)/(x1-x0)))
-def _cf(n): return format(int(round(n)),",")
-
-def _sc_level(craft,lo,hi):
+def _sc_level(craft,lo,hi,d0w=None,hrs0=6,hrs1=20):
     """Is the water itself right for this craft? -> (0..1, why)"""
     if craft=="wade":
-        # You wade the day's MINIMUM, not its peak -- the low is what you stand in before the
-        # bump arrives. Thresholds are the measured ones (110 USGS field measurements).
-        ok,marg,no=_WM["wade_ok"],_WM["wade_marginal"],_WM["no_wade"]
-        if lo<=ok:   return 1.0,"drops to %s cfs — solid wading on the gravel"%_cf(lo)
-        if lo<=marg: return _lerp(lo,ok,marg,1.0,0.55),"low of %s cfs — wadeable but pushy in the runs"%_cf(lo)
-        if lo<=no:   return _lerp(lo,marg,no,0.55,0.15),"never drops below %s cfs — marginal, edges only"%_cf(lo)
-        return 0.05,"never below %s cfs — not a wading day"%_cf(lo)
+        # How much of the trout reach opens up at its best hour, weighted by how comfortably each
+        # spot wades. Thresholds are the measured ones (110 USGS field measurements at 03424860).
+        best=None
+        for h in range(hrs0,hrs1+1):
+            op=wade_open(d0w,h)
+            v=sum(w for _,_,w in op)/len(WADE_SPOTS)
+            if best is None or v>best[0]: best=(v,h,op)
+        if not best or best[0]<=0: return 0.02,"nothing in the reach drops into wading range today"
+        v,h,op=best
+        if v>=0.85: return 1.0,"the whole reach wades at %s (~%s cfs up top)"%(_ap12(h),_cf(op[0][1]))
+        return max(0.05,v),"%d of %d wade spots open at their best (%s, ~%s cfs)"%(len(op),len(WADE_SPOTS),_where(op),_cf(op[0][1]))
     if craft=="power":
         # A jet needs water over the bars; too much and the river runs you.
         if hi<800:   return 0.45,"minimum flow all day — runnable but skinny over the shoals"
@@ -516,7 +663,7 @@ def _sc_window(craft,d0,wxd):
     for h in range(sr,ss+1):
         q=flow_at(stw,d0+h*3600)
         if q is None: continue
-        if craft=="wade":    okh=q<=_WM["wade_marginal"]
+        if craft=="wade":    okh=len(wade_open(d0,h))>0   # anywhere in the reach, not just Stonewall
         elif craft=="power": okh=q>=700
         else:                okh=q<=9000
         hrs.append((h,okh))
@@ -528,7 +675,12 @@ def _sc_window(craft,d0,wxd):
     for h,o in hrs+[(ss+1,False)]:
         if o and st is None: st=h
         elif not o and st is not None: spans.append((st,h)); st=None
-    return n/tot,"%d of %d daylight hours — %s"%(n,tot,", ".join("%s–%s"%(_ap12(a),_ap12(b)) for a,b in spans)),spans
+    def _lbl(a,b):
+        t="%s–%s"%(_ap12(a),_ap12(b))
+        if craft!="wade": return t
+        w=_where(wade_open(d0,(a+b)//2))
+        return "%s %s"%(t,w) if w else t
+    return n/tot,"%d of %d daylight hours — %s"%(n,tot,", ".join(_lbl(a,b) for a,b in spans)),spans
 
 def score_day(di,d):
     d0=ep(d,0); blk=ramp_blocks(d0,d0+86400)
@@ -546,7 +698,9 @@ def score_day(di,d):
     by={}
     for c in CRAFTS:
         W=SCORE_W[c]
-        lv_f,lv_why=_sc_level(c,q_lo,q_hi)
+        _sr0=int((wxd.get("sunrise") or "06:00")[:2]); _ss0=int((wxd.get("sunset") or "20:00")[:2])
+        if _ss0<=_sr0: _sr0,_ss0=6,20
+        lv_f,lv_why=_sc_level(c,q_lo,q_hi,d0,_sr0,_ss0)
         wx_f,wx_why=_sc_weather(c,wxd)
         wn_f,wn_why,wn_spans=_sc_window(c,d0,wxd)
         parts=[{"k":"Level","pts":round(lv_f*W["Level"]),"max":W["Level"],"why":lv_why},
@@ -579,7 +733,8 @@ def score_day(di,d):
         if wxd.get("storm"): lim="Storms %s"%(wxd.get("stormSpan") or "midday")
         elif why["driver"]=="Clarity" and clar_f<0.6: lim="Water's off colour"
         elif why["driver"]=="Window" and wn_f<0.5: lim="Short window"
-        elif why["driver"]=="Level" and lv_f<0.6: lim=("Too much water to wade" if c=="wade" else "Marginal water")
+        elif why["driver"]=="Level" and lv_f<0.6:
+            lim=(("Too much water to wade" if lv_f<0.25 else "Pushy wading") if c=="wade" else "Marginal water")
         elif why["driver"]=="Weather" and wx_f<0.7: lim="Rough weather"
         if lim and gr in ("Fair","Tough"):
             _sh=act.split(" — ")[0]; vd="%s · %s"%(lim,_sh[0].lower()+_sh[1:])
@@ -1024,6 +1179,7 @@ function setCraft(c){
   try{localStorage.setItem('caney.craft',c);}catch(e){}
   if(window.renderCal)renderCal();
   if(window.renderBest)renderBest();
+  if(window.renderPlan)renderPlan();
   if(window.updateControls){updateControls();syncSegs();render();}
 }
 window.renderBest=function(){const t=DATA.week[0],b=(t.byCraft||{})[craft]||t,el=document.getElementById('best');
@@ -1040,7 +1196,11 @@ function renderFeed(di){const s=DATA.solDays[di],el=document.getElementById('fee
  h+='<div class="fx"><b>Major</b> '+(s.major.map(w=>w[0]+'–'+w[1]).join(' · ')||'–')+'</div>';
  h+='<div class="fx"><b>Minor</b> '+(s.minor.map(w=>w[0]+'–'+w[1]).join(' · ')||'–')+'</div>';
  if(s.moon)h+='<div class="fx moon">🌙 '+s.moon+'</div>';if(s.approx)h+='<div class="fx" style="color:var(--faint);font-size:11px">computed from moon phase &amp; sun times</div>';el.innerHTML=h;}
-function renderPlan(){const d=DATA.calendar[dsel];let h='';(d.steps||[]).forEach(s=>h+='<div class="step"><span class="st">'+s.t+'</span><span class="sx">'+s.x+'</span></div>');document.getElementById('itin').innerHTML=h;document.getElementById('planh').textContent='Timed plan · '+d.label+' '+d.date;}
+function renderPlan(){const d=DATA.calendar[dsel];
+ const steps=((d.stepsBy||{})[craft])||d.steps||[];
+ let h='';steps.forEach(s=>h+='<div class="step"><span class="st">'+s.t+'</span><span class="sx">'+s.x+'</span></div>');
+ document.getElementById('itin').innerHTML=h;
+ document.getElementById('planh').textContent='Timed plan · '+CRAFT_NAME[craft]+' · '+d.label+' '+d.date;}
 function renderWx(di){const w=DATA.wxDays[di],el=document.getElementById('wx');document.getElementById('wxSecLabel').textContent='Conditions · '+DATA.calendar[di].label+' '+DATA.calendar[di].date;
  const v=DATA.wxv[di];document.getElementById('wxverdict').innerHTML=v?'<span class="vg" style="background:'+(GCOL[v.grade]||"#94a3b1")+'">'+v.grade+'</span> Fishing weather — <b>'+v.why+'</b>':'';
  if(!w){el.innerHTML='<div class="meta">weather unavailable</div>';return;}

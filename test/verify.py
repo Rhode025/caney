@@ -164,8 +164,10 @@ for _rid in ("cumbnash", "cheatham", "cordell"):
     if _um:
         _units = int(_um.group(1))
         # every cfs figure quoted alongside must either be attributed, or be consistent
+        _um2 = _re.search(r'"relUnit"\s*:\s*(\d+)', open(os.path.join(OUT, _rid + ".html")).read())
+        _unit_cfs = int(_um2.group(1)) if _um2 else 6500
         for _v in [int(x.replace(",", "")) for x in _re.findall(r"([\d,]+)\s*cfs", _det)]:
-            _implied = round(_v / 6500)
+            _implied = round(_v / _unit_cfs)
             _ok = (_implied == _units) or ("release" in _det and "at " in _det)
             check("unit count and flow are from the same source or attributed: %s" % _rid, _ok,
                   "%r vs %r" % (_cond, _det))
