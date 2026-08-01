@@ -272,8 +272,48 @@ html=(riverlib.render(TEMPLATE,"cordell")
       .replace("__REGS__",json.dumps(CFG["regs"]))
       .replace("__DATA__",json.dumps(DATA)))
 open(os.path.join(OUT,"cordell.html"),"w").write(html)
+
+# ---- HQ day state: what the board shows for this river today / tomorrow ----
+# Vessel is always boat here and that is not a hedge: this is a navigable impoundment,
+# so there is no wadeable water at any release. Clarity is INFERRED from release volume
+# (higher release carries more colour on this river) and is labelled as inferred,
+# because nothing measures turbidity on this reach.
+def _lvl(c):
+    if c is None: return "unknown", ""
+    if c < 7000:  return "low",   "%s cfs · little current" % format(round(c), ",")
+    if c < 15000: return "prime", "%s cfs · current on" % format(round(c), ",")
+    if c < 30000: return "high",  "%s cfs · heavy" % format(round(c), ",")
+    return "blown", "%s cfs · blown out" % format(round(c), ",")
+def _clr(c):
+    if c is None: return "unknown"
+    return "clear" if c < 7000 else "stained" if c < 15000 else "colored" if c < 30000 else "muddy"
+def _dayst(off):
+    d0, _ = riverlib.day_bounds(CT, off)
+    cv = riverlib.hourly_curve(lambda k: riverlib.release_at(rel, k), d0) if rel else None
+    # Median of the fishing hours (6am-8pm), not a single sample: a one-hour probe lands
+    # in a lull on a split-generation day and reports "low" while the river runs 13k.
+    dayvals = sorted(x for x in (cv or [])[6:21] if x is not None)
+    mid = dayvals[len(dayvals) // 2] if dayvals else None
+    lk, ld = _lvl(mid)
+    # Count generation in DAYLIGHT only. A 12am-6am release is 6 hours of "generating"
+    # that nobody fishes; reporting it as the day's headline sends you to a slack river.
+    on = [h for h in range(6, 21) if (cv or [None]*24)[h] and cv[h] >= UNIT_CFS]
+    gen_hrs = len(on)
+    def _ap(h): return ("%d%s" % (h % 12 or 12, "am" if h < 12 else "pm"))
+    span = (" (%s–%s)" % (_ap(on[0]), _ap(on[-1] + 1))) if on else ""
+    night = any((cv or [None]*24)[h] and cv[h] >= UNIT_CFS for h in list(range(0, 6)) + list(range(21, 24)))
+    return riverlib.day_state(
+        vessel="boat", vessel_why="navigable pool — always deep enough to float; no wadeable water",
+        clarity=_clr(mid), clarity_why="inferred from release volume, not measured",
+        level=lk, level_detail=ld,
+        curve=cv, curve_unit="cfs", curve_label="Cordell Hull release", curve_src="forecast",
+        headline=("Cordell Hull generating %d h%s" % (gen_hrs, span)) if gen_hrs
+                 else ("Generation overnight only — slack through the day" if night
+                       else "No generation — slack water"))
+DAYS = {"today": _dayst(0), "tomorrow": _dayst(1)}
+
 riverlib.emit_status("cordell",
     {"grade":FG,"cond":FN,"col":FCOL,"note":FNOTE,"detail":(("%s cfs"%format(round(cur_flow),",")) if cur_flow is not None else "—"),"asof":asof},
     wx, BASE, CT, ["Smallmouth","Largemouth","White bass","Panfish"],
-    "Warmwater big river", "~1 hr E of Nashville")
+    "Warmwater big river", "~1 hr E of Nashville", days=DAYS)
 print("wrote out/cordell.html | flow %s cfs %s | grade %s | series %d"%(cur_flow,trend,FG,len(series)))

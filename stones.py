@@ -254,8 +254,39 @@ html=(riverlib.render(TEMPLATE,"stones")
       .replace("__REGS__",json.dumps(CFG["regs"]))
       .replace("__DATA__",json.dumps(DATA)))
 open(os.path.join(OUT,"stones.html"),"w").write(html)
+
+# ---- HQ day state ----
+# NO FLOW FORECAST EXISTS for this river: the only forward data is weather, not water.
+# Today's curve is therefore what the gauge has ALREADY recorded (src="observed", partial
+# by definition) and tomorrow has no curve at all. Inventing one would make a flat line
+# look like a prediction.
+_LO = 200
+def _lvl_g(m):
+    if m < _LO:        return "low",   format(round(m), ",") + " cfs \u00b7 skinny"
+    if m < _LO * 8:    return "prime", format(round(m), ",") + " cfs"
+    if m < _LO * 25:   return "high",  format(round(m), ",") + " cfs \u00b7 pushy"
+    return "blown", format(round(m), ",") + " cfs \u00b7 blown"
+def _gauge_day(off):
+    d0, _ = riverlib.day_bounds(CT, off)
+    if off != 0:
+        return riverlib.day_state(vessel="boat", vessel_why="peaking tailwater",
+            headline="No flow forecast for this river \u2014 check the gauge on the day")
+    cv = riverlib.curve_from_rows(FLOW, d0)
+    vals = [v for v in (cv or []) if v is not None]
+    if not vals:
+        return riverlib.day_state(vessel="boat", vessel_why="peaking tailwater", headline="No gauge reading today")
+    med = sorted(vals)[len(vals) // 2]
+    lk, ld = _lvl_g(med)
+    ck = "clear" if med < _LO * 4 else "stained" if med < _LO * 12 else "colored"
+    return riverlib.day_state(vessel="boat", vessel_why="peaking tailwater",
+        clarity=ck, clarity_why="inferred from flow, not measured",
+        level=lk, level_detail=ld,
+        curve=cv, curve_unit="cfs", curve_label="Observed flow (gauge)", curve_src="observed",
+        headline=format(round(med), ",") + " cfs \u2014 observed only, no forecast")
+DAYS = {"today": _gauge_day(0), "tomorrow": _gauge_day(1)}
+
 riverlib.emit_status("stones",
     {"grade":FG,"cond":FN,"col":FCOL,"note":FNOTE,"detail":(("%s cfs"%format(round(cur_flow),",")) if cur_flow is not None else "—"),"asof":asof},
     wx, BASE, CT, ["White bass","Striped bass","Largemouth","Smallmouth","Trout","Panfish"],
-    "Peaking tailwater", "~20 min · east of Nashville")
+    "Peaking tailwater", "~20 min · east of Nashville", days=DAYS)
 print("wrote out/stones.html | flow %s cfs %s | grade %s | series %d"%(cur_flow,trend,FG,len(series)))

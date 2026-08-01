@@ -77,6 +77,10 @@ console.log('── HQ interactions ──');
   const sortedOk = names.every((n, i) => i === 0 || names[i - 1].localeCompare(n) <= 0);
   assert('sort=name is alphabetical (localeCompare)', sortedOk, names.join(' | '));
 
+  // the week strip only exists in Week view now — switch to it before asserting on it
+  await pg.click('#viewsel button[data-v="week"]');
+  await pg.waitForTimeout(150);
+
   // per-day weather row aligned above the day cells
   const align = await pg.$eval('#board .rc', c => {
     const wx = c.querySelector('.wxrow').children.length;
@@ -316,6 +320,69 @@ console.log('── chatter: URL scheme allowlist ──');
   assert('javascript: URL is neutralised', r[0] === '#', JSON.stringify(r));
   assert('https URL passes through intact',
     (r[1] || '').startsWith('https://reddit.com/'), JSON.stringify(r));
+  await pg.close();
+}
+
+
+// ── HQ day view (Today / Tomorrow / Week) ──
+// The default is time-of-day dependent: Today before noon, Tomorrow after. Drive the
+// clock rather than trusting whatever hour the suite happens to run at.
+console.log('── HQ: day view selector + default by clock ──');
+{
+  const atHour = async (hh) => {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 900 } });
+    const pg = await ctx.newPage();
+    await pg.addInitScript(h => {
+      const R = Date;
+      const fake = () => { const d = new R(); d.setHours(h, 0, 0, 0); return d; };
+      Date.now = () => fake().getTime();
+      window.Date = class extends R {
+        constructor(...a) { if (!a.length) return new R(fake()); super(...a); }
+        static now() { return fake().getTime(); }
+      };
+    }, hh);
+    const errs = [];
+    pg.on('pageerror', e => errs.push(String(e)));
+    await pg.goto(url('index.html'), { timeout: 20000 });
+    await pg.waitForSelector('#viewsel button.on', { timeout: 8000 });
+    const r = {
+      view: await pg.$eval('#viewsel button.on', e => e.textContent.trim()),
+      head: await pg.$eval('#dayhead', e => e.textContent),
+      cards: await pg.$$eval('#board .rc', e => e.length),
+      errs,
+    };
+    await ctx.close();
+    return r;
+  };
+  const am = await atHour(9);
+  assert('before noon the board defaults to Today', am.view === 'Today', am.view + ' / ' + am.head);
+  const pm = await atHour(15);
+  assert('after noon the board defaults to Tomorrow', pm.view === 'Tomorrow', pm.view + ' / ' + pm.head);
+  assert('day view renders every river', am.cards === RIVERS.length, 'found ' + am.cards);
+  assert('no JS errors in day view', am.errs.length === 0 && pm.errs.length === 0,
+    [...am.errs, ...pm.errs].join(' | '));
+
+  // switching views, and the content that must appear in each
+  const pg = await browser.newPage({ viewport: { width: 390, height: 900 } });
+  await pg.goto(url('index.html'), { timeout: 20000 });
+  await pg.waitForSelector('#viewsel button.on');
+  await pg.click('#viewsel button[data-v="today"]');
+  await pg.waitForTimeout(150);
+  const chips = await pg.$$eval('#board .chip', e => e.length);
+  assert('today view shows condition chips (wade/boat, level, clarity)', chips >= RIVERS.length,
+    'found ' + chips);
+  const curves = await pg.$$eval('#board .curve svg', e => e.length);
+  const nocurve = await pg.$$eval('#board .nocurve', e => e.length);
+  assert('every river shows either a flow curve or an explicit no-forecast notice',
+    curves + nocurve >= RIVERS.length, curves + ' curves + ' + nocurve + ' notices');
+  assert('today view marks the current hour on the curve',
+    (await pg.$$eval('#board .curve line', e => e.length)) > 0);
+
+  await pg.click('#viewsel button[data-v="week"]');
+  await pg.waitForTimeout(150);
+  const wk = await pg.$$eval('#board .wk .wd', e => e.length);
+  assert('week view restores the 7-day strip', wk === RIVERS.length * 7, 'found ' + wk);
+  assert('week view drops the day chips', (await pg.$$eval('#board .chip', e => e.length)) === 0);
   await pg.close();
 }
 

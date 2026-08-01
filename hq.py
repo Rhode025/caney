@@ -80,15 +80,42 @@ h1{margin:6px 0 4px;font-size:34px;font-weight:800;letter-spacing:-.7px}
 .wd{cursor:pointer}
 .wknote{margin-top:8px;font-size:12px;color:var(--muted);background:#f5f7fa;border:1px solid var(--line);border-radius:9px;padding:8px 11px;line-height:1.4}
 .rc-ft{font-size:11.5px;color:var(--faint);margin-top:9px}
+.viewsel{display:inline-flex;background:#e7edf3;border-radius:12px;padding:3px;gap:2px}
+.viewsel button{font:inherit;font-size:13px;font-weight:700;border:0;background:transparent;color:var(--muted);
+ padding:8px 16px;border-radius:9px;cursor:pointer;min-height:40px}
+.viewsel button.on{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(20,50,80,.14)}
+.dayhead{font-size:15px;font-weight:750;margin:14px 2px 2px;letter-spacing:-.2px}
+.daysub{font-size:12px;color:var(--faint);margin:0 2px 12px}
+.hl{font-size:15px;font-weight:700;margin:12px 0 2px;letter-spacing:-.2px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:9px 0 2px}
+.chip{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:700;border-radius:999px;
+ padding:5px 11px;color:#fff;white-space:nowrap}
+.chip.ghost{background:#f0f3f7;color:#4a5a6a}
+.chip .cw{font-weight:500;opacity:.92}
+.curve{margin-top:12px;position:relative}
+.curve svg{display:block;width:100%;height:44px;overflow:visible}
+.curve .clab{display:flex;justify-content:space-between;font-size:9.5px;color:var(--faint);margin-top:3px;font-weight:600}
+.curve .ctitle{font-size:10.5px;color:var(--faint);letter-spacing:.07em;text-transform:uppercase;font-weight:700;margin-bottom:4px}
+.curve .ctitle .obs{color:#b3703a}
+.nocurve{margin-top:12px;font-size:12px;color:var(--muted);background:#f5f7fa;border:1px dashed #d6dee7;
+ border-radius:10px;padding:10px 12px;line-height:1.45}
+.winbar{display:flex;gap:4px;margin-top:9px}
+.winbar span{flex:1;text-align:center;font-size:10.5px;font-weight:700;color:#fff;border-radius:7px;padding:5px 4px}
 .empty{text-align:center;color:var(--muted);padding:40px;font-size:14px}
 .note{font-size:11.5px;color:var(--faint);line-height:1.6;margin:2px 2px 0}
 .foot{text-align:center;color:var(--faint);font-size:11.5px;margin-top:24px;line-height:1.6}
-@media(max-width:620px){.app{padding:22px 14px 60px}h1{font-size:28px}.rc-now .sub{display:none}.wd .dg{display:none}.wd .dd{display:none}}
+@media(max-width:620px){.app{padding:22px 14px 60px}h1{font-size:28px}.viewsel{width:100%}.viewsel button{flex:1;padding:9px 6px}.chip{font-size:11.5px}.rc-now .sub{display:none}.wd .dg{display:none}.wd .dd{display:none}}
 </style></head><body><div class="app">
  __SWITCHER__
  <div class="eyebrow">River Monitor · Middle Tennessee</div>
  <h1>River Monitor HQ</h1>
  <div class="cap" id="cap"></div>
+ <div class="ctrl">
+   <div class="viewsel" id="viewsel">
+     <button data-v="today">Today</button><button data-v="tomorrow">Tomorrow</button><button data-v="week">Week</button>
+   </div>
+ </div>
+ <div class="dayhead" id="dayhead"></div><div class="daysub" id="daysub"></div>
  <div class="ctrl">
    <div class="sp" id="spf"></div>
    <div class="sortw">Sort <select id="sort">
@@ -98,11 +125,7 @@ h1{margin:6px 0 4px;font-size:34px;font-weight:800;letter-spacing:-.7px}
      <option value="name">Name</option>
    </select></div>
  </div>
- <div class="legend">
-   <span><i style="background:#28c76f"></i>Prime</span><span><i style="background:#7db85a"></i>Good</span>
-   <span><i style="background:#f2a832"></i>Fair</span><span><i style="background:#8b6cef"></i>Slow</span>
-   <span>· ★ = best day · tap a day for detail</span>
- </div>
+ <div class="legend" id="legend"></div>
  <div id="board"></div>
  <div class="note">Next-week projection blends each river's current water state with weather &amp; moon feeding — most of these rivers have no true multi-day flow forecast, so treat it as a planning lean, not a promise. Open a river for the live gauge, generation and the full read.</div>
  <div class="foot" id="foot"></div>
@@ -114,6 +137,69 @@ function weekScore(c){return (c.week||[]).reduce((a,w)=>a+(GW[w.grade]||0),0);}
 function nowScore(c){return GW[c.now.grade]||0;}
 function driveMin(c){var m=(c.drive||'').match(/([\d.]+)\s*(hr|min)/);if(!m)return 999;return Math.round(parseFloat(m[1])*(m[2]==='hr'?60:1));}
 let filter=new Set(); let sortBy='week';
+// Default view: Today before noon, Tomorrow after. Past midday you are almost always
+// planning the next trip rather than deciding whether to go right now.
+let view = (new Date().getHours() < 12) ? 'today' : 'tomorrow';
+
+function fmtHour(h){return (h%12||12)+(h<12?'a':'p');}
+
+// Inline SVG area chart of the day's flow. Gaps (null hours) break the path rather than
+// interpolating across them, so an observed-only curve visibly stops where the data does.
+function sparkline(cv, col, isToday){
+  if(!cv || !cv.vals) return '';
+  const v=cv.vals, W=300, H=40, PAD=3;
+  const known=v.map((x,i)=>[i,x]).filter(p=>p[1]!=null);
+  if(!known.length) return '';
+  let max=Math.max(...known.map(p=>p[1])), min=Math.min(...known.map(p=>p[1]));
+  if(max===min){max=min+1;}
+  const X=i=>PAD+(i/23)*(W-PAD*2), Y=x=>H-PAD-((x-min)/(max-min))*(H-PAD*2);
+  let segs=[],cur=[];
+  v.forEach((x,i)=>{ if(x==null){ if(cur.length>1)segs.push(cur); cur=[]; } else cur.push([i,x]); });
+  if(cur.length>1)segs.push(cur);
+  let paths='';
+  segs.forEach(sg=>{
+    const line=sg.map((p,k)=>(k?'L':'M')+X(p[0]).toFixed(1)+' '+Y(p[1]).toFixed(1)).join(' ');
+    const area=line+' L'+X(sg[sg.length-1][0]).toFixed(1)+' '+(H-PAD)+' L'+X(sg[0][0]).toFixed(1)+' '+(H-PAD)+' Z';
+    paths+='<path d="'+area+'" fill="'+col+'" opacity=".16"/>'
+          +'<path d="'+line+'" fill="none" stroke="'+col+'" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>';
+  });
+  let nowmark='';
+  if(isToday){ const nh=new Date().getHours()+new Date().getMinutes()/60;
+    nowmark='<line x1="'+X(nh).toFixed(1)+'" y1="0" x2="'+X(nh).toFixed(1)+'" y2="'+H+'" stroke="#16202b" stroke-width="1" opacity=".38" stroke-dasharray="2 2"/>'; }
+  const src=cv.src==='observed'
+    ? '<span class="obs">Observed only · no forecast</span>' : (cv.label||'');
+  const rng=(cv.min===cv.peak) ? Math.round(cv.peak).toLocaleString()+' '+cv.unit
+        : Math.round(cv.min).toLocaleString()+'–'+Math.round(cv.peak).toLocaleString()+' '+cv.unit;
+  return '<div class="curve"><div class="ctitle">'+src+' · '+rng+'</div>'
+    +'<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none">'+paths+nowmark+'</svg>'
+    +'<div class="clab"><span>12a</span><span>6a</span><span>noon</span><span>6p</span><span>12a</span></div></div>';
+}
+
+function dayCard(c){
+  const d=(c.days||{})[view];
+  if(!d) return '<div class="nocurve">This river does not report a day read yet.</div>';
+  let h='';
+  if(d.headline) h+='<div class="hl">'+d.headline+'</div>';
+  h+='<div class="chips">';
+  if(d.vessel && d.vessel.kind!=='na')
+    h+='<span class="chip" style="background:'+d.vessel.col+'">'+d.vessel.ico+' '+d.vessel.label+'</span>';
+  if(d.level && d.level.kind!=='unknown')
+    h+='<span class="chip" style="background:'+d.level.col+'">'+d.level.label
+      +(d.level.detail?'<span class="cw">'+d.level.detail+'</span>':'')+'</span>';
+  if(d.clarity && d.clarity.kind!=='unknown')
+    h+='<span class="chip" style="background:'+d.clarity.col+'">● '+d.clarity.label+'</span>';
+  h+='</div>';
+  if(d.vessel && d.vessel.why) h+='<div class="rc-ft">'+d.vessel.why+'</div>';
+  const sp=sparkline(d.curve, (d.level&&d.level.col)||'#2f92d4', view==='today');
+  h+= sp || '<div class="nocurve">No flow curve for this day — this river has no forward flow forecast.</div>';
+  if((d.windows||[]).length){
+    h+='<div class="winbar">';
+    d.windows.forEach(w=>{const col=w.kind==='wade'?'#20b2aa':'#2f92d4';
+      h+='<span style="background:'+col+'">'+(w.kind==='wade'?'🥾':'🚤')+' '+w.from+'–'+w.to+'</span>';});
+    h+='</div>';
+  }
+  return h;
+}
 document.getElementById('cap').textContent=D.count+' rivers within range · updated '+D.updated;
 // species filter chips
 (function(){let h='<a data-s="" class="on">All species</a>';D.species.forEach(s=>h+='<a data-s="'+s+'">'+s+'</a>');
@@ -140,21 +226,50 @@ function render(){
    +'<div class="rc-t"><div class="nm">'+c.name+'</div><div class="kd">'+(c.kind||'')+' · '+(c.drive||'')+'</div></div>'
    +'<div class="rc-now"><div class="sub"><b>'+n.cond+'</b>'+(n.detail||'')+'</div>'
    +'<div class="badge" style="background:'+n.col+'">'+n.grade+'</div></div></div>';
+  if(view==='week'){
+    h+='<div class="wxrow">';(c.week||[]).forEach(w=>{
+     h+='<div class="wxc"><span class="wi">'+(w.ico||'')+'</span><span class="wt">'+w.hi+'°</span>'
+       +(w.pop?'<span class="wr">☔'+w.pop+'%</span>':'<span class="wr dry">·</span>')+'</div>';});
+    h+='</div>';
+    h+='<div class="wk">';(c.week||[]).forEach((w,i)=>{
+     const nt=(w.label+' '+w.date+' — '+w.grade+': '+(w.note||'')).replace(/"/g,'&quot;');
+     h+='<div class="wd'+(i===bi?' best':'')+'" style="background:'+w.col+'" title="'+nt+'" data-note="'+nt+'">'
+      +'<span class="dl">'+(w.label==='Today'?'Today':w.label)+'</span><span class="dd">'+w.date+'</span><span class="dg">'+w.grade+'</span></div>';});
+    h+='</div><div class="wknote" hidden></div>';
+    h+='<div class="rc-ft">now: '+(n.detail||'—')+(n.asof?' · as of '+n.asof:'')+' → open for the live read</div>';
+  } else {
+    h+=dayCard(c);
+    const wi=(view==='tomorrow')?1:0, w=(c.week||[])[wi];
+    if(w) h+='<div class="rc-ft">weather: '+(w.ico||'')+' '+w.hi+'°/'+w.lo+'° · '+(w.pop||0)+'% rain → open for the full read</div>';
+  }
   if((c.species||[]).length){h+='<div class="tags">';c.species.forEach(s=>h+='<span>'+s+'</span>');h+='</div>';}
-  h+='<div class="wxrow">';(c.week||[]).forEach(w=>{
-   h+='<div class="wxc"><span class="wi">'+(w.ico||'')+'</span><span class="wt">'+w.hi+'°</span>'
-     +(w.pop?'<span class="wr">☔'+w.pop+'%</span>':'<span class="wr dry">·</span>')+'</div>';});
-  h+='</div>';
-  h+='<div class="wk">';(c.week||[]).forEach((w,i)=>{
-   const nt=(w.label+' '+w.date+' — '+w.grade+': '+(w.note||'')).replace(/"/g,'&quot;');
-   h+='<div class="wd'+(i===bi?' best':'')+'" style="background:'+w.col+'" title="'+nt+'" data-note="'+nt+'">'
-    +'<span class="dl">'+(w.label==='Today'?'Today':w.label)+'</span><span class="dd">'+w.date+'</span><span class="dg">'+w.grade+'</span></div>';});
-  h+='</div><div class="wknote" hidden></div>';
-  h+='<div class="rc-ft">now: '+(n.detail||'—')+(n.asof?' · as of '+n.asof:'')+' → open for the live read</div>';
   h+='</a>';});
  bd.innerHTML=h;
 }
-render();
+function paintView(){
+  document.querySelectorAll('#viewsel button').forEach(b=>b.classList.toggle('on',b.dataset.v===view));
+  const d=new Date(); if(view==='tomorrow') d.setDate(d.getDate()+1);
+  const nice=d.toLocaleDateString([], {weekday:'long', month:'short', day:'numeric'});
+  const hd=document.getElementById('dayhead'), sb=document.getElementById('daysub');
+  if(view==='week'){ hd.textContent='Next 7 days';
+    sb.textContent='Planning lean from current water + weather + moon — not a flow forecast.'; }
+  else { hd.textContent=(view==='today'?'Today · ':'Tomorrow · ')+nice;
+    sb.textContent=(view==='today'
+      ? 'What the water is doing right now, hour by hour.'
+      : 'What the water is forecast to do. Rivers without a flow forecast say so.'); }
+  document.getElementById('legend').innerHTML = (view==='week')
+    ? '<span><i style="background:#28c76f"></i>Prime</span><span><i style="background:#7db85a"></i>Good</span>'
+      +'<span><i style="background:#f2a832"></i>Fair</span><span><i style="background:#8b6cef"></i>Slow</span>'
+      +'<span>· ★ = best day · tap a day for detail</span>'
+    : '<span><i style="background:#20b2aa"></i>🥾 wade</span><span><i style="background:#2f92d4"></i>🚤 boat</span>'
+      +'<span><i style="background:#28c76f"></i>prime</span><span><i style="background:#f2a832"></i>high</span>'
+      +'<span><i style="background:#8b6cef"></i>blown</span>'
+      +(view==='today'?'<span>· dashed line = now</span>':'');
+  render();
+}
+document.getElementById('viewsel').addEventListener('click',e=>{
+  const b=e.target.closest('button'); if(!b)return; view=b.dataset.v; paintView();});
+paintView();
 // tap a day → reveal its note inline (and DON'T navigate); tapping anywhere else on the card opens the river
 document.getElementById('board').addEventListener('click',function(e){
   const wd=e.target.closest('.wd'); if(!wd)return;

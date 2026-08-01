@@ -985,10 +985,52 @@ elif NOW["units"]<=1:
     _cg,_ccond,_ccol,_cbase="Good","Generating 1 unit — boat & edge","#0a84ff",2.2
 else:
     _cg,_ccond,_ccol,_cbase="Fair","Generating %d units — high & fast"%NOW["units"],"#f2a832",1.4
+
+# ---- HQ day state: wade or boat, clarity, level, and the day's release shape ----
+# Caney is the one river where wade-vs-boat is a real decision rather than a formality:
+# at minimum flow you sight-fish the flats, and when Center Hill generates the flats go
+# away. So the vessel read is driven by whether a release reaches the daylight hours.
+def _caney_day(off):
+    d0, _ = riverlib.day_bounds(CT, off)
+    cv = riverlib.hourly_curve(dam_at, d0)
+    day = [(h, cv[h]) for h in range(6, 21)] if cv else []
+    on = [h for h, v in day if v and v >= 800]        # 800 cfs = generation, same threshold as GW
+    def _ap(h): return "%d%s" % (h % 12 or 12, "am" if h < 12 else "pm")
+    if not day:
+        return riverlib.day_state(headline="No release forecast")
+    if not on:
+        vk, vw = "wade", "minimum flow all day — the flats are fishable"
+        head = "Minimum flow — wade it"
+        wins = [{"from": _ap(6), "to": _ap(20), "kind": "wade"}]
+    elif len(on) >= 13:
+        vk, vw = "boat", "generating through the day — no wadeable window"
+        head = "Generating %s–%s — boat" % (_ap(on[0]), _ap(on[-1] + 1))
+        wins = [{"from": _ap(on[0]), "to": _ap(on[-1] + 1), "kind": "boat"}]
+    else:
+        vk, vw = "both", "wade early, then be off the flats before the bump"
+        head = "Wade until %s, then it comes up" % _ap(on[0])
+        wins = [{"from": _ap(6), "to": _ap(on[0]), "kind": "wade"},
+                {"from": _ap(on[0]), "to": _ap(on[-1] + 1), "kind": "boat"}]
+    peak = max((v for _, v in day if v is not None), default=0)
+    lk, ld = (("low", "minimum flow · %s cfs" % format(round(min(v for _, v in day if v is not None)), ","))
+              if not on else
+              ("prime", "%s cfs peak" % format(round(peak), ",")) if peak < 4500 else
+              ("high", "%s cfs peak" % format(round(peak), ",")) if peak < 9000 else
+              ("blown", "%s cfs peak" % format(round(peak), ",")))
+    # clar_word is the rain-driven read computed above; map it onto the board's vocabulary
+    ck = {"clear": "clear", "some color": "stained", "stained": "colored"}.get(clar_word, "unknown")
+    return riverlib.day_state(
+        vessel=vk, vessel_why=vw,
+        clarity=ck, clarity_why="from rain in the forecast; this is a bottom-release tailwater so it clears fast",
+        level=lk, level_detail=ld,
+        curve=cv, curve_unit="cfs", curve_label="Center Hill release", curve_src="forecast",
+        windows=wins, headline=head)
+DAYS = {"today": _caney_day(0), "tomorrow": _caney_day(1)}
+
 riverlib.emit_status("caney",
     {"grade":_cg,"cond":_ccond,"col":_ccol,
      "note":("sight-fish the minimum-flow flats" if not NOW["gen"] else "ride the rise downstream from the boat"),
      "detail":(("%s cfs"%format(NOW["cfs"],",")) if NOW["cfs"] else "water off"),"asof":NOW["asof"]},
-    wx, _cbase, CT, ["Trout"], "Trout tailwater", "~70 min · east of Nashville")
+    wx, _cbase, CT, ["Trout"], "Trout tailwater", "~70 min · east of Nashville", days=DAYS)
 print("wrote",os.path.join(OUT,"caney.html"),"| tomorrow:",DATA["dateLabel"])
 print("dam:",dam_cap,"| clarity:",clar_word,"| tips:",len(tips),"| flies now:",len(flybox["now"]),"season:",flybox["season"])

@@ -442,9 +442,36 @@ buildRiverMap(D,D.cur.col);
 html=riverlib.render(TEMPLATE,"duck").replace("__DATA__",json.dumps(DATA))
 open(os.path.join(OUT,"duck.html"),"w").write(html)
 # ---- HQ status card ----
+
+# ---- HQ day state ----
+# The only non-dam river with a real forward flow forecast: NWPS publishes observed +
+# forecast stage/flow for CNVT1. Rows are (time, stage_ft, flow_kcfs), so scale to cfs.
+def _duck_day(off):
+    d0, _ = riverlib.day_bounds(CT, off)
+    rows = [(t, (v * 1000 if v is not None else None)) for t, s, v in (OBS + FC)]
+    cv = riverlib.curve_from_rows(rows, d0)
+    vals = [v for v in (cv or []) if v is not None]
+    if not vals:
+        return riverlib.day_state(headline="No NWPS reading for this day")
+    med = sorted(vals)[len(vals) // 2]
+    if med < 400:    vk, vw, lk = "wade", "too skinny to float cleanly — wade and drag", "low"
+    elif med < 3000: vk, vw, lk = "both", "floatable and still wadeable at the shoals", "prime"
+    elif med < 8000: vk, vw, lk = "boat", "pushy — float it, don't wade it", "high"
+    else:            vk, vw, lk = "boat", "high and dirty", "blown"
+    ck = "clear" if med < 1200 else "stained" if med < 4000 else "colored" if med < 8000 else "muddy"
+    # Anything past the last observation is forecast; before that it is measured.
+    last_obs = OBS[-1][0].timestamp() if OBS else 0
+    src = "forecast" if (d0 + 86400) > last_obs else "observed"
+    return riverlib.day_state(vessel=vk, vessel_why=vw,
+        clarity=ck, clarity_why="inferred from flow; Duck colours up fast after rain",
+        level=lk, level_detail=format(round(med), ",") + " cfs",
+        curve=cv, curve_unit="cfs", curve_label="Duck at Centerville (NWPS)", curve_src=src,
+        headline=format(round(med), ",") + " cfs \u00b7 " + {"wade":"skinny","both":"prime float","boat":"pushy","":""}.get(vk, ""))
+DAYS = {"today": _duck_day(0), "tomorrow": _duck_day(1)}
+
 riverlib.emit_status("duck",
     {"grade":FG,"cond":FN,"col":FC_,"note":FNOTE,
      "detail":(("%s cfs"%format(round(cur_flow*1000),",")) if cur_flow is not None else "—"),
      "asof":(OBS[-1][0].astimezone(CT).strftime("%-I:%M %p") if OBS else now_ct.strftime("%-I:%M %p"))},
-    wx, riverlib.GRADE_SCORE.get(FG,1.3), CT, ["Smallmouth","Panfish"], "Warmwater smallmouth", "~50 min · Columbia")
+    wx, riverlib.GRADE_SCORE.get(FG,1.3), CT, ["Smallmouth","Panfish"], "Warmwater smallmouth", "~50 min · Columbia", days=DAYS)
 print("wrote out/duck.html | flow %s kcfs %s | grade %s | outlook days %d"%(cur_flow,trend,FG,len(outlook)))

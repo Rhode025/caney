@@ -116,6 +116,31 @@ for rid, c in cards.items():
           and all(all(k in w for k in ("grade", "col", "ico", "hi", "pop")) for w in c["week"]))
     check("status schema: " + rid, ok)
 
+# HQ day contract (the board renders these directly, so a missing field is a blank card)
+for rid, c in cards.items():
+    days = c.get("days") or {}
+    ok = set(days) >= {"today", "tomorrow"}
+    check("day state present: " + rid, ok, "have " + ",".join(sorted(days)))
+    for when, d in days.items():
+        shape = (isinstance(d.get("vessel"), dict) and isinstance(d.get("clarity"), dict)
+                 and isinstance(d.get("level"), dict)
+                 and all(k in d["vessel"] for k in ("kind", "label", "col", "ico"))
+                 and all(k in d["level"] for k in ("kind", "label", "col")))
+        check("day shape: %s/%s" % (rid, when), shape)
+        cv = d.get("curve")
+        if cv is not None:
+            good = (isinstance(cv.get("vals"), list) and len(cv["vals"]) == 24
+                    and cv.get("src") in ("forecast", "observed")
+                    and any(x is not None for x in cv["vals"]))
+            check("curve shape: %s/%s" % (rid, when), good,
+                  "len=%s src=%s" % (len(cv.get("vals") or []), cv.get("src")))
+# a river with no forward flow forecast must SAY so rather than render an empty card
+for rid in ("elk", "elktn", "stones"):
+    d = (cards.get(rid, {}).get("days") or {}).get("tomorrow", {})
+    check("no-forecast river is explicit: " + rid,
+          d.get("curve") is None and "forecast" in (d.get("headline") or "").lower(),
+          repr(d.get("headline")))
+
 species = set(s for c in cards.values() for s in c.get("species", []))
 check("species == expected set", species == EXPECTED_SPECIES,
       "extra=%s missing=%s" % (species - EXPECTED_SPECIES, EXPECTED_SPECIES - species))

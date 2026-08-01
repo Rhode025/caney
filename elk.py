@@ -383,9 +383,40 @@ open(os.path.join(OUT,"elk.html"),"w").write(html)
 # ---- HQ status card ----
 _EB={"prime":("Prime",3.0),"low":("Good",2.3),"high":("Good",2.0),"vlow":("Fair",1.3),"blown":("Slow",0.8),"na":("Fair",1.6)}
 _eg,_ebase=_EB.get(BK,("Fair",1.6))
+
+# ---- HQ day state ----
+# NO FLOW FORECAST EXISTS for this river: the only forward data is weather, not water.
+# Today's curve is therefore what the gauge has ALREADY recorded (src="observed", partial
+# by definition) and tomorrow has no curve at all. Inventing one would make a flat line
+# look like a prediction.
+_LO = 200
+def _lvl_g(m):
+    if m < _LO:        return "low",   format(round(m), ",") + " cfs \u00b7 skinny"
+    if m < _LO * 8:    return "prime", format(round(m), ",") + " cfs"
+    if m < _LO * 25:   return "high",  format(round(m), ",") + " cfs \u00b7 pushy"
+    return "blown", format(round(m), ",") + " cfs \u00b7 blown"
+def _gauge_day(off):
+    d0, _ = riverlib.day_bounds(CT, off)
+    if off != 0:
+        return riverlib.day_state(vessel="boat", vessel_why="jet / kayak float river",
+            headline="No flow forecast for this river \u2014 check the gauge on the day")
+    cv = riverlib.curve_from_rows(OBS, d0)
+    vals = [v for v in (cv or []) if v is not None]
+    if not vals:
+        return riverlib.day_state(vessel="boat", vessel_why="jet / kayak float river", headline="No gauge reading today")
+    med = sorted(vals)[len(vals) // 2]
+    lk, ld = _lvl_g(med)
+    ck = "clear" if med < _LO * 4 else "stained" if med < _LO * 12 else "colored"
+    return riverlib.day_state(vessel="boat", vessel_why="jet / kayak float river",
+        clarity=ck, clarity_why="inferred from flow, not measured",
+        level=lk, level_detail=ld,
+        curve=cv, curve_unit="cfs", curve_label="Observed flow (gauge)", curve_src="observed",
+        headline=format(round(med), ",") + " cfs \u2014 observed only, no forecast")
+DAYS = {"today": _gauge_day(0), "tomorrow": _gauge_day(1)}
+
 riverlib.emit_status("elk",
     {"grade":_eg,"cond":BLABEL,"col":BCOL,"note":BFISH,
      "detail":(("%s cfs"%format(int(cur_cfs),",")) if cur_cfs is not None else "—"),
      "asof":(OBS[-1][0].astimezone(CT).strftime("%-I:%M %p") if OBS else now_ct.strftime("%-I:%M %p"))},
-    wx, _ebase, CT, ["Smallmouth","Panfish"], "Warmwater smallmouth", "~2 hr · destination (AL)")
+    wx, _ebase, CT, ["Smallmouth","Panfish"], "Warmwater smallmouth", "~2 hr · destination (AL)", days=DAYS)
 print("wrote out/elk.html | %s cfs %s | band %s | Plan %s"%(cur_cfs,trend,BLABEL,plan))

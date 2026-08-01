@@ -1304,13 +1304,109 @@ def today_wx(wx, tz):
             if pop >= 45: ico = "🌧️"
     return {"ico": ico, "hi": hi, "lo": lo, "pop": pop, "wind": wind, "sky": sky}
 
-def emit_status(river_id, now, wx, base_score, tz, species, kind, drive, per_date_note=None):
-    """Build the week outlook and write the HQ status card for this river in one call."""
+# ── HQ DAY STATE ─────────────────────────────────────────────────────────────
+# What the board must answer at a glance, per river, per day: wade or boat · clear or
+# coloured · low, prime, high or blown · and what the flow does across the day.
+#
+# Every field defaults to an explicit "unknown" rather than a guess. Three rivers
+# (elk, elktn, stones) have no forward flow forecast at all — their "forecast" data is
+# weather, not water — so their curve is observed-only and labelled as such. A board
+# that quietly invents tomorrow's water is worse than one that admits it doesn't know.
+
+VESSEL_KINDS = {
+    "wade": {"ico": "🥾",   "label": "Wade day",     "col": "#20b2aa"},
+    "boat": {"ico": "🚤",   "label": "Boat day",     "col": "#2f92d4"},
+    "both": {"ico": "🥾🚤", "label": "Wade or boat", "col": "#28c76f"},
+    "na":   {"ico": "·",    "label": "—",            "col": "#93a3b3"},
+}
+CLARITY_KINDS = {
+    "clear":   {"label": "Clear",   "col": "#3ec6e0"},
+    "stained": {"label": "Stained", "col": "#c9a227"},
+    "colored": {"label": "Colored", "col": "#b3703a"},
+    "muddy":   {"label": "Muddy",   "col": "#7a5230"},
+    "unknown": {"label": "—",       "col": "#93a3b3"},
+}
+LEVEL_KINDS = {
+    "low":     {"label": "Low",       "col": "#20b2aa"},
+    "prime":   {"label": "Prime",     "col": "#28c76f"},
+    "high":    {"label": "High",      "col": "#f2a832"},
+    "blown":   {"label": "Blown out", "col": "#8b6cef"},
+    "unknown": {"label": "—",         "col": "#93a3b3"},
+}
+
+def day_state(vessel="na", vessel_why="", clarity="unknown", clarity_why="",
+              level="unknown", level_detail="", curve=None, curve_unit="cfs",
+              curve_label="", curve_src="forecast", windows=None, headline=""):
+    """One river's read for one day, normalised for the HQ board.
+
+    curve      24 hourly values, local midnight→midnight, or None when unknown. Use
+               None rather than zeros: the board draws "no data" differently from
+               "no water".
+    curve_src  "forecast" (forward-looking) or "observed" (already happened, for
+               rivers with a gauge but no flow forecast). Labelled differently so a
+               flat observed line is never misread as a prediction.
+    windows    [{"from":"7am","to":"1pm","kind":"wade"}] — when to be on the water.
+    """
+    v = VESSEL_KINDS.get(vessel, VESSEL_KINDS["na"])
+    c = CLARITY_KINDS.get(clarity, CLARITY_KINDS["unknown"])
+    l = LEVEL_KINDS.get(level, LEVEL_KINDS["unknown"])
+    vals = None
+    if curve:
+        vals = [(round(x, 1) if x is not None else None) for x in curve]
+        if all(x is None for x in vals):
+            vals = None
+    known = [x for x in (vals or []) if x is not None]
+    return {
+        "vessel": {"kind": vessel, "why": vessel_why, **v},
+        "clarity": {"kind": clarity, "why": clarity_why, **c},
+        "level": {"kind": level, "detail": level_detail, **l},
+        "curve": ({"vals": vals, "unit": curve_unit, "label": curve_label,
+                   "src": curve_src, "peak": max(known), "min": min(known)}
+                  if known else None),
+        "windows": windows or [],
+        "headline": headline,
+    }
+
+def hourly_curve(fn, day_start_epoch, hours=24):
+    """Sample fn(epoch) on each hour of a day. None if nothing resolved."""
+    out = [fn(day_start_epoch + h * 3600) for h in range(hours)]
+    return out if any(x is not None for x in out) else None
+
+def curve_from_rows(rows, d0, scale=1.0):
+    """Bucket [(datetime, value), ...] into 24 hourly slots for the day starting at d0.
+
+    For rivers with a gauge but no flow forecast this is the ONLY curve available, and it
+    covers only the hours that have already happened — hours with no reading stay None so
+    the board can draw the rest as unknown instead of implying a flat prediction.
+    """
+    out = [None] * 24
+    for t, v in rows or []:
+        if v is None: continue
+        h = int((t.timestamp() - d0) // 3600)
+        if 0 <= h < 24:
+            out[h] = v * scale
+    return out if any(x is not None for x in out) else None
+
+def day_bounds(tz, offset_days=0):
+    """(midnight, next-midnight) epochs for a local day."""
+    d = _dt.datetime.now(tz).date() + _dt.timedelta(days=offset_days)
+    d0 = _hr(_dt.datetime(d.year, d.month, d.day, tzinfo=tz).timestamp())
+    return d0, d0 + 86400
+
+
+def emit_status(river_id, now, wx, base_score, tz, species, kind, drive, per_date_note=None,
+                days=None):
+    """Build the week outlook and write the HQ status card for this river in one call.
+
+    days: {"today": day_state(...), "tomorrow": day_state(...)} — the rich per-day read
+    the HQ board renders. Optional; a river that omits it still gets the week strip.
+    """
     r = next((x for x in RIVERS if x["id"] == river_id), {})
     status = {"id": river_id, "name": r.get("name"), "emoji": r.get("emoji"),
               "file": r.get("file"), "on_bg": r.get("on_bg"), "on_fg": r.get("on_fg"),
               "species": species, "kind": kind, "drive": drive,
               "now": now, "wx": today_wx(wx, tz),
+              "days": days or {},
               "week": build_week(wx, base_score, tz, per_date_note)}
     write_status(river_id, status)
     return status

@@ -325,8 +325,39 @@ html=riverlib.render(TEMPLATE,"cumberland").replace("__DATA__",json.dumps(DATA))
 open(os.path.join(OUT,"cumberland.html"),"w").write(html)
 # ---- HQ status card (use today's synthesized outlook) ----
 _t=outlook[0] if outlook else {"grade":"Good","cond":"—","col":"#0a84ff","verdict":"tailwater — fishes daily"}
+
+# ---- HQ day state ----
+# Wolf Creek has a genuine wade threshold (WADE cfs at the dam/Kendall), so wade-vs-boat
+# is a real read here rather than a formality.
+def _cumb_day(off):
+    d0, _ = riverlib.day_bounds(CT, off)
+    cv = riverlib.hourly_curve(rel_at, d0)
+    day = [(h, cv[h]) for h in range(6, 21)] if cv else []
+    if not day: return riverlib.day_state(headline="No release forecast")
+    on = [h for h, v in day if v and v > WADE]
+    def _ap(h): return "%d%s" % (h % 12 or 12, "am" if h < 12 else "pm")
+    if not on:
+        vk, vw, head = "wade", "release under %s cfs — the shoals are fishable" % format(WADE, ","), "Water off — wade it"
+        wins = [{"from": _ap(6), "to": _ap(20), "kind": "wade"}]
+    elif len(on) >= 13:
+        vk, vw = "boat", "generating through the day"
+        head = "Generating %s–%s — boat" % (_ap(on[0]), _ap(on[-1] + 1)); wins = [{"from": _ap(on[0]), "to": _ap(on[-1] + 1), "kind": "boat"}]
+    else:
+        vk, vw = "both", "wade the shoals early, then ride it"
+        head = "Wade until %s, then it comes up" % _ap(on[0])
+        wins = [{"from": _ap(6), "to": _ap(on[0]), "kind": "wade"}, {"from": _ap(on[0]), "to": _ap(on[-1] + 1), "kind": "boat"}]
+    vals = [v for _, v in day if v is not None]
+    peak = max(vals); med = sorted(vals)[len(vals)//2]
+    lk = "low" if med <= WADE else "prime" if peak < 12000 else "high" if peak < 25000 else "blown"
+    return riverlib.day_state(vessel=vk, vessel_why=vw,
+        clarity="clear" if med <= WADE else "stained", clarity_why="bottom-release tailwater; colour tracks release volume",
+        level=lk, level_detail="%s cfs peak" % format(round(peak), ","),
+        curve=cv, curve_unit="cfs", curve_label="Wolf Creek release", curve_src="forecast",
+        windows=wins, headline=head)
+DAYS = {"today": _cumb_day(0), "tomorrow": _cumb_day(1)}
+
 riverlib.emit_status("cumberland",
     {"grade":_t["grade"],"cond":_t.get("cond","—"),"col":_t["col"],"note":_t.get("verdict",""),
      "detail":(("%s cfs release"%format(round(cur),",")) if cur is not None else "water off"),"asof":now_ct.strftime("%-I:%M %p")},
-    wx, riverlib.GRADE_SCORE.get(_t["grade"],2.0), CT, ["Trout"], "Trophy trout tailwater", "~2.5 hr · destination (KY)")
+    wx, riverlib.GRADE_SCORE.get(_t["grade"],2.0), CT, ["Trout"], "Trophy trout tailwater", "~2.5 hr · destination (KY)", days=DAYS)
 print("wrote out/cumberland.html | release now %s cfs (gen=%s) | Burkesville %s | outlook %d"%(cur,gen_now,bk,len(outlook)))
