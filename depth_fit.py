@@ -8,12 +8,22 @@ a power law of discharge. We fit:  log(stage - bed) = log c + f·log Q
 grid-searching the effective bed stage. f (~0.3-0.45 typically) is the depth exponent
 we transfer to ungauged spots:  depth(Q) = d_ref · (Q / Q_ref)^f
 """
-import json, urllib.request, datetime, statistics, math
+import json, urllib.request, datetime, statistics, math, sys
 UA={"User-Agent":"caney-depth/0.1"}; START,END="2015-01-01","2026-07-15"
+
+# Which gauge to fit. Default is Stonewall (Caney), the only one this was ever run on.
+#   python3 depth_fit.py [site] [label] [unit_cfs]
+# unit_cfs sizes the "N unit" flow bins for that dam (Center Hill ~3650, Wolf Creek ~5500).
+SITE  = sys.argv[1] if len(sys.argv) > 1 else "03424860"
+LABEL = sys.argv[2] if len(sys.argv) > 2 else "Stonewall (Caney Fork)"
+UNIT  = float(sys.argv[3]) if len(sys.argv) > 3 else 3650.0
+print("=" * 64)
+print("depth fit: %s  (USGS %s)" % (LABEL, SITE))
+print("=" * 64)
 def get(u): return json.load(urllib.request.urlopen(urllib.request.Request(u,headers=UA),timeout=180))
 def hk(e): return int(e//3600)*3600
 
-url=(f"https://waterservices.usgs.gov/nwis/iv/?format=json&sites=03424860"
+url=(f"https://waterservices.usgs.gov/nwis/iv/?format=json&sites={SITE}"
      f"&startDT={START}&endDT={END}&parameterCd=00060,00065")
 d=get(url)
 series={}
@@ -63,8 +73,10 @@ print(f"\nBEST(full range): depth exponent f={f:.3f}  (R2={r2:.3f}, effective be
 
 # ASSUMPTION-FREE: median stage in the flows that matter (exclude floods)
 print("\nassumption-free median gage height by flow bin (feet):")
-bins=[(200,320,"~min flow"),(320,700,"low"),(700,1400,"~edge"),
-      (1400,3000,"rising"),(3200,4600,"1 unit"),(6500,8500,"2 units"),(9500,12500,"3 units")]
+_q0=min(qs)
+bins=[(_q0,_q0*1.6,"~min flow"),(_q0*1.6,_q0*3.5,"low"),(_q0*3.5,_q0*7,"~edge"),
+      (UNIT*0.4,UNIT*0.9,"sub-unit"),(UNIT*0.9,UNIT*1.3,"1 unit"),
+      (UNIT*1.8,UNIT*2.3,"2 units"),(UNIT*2.6,UNIT*3.4,"3 units")]
 base=None; rows=[]
 for lo,hi,lab in bins:
     v=[s for q,s in pairs if lo<=q<hi]
@@ -77,7 +89,7 @@ for lab,m,r in rows:
     else: print(f"  {lab:10}  stage {m:5.2f} ft   +{r:4.1f} ft over min flow")
 
 # fit f only over the wade->1-unit regime (exclude floods & big multi-unit)
-reg=[(q,s) for q,s in pairs if 175<=q<=4600]
+reg=[(q,s) for q,s in pairs if min(qs)*0.9<=q<=UNIT*1.3]
 smin_r=min(s for q,s in reg)
 def logfit_reg(bed):
     xs=[];ys=[]
@@ -90,12 +102,13 @@ def logfit_reg(bed):
     ff=sxy/sxx;lc=my-ff*mx
     ssr=sum((y-(lc+ff*x))**2 for x,y in zip(xs,ys));sst=sum((y-my)**2 for y in ys)
     return ff,1-ssr/sst
-print("\nexponent fit over WADE->1-unit regime only (Q<=4600, floods excluded):")
+print("\nexponent fit over WADE->1-unit regime only (Q<=%.0f, floods excluded):"%(UNIT*1.3))
 for off in [0.5,1.2,2.5,3.5]:
     ff,rr=logfit_reg(smin_r-off); print(f"  bed=min-{off}: f={ff:.3f} R2={rr:.3f}")
 # relative depth multiplier vs a 300 cfs reference
 print("\nrelative depth vs 300 cfs (multiplier), using depth ∝ Q^f:")
-for q in [250,500,1000,2000,4000,7000,11000]:
-    print(f"  {q:>6,} cfs  ->  {(q/300)**f:.2f}× the 300-cfs depth")
-print(f"\nInterpretation: going 300 -> ~3,900 cfs (1 unit) multiplies depth by {(3900/300)**f:.2f};")
-print(f"300 -> 11,000 cfs (3 units) multiplies depth by {(11000/300)**f:.2f}.")
+_ref=round(min(qs))
+for q in [round(_ref*m) for m in (1,2,4,8,16,25,40)]:
+    print(f"  {q:>7,} cfs  ->  {(q/_ref)**f:.2f}× the {_ref:,}-cfs depth")
+print(f"\nInterpretation: {_ref:,} -> {UNIT:,.0f} cfs (1 unit) multiplies depth by {(UNIT/_ref)**f:.2f};")
+print(f"{_ref:,} -> {UNIT*3:,.0f} cfs (3 units) multiplies depth by {(UNIT*3/_ref)**f:.2f}.")
