@@ -142,6 +142,78 @@ for o in H:
 chk("slider range sane", D['sliderMin']<D['launchDefault']<D['sliderMax'])
 chk("planDefault indexes a real day", 0<=D['planDefault']<len(D['gen']))
 
+# ---- scoring curves, probed directly ----
+# The craft toggle's whole claim is that the SAME water is worth different amounts depending
+# on how you are on it. That cannot be tested against the live forecast -- some weeks have no
+# zero-generation day at all -- so probe the curves themselves across the full flow range.
+ROOT="/Users/stevenrhodes/caney"
+_lv=None
+try:
+    # exec only the pure scoring helpers, not the whole generator (which hits the network)
+    import re as _re
+    _src=open(ROOT+"/briefing.py",encoding='utf-8').read()
+    _ns={"riverlib":__import__("riverlib")}
+    for _fn in ("_lerp","_cf","_sc_level","_sc_clarity","_sc_weather"):
+        _m=_re.search(r"^def %s\([^\n]*\n(?:[ \t][^\n]*\n|[ \t]*\n)*"%_re.escape(_fn),_src,_re.M)
+        if _m: exec(_m.group(0),_ns)
+    _ns["_WM"]=_ns["riverlib"].WATER_MODEL["caney"]
+    _lv=_ns.get("_sc_level"); _cl=_ns.get("_sc_clarity"); _sw=_ns.get("_sc_weather")
+except Exception as e:
+    chk("scoring helpers are probeable", False, str(e))
+
+if _lv:
+    f=lambda c,lo,hi: _lv(c,lo,hi)[0]
+    # direction: minimum flow favours the wader, hurts the jet boat
+    chk("minimum flow: wade beats powerboat", f("wade",250,600)>f("power",250,600),
+        "wade %.2f vs power %.2f"%(f("wade",250,600),f("power",250,600)))
+    # direction: a big release favours the boat, ends wading
+    chk("heavy release: powerboat beats wade", f("power",4000,7000)>f("wade",4000,7000),
+        "power %.2f vs wade %.2f"%(f("power",4000,7000),f("wade",4000,7000)))
+    # wade score must fall monotonically as the day's LOW rises
+    _w=[f("wade",lo,9000) for lo in (200,400,600,900,1400)]
+    chk("wade score falls monotonically with the day's low", all(_w[i]>=_w[i+1] for i in range(len(_w)-1)), str(_w))
+    # a blown-out river is bad for everyone
+    for c in ("wade","raft","power"):
+        chk("blown out is poor for %s"%c, f(c,9000,16000)<0.5, "%.2f"%f(c,9000,16000))
+    # every craft, every plausible flow: bounded 0..1
+    chk("level score stays in range", all(0.0<=f(c,lo,hi)<=1.0
+        for c in ("wade","raft","power") for lo in (200,500,1200,5000,12000) for hi in (600,3000,8000,20000) if hi>=lo))
+    # clarity is monotone in antecedent rain
+    _c=[_cl(r)[0] for r in (0.0,0.2,0.6,1.5,3.0)]
+    chk("clarity falls monotonically with recent rain", all(_c[i]>=_c[i+1] for i in range(len(_c)-1)), str(_c))
+    # a thunderstorm is a gate: it must outweigh every comfort term combined
+    _perfect={"precipMax":0,"gust":3,"hi":72}
+    _storm=dict(_perfect,storm=True,stormSpan="1pm-6pm")
+    for c in ("wade","raft","power"):
+        chk("thunderstorm gates the weather score for %s"%c, _sw(c,_storm)[0]<=0.2,
+            "%.2f"%_sw(c,_storm)[0])
+        chk("a calm day scores full weather for %s"%c, _sw(c,_perfect)[0]>=0.99, "%.2f"%_sw(c,_perfect)[0])
+    chk("storm text names lightning", "lightning" in _sw("wade",_storm)[1])
+
+# ---- wade window must not contradict itself, and must not claim dawn ----
+# Measured at Stonewall over 14 days (USGS 03424860, hourly medians): the river is wadeable
+# (<=600 cfs) 0% of the time from midnight to 9am, 93% from 2-4pm, and 0% again after 8pm. On a
+# daily-peaking schedule the previous evening's release is still passing Stonewall at first
+# light, so the wadeable window is a MIDDAY LULL. The page used to advise "wade dawn to the
+# bump" on every generating day, which is exactly backwards. Guard both halves: the verdict must
+# agree with the computed window, and it must never send someone to wade at dawn on a gen day.
+for _d in D['week']:
+    _b=_d['byCraft']['wade']; _w=next(p for p in _b['why']['parts'] if p['k']=='Window')
+    _v=_b['verdict']
+    if _d['units'] and _w['pts']>0:
+        chk("wade verdict does not promise dawn on a generating day: "+_d['label'],
+            'dawn' not in _v.lower() or 'dawn to' not in _v.lower() or _w['why'].startswith('every'),
+            _v+" | "+_w['why'])
+        # any clock time in the ACTION half of the verdict must appear in the computed window.
+        # The limiter half ("Storms 5pm-6pm . ...") names the storm, not the wade window.
+        import re as _re2
+        _act=_v.split(' \u00b7 ')[-1]
+        _ts=_re2.findall(r'\d{1,2}(?:am|pm)',_act)
+        chk("wade verdict times come from the computed window: "+_d['label'],
+            all(t in _w['why'] for t in _ts), _act+" | "+_w['why'])
+    chk("wade window is internally consistent: "+_d['label'],
+        (_w['pts']==0)==(_w['why'].startswith('no daylight hour')), _w['why'])
+
 print("QC LAYER A — DATA integrity")
 print("  passed : %d"%len(OK))
 print("  warned : %d"%len(WARN))

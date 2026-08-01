@@ -125,10 +125,14 @@ else:                                                  # API thin/down -> use ca
     except Exception as e: print("no usable cache:",e)
 wx=None
 try:
+    # weather_code carries thunderstorms (WMO 95/96/99), which no other field exposes: a day can
+    # read 55% rain and 78F and still be a day you must be off the water. wind_gusts_10m matters
+    # more than mean wind for both casting and holding a boat. past_days=2 is for antecedent rain
+    # -- today's clarity is set by the rain that already fell, not by today's forecast.
     wx=get("https://api.open-meteo.com/v1/forecast?latitude=36.10&longitude=-85.83"
-           "&hourly=temperature_2m,precipitation_probability,cloud_cover,wind_speed_10m,surface_pressure"
-           "&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset"
-           "&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=America%2FChicago&forecast_days=8")
+           "&hourly=temperature_2m,precipitation_probability,cloud_cover,wind_speed_10m,surface_pressure,weather_code,wind_gusts_10m"
+           "&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset,precipitation_sum,weather_code"
+           "&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=America%2FChicago&past_days=2&forecast_days=8")
 except Exception as e: print("wx warn:",e)
 
 def dam_at(k):
@@ -199,6 +203,8 @@ _tb=ramp_blocks(tod_mid,tod_mid+86400)
 dam_cap=("Center Hill today: "+", ".join("%dU %s–%s"%(u,fmt_ap(a),fmt_ap(b)) for a,b,u,pk in _tb)) if _tb else "Center Hill: minimum flow all day (no generation)"
 parts=[f"{units(pk)}U {fmt_ap(max(a,tom_mid))}–{fmt_ap(min(b,twe))}" for a,b,pk in GW if not(b<=tom_mid or a>=twe)]
 
+def _ap12(h):
+    h=h%24; return "%d%s"%(12 if h%12==0 else h%12, "am" if h<12 else "pm")
 def wx_pack(day):
     if not wx: return None
     H=wx["hourly"]; idx={t:i for i,t in enumerate(H["time"])}
@@ -216,11 +222,49 @@ def wx_pack(day):
         dp=H["surface_pressure"][i18]-H["surface_pressure"][i6]; ptr="falling" if dp<-1.5 else "rising" if dp>1.5 else "steady"
     D=wx["daily"]; di=D["time"].index(day.strftime("%Y-%m-%d")) if day.strftime("%Y-%m-%d") in D["time"] else None
     g=lambda a: D[a][di] if di is not None else None
+    # Storms and gusts are read over fishing hours only (6am-8pm). A 2am thunderstorm should not
+    # condemn a day, and the overnight gust peak is not the wind you will be casting into.
+    storm_hrs=[]; gust=0
+    for h in range(6,21):
+        i=at(h)
+        if i is None: continue
+        wc=(H.get("weather_code") or [None]*(i+1))[i]
+        if wc in (95,96,99): storm_hrs.append(h)
+        try: gust=max(gust,round(H["wind_gusts_10m"][i]))
+        except Exception: pass
+    # Antecedent rain drives clarity. Caney is a bottom-release tailwater -- the water leaving the
+    # dam is always clear -- so colour comes from tributary inflow below it, which responds to the
+    # rain that has ALREADY fallen. Weight recent days heaviest; 3 days back is effectively clear.
+    rain3=0.0
+    if di is not None:
+        for back,wgt in ((0,1.0),(1,0.6),(2,0.3)):
+            j=di-back
+            if j>=0:
+                try: rain3+=(D["precipitation_sum"][j] or 0)*wgt
+                except Exception: pass
     return {"hi":round(g("temperature_2m_max")) if di is not None else None,"lo":round(g("temperature_2m_min")) if di is not None else None,
-            "sunrise":(g("sunrise") or "")[11:16],"sunset":(g("sunset") or "")[11:16],"pressure":ptr,"snaps":snaps,"precipMax":g("precipitation_probability_max")}
+            "sunrise":(g("sunrise") or "")[11:16],"sunset":(g("sunset") or "")[11:16],"pressure":ptr,"snaps":snaps,"precipMax":g("precipitation_probability_max"),
+            "storm":bool(storm_hrs),"stormSpan":("%s–%s"%(_ap12(storm_hrs[0]),_ap12(storm_hrs[-1]+1)) if storm_hrs else None),
+            "gust":gust,"rain":round(g("precipitation_sum") or 0,2) if di is not None else 0,"rain3":round(rain3,2)}
 WXDAYS=[wx_pack(now_ct.date()+datetime.timedelta(days=di)) for di in range(7)]
 WX=WXDAYS[1]
-clar_word="stained" if (WX and (WX["precipMax"] or 0)>70) else "some color" if (WX and (WX["precipMax"] or 0)>35) else "clear"
+def _sc_clarity(r3):
+    """Clarity from antecedent rain -> (0..1, word, why).
+
+    Caney is a bottom-release tailwater: the water leaving Center Hill is always clear, so
+    colour arrives from tributary inflow BELOW the dam, which responds to rain that has
+    already fallen. Scoring today's clarity off today's rain forecast -- which is what this
+    page used to do, and off TOMORROW's forecast at that -- had the causality backwards.
+    Words stay in the page's existing three-word vocabulary (the fly box is keyed on them);
+    the finer gradation lives in the score and the explanation.
+    """
+    if r3<0.10: return 1.00,"clear","no meaningful rain in three days"
+    if r3<0.40: return 0.85,"some color",'%.2f" of recent rain \u2014 slight colour, still fishable on sight'%r3
+    if r3<1.00: return 0.60,"some color",'%.2f" of recent rain \u2014 off-colour, go bigger and darker'%r3
+    if r3<2.00: return 0.35,"stained",'%.2f" of recent rain \u2014 the tributaries are pushing colour in'%r3
+    return 0.15,"stained",'%.2f" of recent rain \u2014 muddy, hard to get a fish to see a fly'%r3
+
+CLAR_F,clar_word,CLAR_WHY=_sc_clarity((WXDAYS[0] or {}).get("rain3") or 0)
 
 # ---- live "right now": current release + Stonewall gauge vs model ----
 now_hr=hr_key(now.timestamp()); stw=next(x for x in ACCESS if x["name"]=="Stonewall")
@@ -390,49 +434,177 @@ def moon_rating(d):
     tn=datetime.datetime(d.year,d.month,d.day,12,0,tzinfo=CT).timestamp()
     frac=(((tn-ref)/86400.0)%syn)/syn; dist=min(frac,abs(frac-.5),abs(frac-1.0))
     return max(1,min(5,round(1+(1-dist/0.25)*4)))
+# ---------------------------------------------------------------------------
+# Day scoring.
+#
+# What a day is worth depends on what you are standing in. A no-generation day is a
+# PERFECT wade day and a poor powerboat day; four units is a fine jet-boat push and
+# means you are not getting in the river at all. One blended score cannot say both,
+# so every day is scored once per craft and the page toggles between them.
+#
+# Weights (each craft sums to 100). Rationale, not taste:
+#   Level    35  the one thing you cannot fish around. Wrong water = no trip.
+#   Clarity  20  a bottom-release tailwater fishes on sight; mud kills that. Worth
+#                less from a boat, where a streamer still works in colour.
+#   Weather  25  dominated by the thunderstorm term -- a safety gate, not a comfort
+#                score. Worth MORE from a boat: open water, exposed, slower to shore.
+#   Window   10  a perfect release that peaks at 2am is worth nothing.
+#   Moon     10  solunar timing is real but modest, and it is the least evidenced
+#                input on this page. It used to carry 40, which let it swing a day
+#                two grades on phase alone while the water was identical.
+CRAFTS=["wade","raft","power"]
+CRAFT_NAME={"wade":"Wade","raft":"Float","power":"Powerboat"}
+CRAFT_ICO={"wade":"\U0001f97e","raft":"\U0001f6f6","power":"\U0001f6a4"}
+SCORE_W={"wade": {"Level":35,"Clarity":20,"Weather":25,"Window":10,"Moon":10},
+         "raft": {"Level":35,"Clarity":18,"Weather":27,"Window":10,"Moon":10},
+         "power":{"Level":35,"Clarity":15,"Weather":30,"Window":10,"Moon":10}}
+_WM=riverlib.WATER_MODEL["caney"]
+def _lerp(x,x0,x1,y0,y1):
+    if x1==x0: return y0
+    return y0+(y1-y0)*max(0.0,min(1.0,(x-x0)/(x1-x0)))
+def _cf(n): return format(int(round(n)),",")
+
+def _sc_level(craft,lo,hi):
+    """Is the water itself right for this craft? -> (0..1, why)"""
+    if craft=="wade":
+        # You wade the day's MINIMUM, not its peak -- the low is what you stand in before the
+        # bump arrives. Thresholds are the measured ones (110 USGS field measurements).
+        ok,marg,no=_WM["wade_ok"],_WM["wade_marginal"],_WM["no_wade"]
+        if lo<=ok:   return 1.0,"drops to %s cfs — solid wading on the gravel"%_cf(lo)
+        if lo<=marg: return _lerp(lo,ok,marg,1.0,0.55),"low of %s cfs — wadeable but pushy in the runs"%_cf(lo)
+        if lo<=no:   return _lerp(lo,marg,no,0.55,0.15),"never drops below %s cfs — marginal, edges only"%_cf(lo)
+        return 0.05,"never below %s cfs — not a wading day"%_cf(lo)
+    if craft=="power":
+        # A jet needs water over the bars; too much and the river runs you.
+        if hi<800:   return 0.45,"minimum flow all day — runnable but skinny over the shoals"
+        if hi<=2500: return _lerp(hi,800,2500,0.80,1.00),"peaks at %s cfs — comfortable jet water"%_cf(hi)
+        if hi<=5000: return _lerp(hi,2500,5000,1.00,0.92),"peaks at %s cfs — plenty of water, easy running"%_cf(hi)
+        if hi<=9000: return _lerp(hi,5000,9000,0.92,0.60),"peaks at %s cfs — pushy, watch the eddy lines"%_cf(hi)
+        return max(0.20,_lerp(hi,9000,14000,0.60,0.25)),"peaks at %s cfs — high and heavy"%_cf(hi)
+    if hi<800:   return 0.90,"minimum flow — floats fine, slow drift, long day on the oars"
+    if hi<=5000: return 1.00,"peaks at %s cfs — ideal drift speed"%_cf(hi)
+    if hi<=9000: return _lerp(hi,5000,9000,1.00,0.55),"peaks at %s cfs — moving quickly, fewer casts per run"%_cf(hi)
+    return 0.30,"peaks at %s cfs — too much water to fish from a drift boat"%_cf(hi)
+
+def _sc_weather(craft,wxd):
+    """Safety first, then comfort -> (0..1, why)"""
+    f=1.0; bad=[]; good=[]
+    pop=wxd.get("precipMax") or 0; gust=wxd.get("gust") or 0; hi=wxd.get("hi")
+    if wxd.get("storm"):
+        # A gate, not a deduction. Standing waist-deep in a river or sitting in an open boat
+        # during lightning is the one condition on this page that can actually kill you.
+        f=min(f,0.15); bad.append("thunderstorms %s — lightning, plan to be off the water"%(wxd.get("stormSpan") or "in the afternoon"))
+    if pop>70: f-=0.25; bad.append("%d%% rain — wet all day"%pop)
+    elif pop>40: f-=0.12; bad.append("%d%% rain — unsettled"%pop)
+    elif pop<=20: good.append("%d%% rain"%pop)
+    gcap=18 if craft=="wade" else 15    # a boat catches wind all day; a wader only casts into it
+    if gust>=gcap+12: f-=(0.20 if craft=="wade" else 0.30); bad.append("gusts to %d mph — %s"%(gust,"hard to cast" if craft=="wade" else "hard to hold a line"))
+    elif gust>=gcap: f-=(0.10 if craft=="wade" else 0.15); bad.append("gusts to %d mph"%gust)
+    if hi is not None:
+        if hi>=95: f-=0.15; bad.append("%d°F — brutal midday heat"%hi)
+        elif hi<=38: f-=0.15; bad.append("%d°F — cold hands, ice in the guides"%hi)
+        elif 60<=hi<=85: good.append("%d°F"%hi)
+    f=max(0.0,min(1.0,f))
+    return f,("; ".join(bad) if bad else ((", ".join(good)+" — nothing in the way") if good else "nothing in the way"))
+
+def _sc_window(craft,d0,wxd):
+    """How many daylight hours actually hold the right water -> (0..1, why)"""
+    try: sr=int((wxd.get("sunrise") or "06:00")[:2]); ss=int((wxd.get("sunset") or "20:00")[:2])
+    except Exception: sr,ss=6,20
+    if ss<=sr: sr,ss=6,20
+    hrs=[]
+    for h in range(sr,ss+1):
+        q=flow_at(stw,d0+h*3600)
+        if q is None: continue
+        if craft=="wade":    okh=q<=_WM["wade_marginal"]
+        elif craft=="power": okh=q>=700
+        else:                okh=q<=9000
+        hrs.append((h,okh))
+    if not hrs: return 0.5,"no flow model for this day",[]
+    n=sum(1 for _,o in hrs if o); tot=len(hrs)
+    if n==0:   return 0.0,"no daylight hour has the right water for this",[]
+    if n==tot: return 1.0,"every daylight hour works — %s to %s"%(_ap12(sr),_ap12(ss)),[(sr,ss)]
+    spans=[]; st=None
+    for h,o in hrs+[(ss+1,False)]:
+        if o and st is None: st=h
+        elif not o and st is not None: spans.append((st,h)); st=None
+    return n/tot,"%d of %d daylight hours — %s"%(n,tot,", ".join("%s–%s"%(_ap12(a),_ap12(b)) for a,b in spans)),spans
+
 def score_day(di,d):
     d0=ep(d,0); blk=ramp_blocks(d0,d0+86400)
     peak_u=max([b[2] for b in blk],default=0)
     gs=min([b[0] for b in blk],default=None); ge=max([b[1] for b in blk],default=None)
     mr=moon_rating(d)
-    gen=(45 if peak_u<=2 else 36) if peak_u>=1 else 28
     wxd=WXDAYS[di] or {}; pop=wxd.get("precipMax") or 0; hi=wxd.get("hi")
     mid=next((s for s in wxd.get("snaps",[]) if s["when"]=="Midday"),None)
-    ico=mid["ico"] if mid else "🌡️"
-    wsc=15 if pop<=30 else 10 if pop<=60 else 3
-    score=round(mr/5*40+gen+wsc)
-    grade="Prime" if score>=88 else "Good" if score>=78 else "Fair" if score>=68 else "Tough"
-    # WHY, not just what. The weighting is not obvious from the verdict: the moon carries 40
-    # of ~100 points, so two days with identical generation can land two grades apart on moon
-    # phase alone. A user looking at "Tough" deserves to see which term cost the points.
-    _moonpts=round(mr/5*40)
-    _why={"total":score,"grade":grade,
-          "bands":"Prime \u2265 88 \u00b7 Good \u2265 78 \u00b7 Fair \u2265 68 \u00b7 below that Tough",
-          "parts":[
-            {"k":"Moon","pts":_moonpts,"max":40,
-             "why":"feeding rating %d/5 \u2014 %s"%(mr, "peak solunar period" if mr>=4 else
-                   "moderate" if mr==3 else "weak, between the major phases")},
-            {"k":"Water","pts":gen,"max":45,
-             "why":("%d-unit release, the band that fishes best"%peak_u) if 1<=peak_u<=2 else
-                   ("%d units \u2014 more water than ideal"%peak_u) if peak_u>2 else
-                   "no generation \u2014 low and clear, sight-fishing only"},
-            {"k":"Weather","pts":wsc,"max":15,
-             "why":("%d%% rain \u2014 clear enough"%pop) if pop<=30 else
-                   ("%d%% rain \u2014 unsettled"%pop) if pop<=60 else
-                   ("%d%% rain \u2014 wet"%pop)},
-          ]}
-    _why["driver"]=min(_why["parts"], key=lambda p: p["pts"]/p["max"])["k"]
-    if peak_u>=1:
-        window="rise %s–%s"%(fmt_ap(gs),fmt_ap(ge)); verdict="%d-unit afternoon rise%s"%(peak_u," · strong moon feed" if mr>=4 else "")
-    else:
-        window="wade dawn–dusk"; verdict="Low & clear — sight-fish the flats"
-    return {"i":di,"label":cal[di]["label"],"date":cal[di]["date"],"score":score,"grade":grade,
-            "units":peak_u,"moon":mr,"ico":ico,"hi":hi,"pop":pop,"verdict":verdict,"window":window,"why":_why,
-            "blurb":"%s · moon %d/5"%(("%d-unit release %s"%(peak_u,fmt_ap(gs))) if peak_u else "minimum flow",mr)}
+    ico=mid["ico"] if mid else "\U0001f321️"
+    # Modelled Stonewall flow across the day -- the actual water, not a unit count.
+    qs=[q for q in (flow_at(stw,d0+h*3600) for h in range(24)) if q is not None]
+    q_lo=min(qs) if qs else CALIB_BASEFLOW; q_hi=max(qs) if qs else CALIB_BASEFLOW
+    clar_f,clar_w,clar_why=_sc_clarity(wxd.get("rain3") or 0)
+    moon_why="feeding rating %d/5 — %s"%(mr,"peak solunar period" if mr>=4 else "moderate" if mr==3 else "weak, between the major phases")
+    by={}
+    for c in CRAFTS:
+        W=SCORE_W[c]
+        lv_f,lv_why=_sc_level(c,q_lo,q_hi)
+        wx_f,wx_why=_sc_weather(c,wxd)
+        wn_f,wn_why,wn_spans=_sc_window(c,d0,wxd)
+        parts=[{"k":"Level","pts":round(lv_f*W["Level"]),"max":W["Level"],"why":lv_why},
+               {"k":"Clarity","pts":round(clar_f*W["Clarity"]),"max":W["Clarity"],"why":clar_why},
+               {"k":"Weather","pts":round(wx_f*W["Weather"]),"max":W["Weather"],"why":wx_why},
+               {"k":"Window","pts":round(wn_f*W["Window"]),"max":W["Window"],"why":wn_why},
+               {"k":"Moon","pts":round(mr/5*W["Moon"]),"max":W["Moon"],"why":moon_why}]
+        sc=sum(p["pts"] for p in parts)
+        gr="Prime" if sc>=85 else "Good" if sc>=72 else "Fair" if sc>=58 else "Tough"
+        why={"total":sc,"grade":gr,"craft":CRAFT_NAME[c],
+             "bands":"Prime ≥ 85 · Good ≥ 72 · Fair ≥ 58 · below that Tough",
+             "parts":parts}
+        why["driver"]=min(parts,key=lambda p:(p["pts"]/p["max"]) if p["max"] else 1)["k"]
+        # The verdict is what you would actually do that day in that craft.
+        if c=="wade":
+            if not peak_u: act="Low & clear — sight-fish the flats"
+            elif wn_f>=0.9: act="Wadeable all day"
+            elif wn_spans:
+                _a,_b=max(wn_spans,key=lambda x:x[1]-x[0])   # the longest fishable stretch
+                _sr=int((wxd.get("sunrise") or "06:00")[:2])
+                act=("Wade dawn to %s"%_ap12(_b)) if _a<=_sr+1 else "Wade the %s–%s lull"%(_ap12(_a),_ap12(_b))
+            else: act="Water on all day — take a boat"
+        elif c=="power":
+            act=("%d-unit push — run up and meet it"%peak_u if peak_u else "Minimum flow — skinny, pick your shoals")
+        else:
+            act=("%d-unit float — good drift speed"%peak_u if peak_u else "Slow float on minimum flow")
+        # A downgraded day must SAY what downgraded it. Without this, a Prime Friday and a Tough
+        # Wednesday with the same release read as identical advice, which is worse than no grade.
+        lim=None
+        if wxd.get("storm"): lim="Storms %s"%(wxd.get("stormSpan") or "midday")
+        elif why["driver"]=="Clarity" and clar_f<0.6: lim="Water's off colour"
+        elif why["driver"]=="Window" and wn_f<0.5: lim="Short window"
+        elif why["driver"]=="Level" and lv_f<0.6: lim=("Too much water to wade" if c=="wade" else "Marginal water")
+        elif why["driver"]=="Weather" and wx_f<0.7: lim="Rough weather"
+        if lim and gr in ("Fair","Tough"):
+            _sh=act.split(" — ")[0]; vd="%s · %s"%(lim,_sh[0].lower()+_sh[1:])
+        else: vd=act
+        by[c]={"score":sc,"grade":gr,"why":why,"verdict":vd,"window":wn_why}
+    dflt=by["power"]
+    return {"i":di,"label":cal[di]["label"],"date":cal[di]["date"],
+            "score":dflt["score"],"grade":dflt["grade"],"why":dflt["why"],
+            "verdict":dflt["verdict"],"window":dflt["window"],"byCraft":by,
+            "units":peak_u,"moon":mr,"ico":ico,"hi":hi,"pop":pop,
+            "clarity":clar_w,"storm":bool(wxd.get("storm")),"gust":wxd.get("gust") or 0,
+            "qlo":round(q_lo),"qhi":round(q_hi),
+            "blurb":"%s · %s"%(("%d-unit release %s"%(peak_u,fmt_ap(gs))) if peak_u else "minimum flow",clar_w)}
 _scores=[score_day(di, now_ct.date()+datetime.timedelta(days=di)) for di in range(7)]
-_top=sorted(_scores,key=lambda x:-x["score"])[:2]
-WEEK_SYNTH="Best days: "+", ".join("%s (%s)"%(t["label"],t["grade"]) for t in _top)+" — "+_top[0]["verdict"].lower()+"."
-BEST=max(_scores,key=lambda x:x["score"]); DAYSCORES=[s["score"] for s in _scores]
+# "Best day this week" is a different day depending on the craft -- the whole point of scoring
+# per craft -- so the synthesis and the starred day are computed per craft too.
+WEEK_SYNTH={}; BEST_BY={}
+for _c in CRAFTS:
+    _rank=sorted(_scores,key=lambda x:-x["byCraft"][_c]["score"])
+    _t2=_rank[:2]
+    WEEK_SYNTH[_c]=("Best %s days: "%CRAFT_NAME[_c].lower()
+        +", ".join("%s (%s)"%(t["label"],t["byCraft"][_c]["grade"]) for t in _t2)
+        +" — "+_t2[0]["byCraft"][_c]["verdict"].lower()+".")
+    BEST_BY[_c]=_rank[0]["i"]
+BEST=max(_scores,key=lambda x:x["byCraft"]["power"]["score"]); DAYSCORES=[s["score"] for s in _scores]
 
 # ---- detailed generation schedule per day ----
 GEN=[]
@@ -520,7 +692,8 @@ DATA={"arrival":ARRIVAL,"holes":HOLES,
       "todayLabel":now_ct.strftime("%A, %B %-d · %-I:%M %p"),"dateLabel":tom.strftime("%A, %B %-d"),"hatch":HATCH,"month":now_ct.month,"chatter":riverlib.load_intel("caney"),"flysel":FLYSEL,
       "damCap":dam_cap,"clarity":clar_word,"points":points,"riseCurve":RISE_CURVE,"weather":WX,"tips":tips,
       "calendar":cal,"itinerary":itin_steps,"now":NOW,"solunar":SOL,"best":BEST,"dayscores":DAYSCORES,
-      "wxDays":WXDAYS,"solDays":SOLDAYS,"gen":GEN,"week":_scores,"weekSynth":WEEK_SYNTH,"wxv":WXV,"riverPoly":RIVER_POLY,
+      "wxDays":WXDAYS,"solDays":SOLDAYS,"gen":GEN,"week":_scores,"weekSynth":WEEK_SYNTH,"bestBy":BEST_BY,
+      "craftOrder":CRAFTS,"craftName":CRAFT_NAME,"craftIco":CRAFT_ICO,"scoreW":SCORE_W,"wxv":WXV,"riverPoly":RIVER_POLY,
       "genHint":"Center Hill generation, midnight→midnight (bar height = units). Then the bump travels ~2.5 mph downstream — arrival times backtested at the Stonewall gauge (Happy Hollow ~2½h · Betty's ~3½h · Stonewall ~6h after release).",
       "genLegend":'<span><i style="background:#7db8e0"></i>1 unit</span><span><i style="background:#2f92d4"></i>2 units</span><span><i style="background:#5e5ce6"></i>3 units</span><span>Verify against TVA before you launch.</span>',
       "genOpts":{"minLabel":"minimum flow — wade all day","arrLabel":"bump reaches"},
@@ -617,6 +790,11 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:30px;heigh
 .ticks{display:flex;justify-content:space-between;font-size:11px;color:var(--faint);margin-top:2px}
 .summary{margin-top:12px;font-size:14px;color:var(--muted);line-height:1.55}.summary b{color:var(--ink)}.summary .warn{color:#c0392b;font-weight:600}
 .cal{padding:8px 16px 14px}
+.calcraft{display:flex;gap:6px;margin:0 0 10px}
+.calcraft button{flex:1;border:1.5px solid var(--line);background:#fff;border-radius:11px;padding:9px 4px;cursor:pointer;font-family:inherit;font-size:12.5px;font-weight:650;color:var(--muted);display:flex;align-items:center;justify-content:center;gap:5px;transition:.16s}
+.calcraft button span{font-size:15px;line-height:1}
+.calcraft button.on{border-color:var(--blue);background:#f2f8ff;color:var(--ink);box-shadow:0 2px 8px rgba(10,132,255,.14)}
+.stormf{color:#b42318;font-weight:700}
 .wksyn{font-size:13.5px;color:var(--ink);background:#eef6ff;border:1px solid #dbeafe;border-radius:12px;padding:11px 14px;margin:2px 0 10px;font-weight:500}
 .wkrow{display:flex;align-items:center;gap:13px;padding:12px 4px;border-top:1px solid var(--line);cursor:pointer}
 .wksyn+.wkrow{border-top:0}
@@ -624,7 +802,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:30px;heigh
 .wkg{flex:none;width:56px;text-align:center;font-size:10.5px;font-weight:800;letter-spacing:.02em;color:#fff;padding:5px 0;border-radius:8px}
 .wkd{flex:none;width:52px}.wkd b{display:block;font-size:15px;font-weight:700;line-height:1.1}.wkd span{font-size:11.5px;color:var(--muted)}
 .wkm{flex:1;min-width:0}.wkv{font-size:14.5px;font-weight:600;color:var(--ink)}
-.wkstat{font-size:12.5px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.wkstat i{color:var(--faint);font-style:normal;margin:0 4px}
+.wkstat{font-size:12.5px;color:var(--muted);margin-top:3px;line-height:1.45}.wkstat i{color:var(--faint);font-style:normal;margin:0 4px}
 .calx{display:flex;padding:6px 0 8px}.cxs{width:132px;flex:none}.cxl{flex:1;display:flex;justify-content:space-between;font-size:11px;color:var(--faint)}
 .crow{display:flex;align-items:center;gap:14px;padding:13px 0;border-top:1px solid var(--line);cursor:pointer}.crow:first-child{border-top:0}
 .cd{width:118px;flex:none}.cd .dl{font-weight:700;font-size:16px;letter-spacing:-.2px}.cd .ds{font-size:12px;color:var(--muted);margin-top:1px}
@@ -802,7 +980,7 @@ const _openDay=(new Date().getHours()<12)?0:Math.min(1,(DATA.calendar||[]).lengt
 const _idxOf=n=>Math.max(0,DATA.points.findIndex(p=>p.name===n));
 // Defaults keyed by NAME, not index: adding an access used to silently shift the
 // take-out to whatever happened to land on position 6.
-let mode='drift',fromIdx=_idxOf('Long Branch'),toIdx=_idxOf('Stonewall'),launchMin=DATA.launchDefault,dsel=_openDay,daybase=_openDay*1440,craft='power';
+let mode='drift',fromIdx=_idxOf('Long Branch'),toIdx=_idxOf('Stonewall'),launchMin=DATA.launchDefault,dsel=_openDay,daybase=_openDay*1440,craft=(function(){try{const c=localStorage.getItem('caney.craft');return DATA.craftName[c]?c:'power';}catch(e){return 'power';}})();
 function interp(c,x){if(x<=c[0][0])return c[0][1];for(let i=1;i<c.length;i++){if(x<=c[i][0]){const a=c[i-1],b=c[i];return a[1]+(b[1]-a[1])*(x-a[0])/(b[0]-a[0]);}}const n=c.length,a=c[n-2],b=c[n-1];return b[1]+(b[1]-a[1])*(x-b[0])/(b[0]-a[0]);}
 function depthAt(i,cfs){return P[i].d0+interp(DATA.riseCurve,cfs);}
 // Wade threshold is MEASURED (USGS gaugings, see riverlib.WATER_MODEL) and arrives via
@@ -835,12 +1013,27 @@ document.getElementById('cap').innerHTML=DATA.todayLabel+' &nbsp;·&nbsp; Center
  const tr=n.trend==='rising'?' ↑ rising':n.trend==='falling'?' ↓ falling':'';
  document.getElementById('nowstrip').innerHTML='<span class="dotlg" style="background:'+g+'"></span><b>Right now</b> · Center Hill '+(n.gen?(n.units+'-unit generating'):'minimum flow')+' ~'+(n.cfs||'–').toLocaleString()+' cfs'+tr+' · Stonewall'+chk+' · water '+n.clarity+stale+' <span class="asof">as of '+n.asof+'</span>';})();
 const GCOL={Prime:'#28c76f',Good:'#0a84ff',Fair:'#f2a832',Tough:'#94a3b1',Great:'#28c76f','—':'#94a3b1'};
-(function(){const t=DATA.week[0],el=document.getElementById('best');
- const move=t.units?'Wade the flats early, then work the rise from the boat':'Sight-fish the flats — light tippet, dawn &amp; dusk';
- el.innerHTML='<div class="tg" style="background:'+GCOL[t.grade]+'">'+t.grade+'</div>'
-   +'<div class="bmid"><div class="bt">Today, '+t.date+' — '+t.verdict+'</div>'
-   +'<div class="bb">'+move+' · <b>prime window '+t.window+'</b></div></div><div class="go">plan →</div>';
- el.onclick=()=>{dsel=0;daybase=0;document.querySelectorAll('#dates button').forEach((x,j)=>x.classList.toggle('on',j===0));renderDay();render();markDay();document.getElementById('daybar').scrollIntoView({behavior:'smooth',block:'start'});};})();
+const CRAFT_ORDER=DATA.craftOrder,CRAFT_NAME=DATA.craftName,CRAFT_ICO=DATA.craftIco;
+// One craft selection for the whole page. The planner buttons and the outlook toggle are two
+// views of the same state; either one moves both, and everything craft-dependent re-derives.
+function setCraft(c){
+  if(!CRAFT_NAME[c]||c===craft)return;
+  craft=c;
+  document.querySelectorAll('#crafts button').forEach(x=>x.classList.toggle('on',x.dataset.c===c));
+  document.querySelectorAll('#calcraft button').forEach(x=>x.classList.toggle('on',x.dataset.c===c));
+  try{localStorage.setItem('caney.craft',c);}catch(e){}
+  if(window.renderCal)renderCal();
+  if(window.renderBest)renderBest();
+  if(window.updateControls){updateControls();syncSegs();render();}
+}
+window.renderBest=function(){const t=DATA.week[0],b=(t.byCraft||{})[craft]||t,el=document.getElementById('best');
+ const move=craft==='wade'?'Wade the flats — light tippet, dawn &amp; dusk'
+   :(t.units?'Work the rise from the boat as it comes up':'Slow water — pick your shoals');
+ el.innerHTML='<div class="tg" style="background:'+GCOL[b.grade]+'">'+b.grade+'</div>'
+   +'<div class="bmid"><div class="bt">Today, '+t.date+' — '+b.verdict+'</div>'
+   +'<div class="bb">'+move+' · <b>'+b.window+'</b></div></div><div class="go">plan →</div>';
+ el.onclick=()=>{dsel=0;daybase=0;document.querySelectorAll('#dates button').forEach((x,j)=>x.classList.toggle('on',j===0));renderDay();render();markDay();document.getElementById('daybar').scrollIntoView({behavior:'smooth',block:'start'});};};
+renderBest();
 function renderFeed(di){const s=DATA.solDays[di],el=document.getElementById('feed');if(!s){el.innerHTML='<div class="fh">Feeding times</div><div class="fx">unavailable</div>';return;}
  const stars=s.rating!=null?'★'.repeat(Math.max(1,Math.min(5,Math.round(s.rating))))+'☆'.repeat(5-Math.max(1,Math.min(5,Math.round(s.rating)))):'';
  let h='<div class="fh">Feeding times '+(stars?'<span class="stars">'+stars+'</span>':'')+'</div>';
@@ -888,18 +1081,37 @@ buildFlyMatrix('flysel',DATA.flysel);
    });
    return b+'<div class="whyf">'+w.bands+'</div></div>';
  }
- let h='<div class="wksyn">🎯 '+DATA.weekSynth+'</div>';
+ // A day is only good or bad relative to how you plan to be on the water, so the grade,
+ // the verdict and the whole breakdown re-derive from the selected craft. This reads the
+ // SAME `craft` global the planner uses -- one craft choice for the page, not two that can
+ // disagree. Open rows survive a re-render so toggling craft lets you watch a single day's
+ // breakdown change rather than losing your place.
+ window.renderCal=function(){
+ const open=new Set([...document.querySelectorAll('#cal .csteps.open')].map(e=>e.id));
+ let h='<div class="calcraft" id="calcraft">'
+   +CRAFT_ORDER.map(c=>'<button data-c="'+c+'"'+(c===craft?' class="on"':'')+'><span>'+CRAFT_ICO[c]+'</span>'+CRAFT_NAME[c]+'</button>').join('')
+   +'</div><div class="wksyn">🎯 '+(DATA.weekSynth[craft]||'')+'</div>';
  DATA.week.forEach((d,di)=>{
+  const b=(d.byCraft||{})[craft]||d;
   const st=((DATA.calendar[di]||{}).steps||[]).map(s=>'<div class="step2"><span class="st2">'+s.t+'</span><span class="sx2">'+s.x+'</span></div>').join('');
-  const best=(DATA.best&&di===DATA.best.i);
+  const best=(DATA.bestBy&&DATA.bestBy[craft]===di);
   h+='<div class="wkrow'+(best?' best':'')+'" data-di="'+di+'">'
-    +'<div class="wkg" style="background:'+gcol[d.grade]+'">'+d.grade+'</div>'
+    +'<div class="wkg" style="background:'+gcol[b.grade]+'">'+b.grade+'</div>'
     +'<div class="wkd"><b>'+d.label+(best?' ⭐':'')+'</b><span>'+d.date+'</span></div>'
-    +'<div class="wkm"><div class="wkv">'+d.verdict+'</div>'
-    +'<div class="wkstat">'+d.ico+' '+(d.hi!=null?d.hi+'°':'')+' <i>·</i> ⚡'+(d.units?d.units+'U':'off')+' <i>·</i> 🌙'+d.moon+'/5 <i>·</i> '+d.window+'</div></div>'
-    +'<div class="chev">›</div></div><div class="csteps" id="cs'+di+'">'+scoreWhy(d)+st+'</div>';});
+    +'<div class="wkm"><div class="wkv">'+b.verdict+'</div>'
+    +'<div class="wkstat">'+(d.storm?'<b class="stormf">⛈ storms</b> <i>·</i> ':'')
+    +d.ico+' '+(d.hi!=null?d.hi+'°':'')+' <i>·</i> ⚡'+(d.units?d.units+'U':'off')
+    +' <i>·</i> 💧'+d.clarity+' <i>·</i> '+d.qlo.toLocaleString()+'–'+d.qhi.toLocaleString()+' cfs</div></div>'
+    +'<div class="chev">›</div></div><div class="csteps'+(open.has('cs'+di)?' open':'')+'" id="cs'+di+'">'+scoreWhy(b)+st+'</div>';});
  document.getElementById('cal').innerHTML=h;
- document.querySelectorAll('#cal .wkrow').forEach(r=>r.onclick=()=>{const p=document.getElementById('cs'+r.dataset.di);r.classList.toggle('open',p.classList.toggle('open'));});})();
+ document.querySelectorAll('#cal .wkrow').forEach(r=>{
+   const p=document.getElementById('cs'+r.dataset.di);
+   r.classList.toggle('open',p.classList.contains('open'));
+   r.onclick=()=>{r.classList.toggle('open',p.classList.toggle('open'));};});
+ document.querySelectorAll('#calcraft button').forEach(bt=>bt.onclick=()=>setCraft(bt.dataset.c));
+ };
+ renderCal();
+ document.querySelectorAll('#crafts button').forEach(x=>x.classList.toggle('on',x.dataset.c===craft));})();
 document.getElementById('foot').textContent='UH routing off the Center Hill release forecast (R²=0.89), anchored on a longtime guide’s real miles-from-dam with a backtested ~2.5 mph leading edge (Happy Hollow ~2½h · Betty’s ~3½h · Stonewall ~6h from release). Depth from measured Stonewall stage-rise; drift speed ≈ flow (1–4.6 mph); boatable ≈ 1,000–4,000 cfs. Trout reach (dam→Stonewall) calibrated; lower ramps are backwater approximations. Sources: USACE CWMS · USGS · Open-Meteo.';
 
 // river + segs
@@ -1172,8 +1384,8 @@ function updateControls(){const isWade=craft==='wade';
  document.getElementById('lblFrom').style.display=isWade?'none':'';document.getElementById('segFrom').style.display=isWade?'none':'';
  const showTo=!isWade&&mode==='drift';document.getElementById('lblTo').style.display=showTo?'':'none';document.getElementById('segTo').style.display=showTo?'':'none';
  document.getElementById('lblFrom').textContent=(isWade?'':'3 · ')+(mode==='drift'?'Put in at':(craft==='power'?'Launch at (low)':'Put in up top at'));}
-document.querySelectorAll('#crafts button').forEach(b=>b.onclick=()=>{craft=b.dataset.c;
- document.querySelectorAll('#crafts button').forEach(x=>x.classList.toggle('on',x===b));
+document.querySelectorAll('#crafts button').forEach(b=>b.onclick=()=>{
+ if(b.dataset.c!==craft)setCraft(b.dataset.c);
  // index 6 used to mean Stonewall; adding Kirby Road shifted it to Betty's Island. Key it
  // by name so inserting an access can never silently retarget the chase-the-rise launch.
  if(craft!=='wade'&&mode==='up')fromIdx=CRAFT[craft].up?_idxOf('Stonewall'):0;

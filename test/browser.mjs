@@ -645,7 +645,7 @@ console.log('── cumberland striper card: design system ──');
 // A grade with no visible reasoning is not actionable. The weighting is genuinely
 // non-obvious — the moon carries 40 of ~100 points — so a "Tough" day can have perfect
 // water and be penalised entirely on moon and rain.
-console.log('── caney outlook: score breakdown ──');
+console.log('── caney outlook: craft-aware scoring ──');
 {
   const pg = await browser.newPage({ viewport: { width: 390, height: 900 } });
   const errs = [];
@@ -655,23 +655,68 @@ console.log('── caney outlook: score breakdown ──');
   await pg.evaluate(() => document.querySelectorAll('.secbody').forEach(e => e.classList.add('open')));
   await pg.waitForTimeout(200);
 
+  // Every craft's breakdown must be internally sound, not merely present.
   const shape = await pg.evaluate(() => {
     const bad = [];
     DATA.week.forEach(d => {
-      const w = d.why;
-      if (!w) return bad.push(`${d.label}: no breakdown`);
-      const sum = w.parts.reduce((a, p) => a + p.pts, 0);
-      if (Math.abs(sum - w.total) > 1) bad.push(`${d.label}: parts ${sum} != total ${w.total}`);
-      if (!w.parts.every(p => p.pts >= 0 && p.pts <= p.max)) bad.push(`${d.label}: part out of range`);
-      if (!w.parts.every(p => p.why && p.why.length > 6)) bad.push(`${d.label}: a part has no explanation`);
-      const weakest = w.parts.reduce((a, p) => (p.pts / p.max < a.pts / a.max ? p : a));
-      if (weakest.k !== w.driver) bad.push(`${d.label}: driver ${w.driver} is not the weakest part`);
+      if (!d.byCraft) return bad.push(`${d.label}: no per-craft scores`);
+      DATA.craftOrder.forEach(c => {
+        const b = d.byCraft[c], w = b && b.why;
+        if (!w) return bad.push(`${d.label}/${c}: no breakdown`);
+        const sum = w.parts.reduce((a, p) => a + p.pts, 0);
+        if (sum !== w.total) bad.push(`${d.label}/${c}: parts ${sum} != total ${w.total}`);
+        if (sum !== b.score) bad.push(`${d.label}/${c}: breakdown ${sum} != score ${b.score}`);
+        if (!w.parts.every(p => p.pts >= 0 && p.pts <= p.max)) bad.push(`${d.label}/${c}: part out of range`);
+        if (!w.parts.every(p => p.why && p.why.length > 6)) bad.push(`${d.label}/${c}: a part has no explanation`);
+        const weakest = w.parts.reduce((a, p) => (p.pts / p.max < a.pts / a.max ? p : a));
+        if (weakest.k !== w.driver) bad.push(`${d.label}/${c}: driver ${w.driver} is not the weakest part`);
+      });
     });
     return bad;
   });
-  assert('every outlook day carries a breakdown that sums to its score', shape.length === 0, shape.join(' | '));
+  assert('every day scores soundly for every craft', shape.length === 0, shape.join(' | '));
 
-  // and it must actually reach the user
+  // The weighting is the thing the user actually asked to change: moon must be a minor term,
+  // and level/clarity/weather must together dominate. Guard the intent, not just the arithmetic.
+  const wts = await pg.evaluate(() => DATA.scoreW);
+  const wbad = [];
+  for (const [c, w] of Object.entries(wts)) {
+    const tot = Object.values(w).reduce((a, b) => a + b, 0);
+    if (tot !== 100) wbad.push(`${c}: weights sum to ${tot}`);
+    if (w.Moon > 12) wbad.push(`${c}: moon weight ${w.Moon} is not a minor term`);
+    if (w.Level + w.Clarity + w.Weather < 70) wbad.push(`${c}: water+weather only ${w.Level + w.Clarity + w.Weather}`);
+    if (w.Level < w.Clarity || w.Level < w.Weather) wbad.push(`${c}: level is not the heaviest term`);
+  }
+  assert('moon is a minor term; water and weather dominate', wbad.length === 0, wbad.join(' | '));
+
+  // A boat is more exposed than a wader, and a wader cares more about clarity. The weights
+  // must actually differ by craft or the toggle is cosmetic.
+  assert('weights genuinely differ by craft',
+    wts.wade.Clarity > wts.power.Clarity && wts.power.Weather > wts.wade.Weather,
+    JSON.stringify(wts));
+
+  // Thunderstorms are a safety gate, not a deduction: a storm day must never grade well.
+  const storm = await pg.evaluate(() => DATA.week.filter(d => d.storm)
+    .map(d => ({ l: d.label, g: DATA.craftOrder.map(c => d.byCraft[c].grade) })));
+  assert('a thunderstorm day never grades Prime',
+    storm.every(d => !d.g.includes('Prime')), JSON.stringify(storm));
+
+  // The whole point of the toggle: the same day can be worth different amounts by craft.
+  const spread = await pg.evaluate(() => DATA.week.some(d =>
+    new Set(DATA.craftOrder.map(c => d.byCraft[c].grade)).size > 1));
+  assert('at least one day grades differently by craft', spread);
+
+  // Craft-specific direction: no generation is good for wading and poor for a powerboat.
+  const lowday = await pg.evaluate(() => {
+    const d = DATA.week.find(x => x.units === 0); if (!d) return null;
+    const lv = c => d.byCraft[c].why.parts.find(p => p.k === 'Level');
+    return { wade: lv('wade').pts / lv('wade').max, power: lv('power').pts / lv('power').max };
+  });
+  if (lowday) assert('minimum flow scores better for wading than for a powerboat',
+    lowday.wade > lowday.power, JSON.stringify(lowday));
+  else console.log('  \x1b[33m~\x1b[0m no zero-generation day in this forecast — craft-direction check skipped');
+
+  // and it must reach the user
   await pg.evaluate(() => {
     const r = [...document.querySelectorAll('#cal .wkrow')];
     (r.find(x => /Tue|Wed/.test(x.textContent)) || r[3]).click();
@@ -679,8 +724,30 @@ console.log('── caney outlook: score breakdown ──');
   await pg.waitForTimeout(300);
   const txt = await pg.$eval('#cal', e => e.innerText);
   assert('expanding a day reveals why it scored that way', /Why .* points/.test(txt), txt.slice(0, 90));
-  assert('the breakdown names each component', /Moon/.test(txt) && /Water/.test(txt) && /Weather/.test(txt));
-  assert('the grade bands are stated', /Prime ≥ 88/.test(txt));
+  assert('the breakdown names each component',
+    ['Level', 'Clarity', 'Weather', 'Window', 'Moon'].every(k => txt.includes(k)), txt.slice(0, 200));
+  assert('the grade bands are stated', /Prime ≥ 85/.test(txt));
+
+  // The toggle must re-render the outlook, and must move the planner with it.
+  const before = await pg.$eval('#cal', e => e.innerText);
+  await pg.click('#calcraft button[data-c="wade"]');
+  await pg.waitForTimeout(350);
+  const after = await pg.$eval('#cal', e => e.innerText);
+  assert('switching craft re-scores the outlook', before !== after);
+  assert('the open day stays open across a craft switch', /Why .* points/.test(after), after.slice(0, 90));
+  assert('the outlook toggle also moves the planner',
+    await pg.$eval('#crafts button[data-c="wade"]', e => e.classList.contains('on')));
+  assert('the planner toggle also moves the outlook', await (async () => {
+    await pg.click('#crafts button[data-c="power"]');
+    await pg.waitForTimeout(350);
+    return pg.$eval('#calcraft button[data-c="power"]', e => e.classList.contains('on'));
+  })());
+
+  // Clarity is now driven by rain that already fell, so it must be consistent page-wide.
+  assert('one clarity vocabulary across the page',
+    await pg.evaluate(() => DATA.week.every(d => ['clear', 'some color', 'stained'].includes(d.clarity))
+      && ['clear', 'some color', 'stained'].includes(DATA.clarity)));
+
   assert('no JS errors in the outlook', errs.length === 0, errs.join(' | '));
   await pg.close();
 }

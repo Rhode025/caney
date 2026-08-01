@@ -9,6 +9,73 @@ belongs to a commit goes in the commit message. This file is for *state and inte
 
 ---
 
+## 2026-08-01 — Day scoring reweighted, and scored per craft
+
+Started from "why is Tue labelled Tough?" The breakdown built to answer that immediately
+exposed the real problem: **the moon carried 40 of ~100 points.** Mon-Fri had identical
+generation and graded Fair / Tough / Tough / Fair / Good purely on moon phase and rain.
+
+**New weighting (each craft sums to 100):**
+
+| | Level | Clarity | Weather | Window | Moon |
+|---|---|---|---|---|---|
+| Wade | 35 | 20 | 25 | 10 | 10 |
+| Float | 35 | 18 | 27 | 10 | 10 |
+| Powerboat | 35 | 15 | 30 | 10 | 10 |
+
+Moon 40 -> 10. Weather is now dominated by a **thunderstorm gate** (WMO codes 95/96/99, read
+over fishing hours only) that caps the term at 0.15 rather than deducting from it — lightning
+is the one condition on this page that can actually kill you. Weather is weighted higher from a
+boat (exposed, slower to shore), clarity higher when wading (sight-fishing).
+
+**Scoring is now per craft, because one number cannot answer the question.** A no-generation day
+is a perfect wade day and a poor powerboat day. Each day is scored three times and the outlook
+toggles; the toggle shares the `craft` global with the planner, so there is one craft selection
+for the page. Persisted to localStorage.
+
+**Two inputs were wrong and are now right:**
+
+1. **Clarity ran off the rain forecast — for TOMORROW.** Caney is a bottom-release tailwater:
+   water leaving the dam is always clear, so colour comes from tributary inflow below it, which
+   responds to rain that has *already fallen*. Now driven by 3-day antecedent rain
+   (`past_days=2`), recency-weighted. One vocabulary page-wide; the fly box is keyed on it.
+
+2. **"Wade dawn to the bump" was backwards.** The verdict assumed a dawn start instead of using
+   the window the model had already computed. Measured at Stonewall over 14 days (USGS
+   03424860, hourly medians), P(wadeable, <=600 cfs):
+
+   ```
+   00:00-09:00   0%      13:00  61%      17:00  71%
+   10:00        11%      14:00  93%      18:00  46%
+   11:00        21%      15:00  93%      19:00   7%
+   12:00        36%      16:00  93%      20:00+  0%
+   ```
+
+   On a daily-peaking schedule the previous evening's release is still passing Stonewall at
+   first light. **Dawn is the worst time to wade Caney; the window is a midday-to-afternoon
+   lull.** Verdicts now name the computed window ("Wade the 12pm-3pm lull").
+
+**Open / known limits:**
+
+- The model's daily minimum runs ~60 cfs above the gauge (model 468-536 vs observed 399-522,
+  median 442) — inside the observed spread, but it biases wade Level slightly low.
+- The model's wade window runs ~1-2 h earlier than the 14-day gauge climatology suggests. Not
+  chased here: the comparison is not apples-to-apples (the climatology is mostly 2U 12pm-8pm
+  days, the forecast is 1U 1pm-7pm) and it is the flow model's existing timing uncertainty,
+  not a scoring bug. Worth a proper backtest of window timing against matched schedules.
+- Moon at 10 is a judgement, not a measurement — the only weight here with no evidence behind
+  it. The trip log captures predictions; after a season it could be fitted instead of guessed.
+- Grade bands moved with the model (Prime >=85 / Good >=72 / Fair >=58). Not calibrated against
+  outcomes, just against the new score distribution.
+
+**Tests:** scoring curves are probed directly in `qc_caney.py` (extracted from `briefing.py` by
+regex so no network is needed) — craft direction, monotonicity, bounds, the storm gate. The
+browser layer asserts the weights themselves (moon minor, level heaviest, weights differ by
+craft), that a storm day never grades Prime, that the toggle moves both views, and that the
+wade verdict never contradicts its own window. 207 static + full runtime.
+
+---
+
 ## 2026-07-31 — Cumberland system: 3 tailraces, 9 rivers
 
 Started from "where's my generation schedule for cumberland?" The answer was that there are
