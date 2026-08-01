@@ -26,6 +26,10 @@ CALIB_BASEFLOW=205.0; DAM_RM,STONE_RM=26.6,10.0   # zero-release intercept; 90-d
 # events) → ~2.5 mph, size-independent. So `mfd` drives routing and arrival = (miles-from-dam)/2.5 h.
 WATER_MPH=2.5; MFD_STONE=15.0
 _g=sum(CALIB_KERNEL); KERNEL=[w/_g for w in CALIB_KERNEL]; CENTROID=sum(i*w for i,w in enumerate(KERNEL))
+# d0 below is a REFERENCE DEPTH ESTIMATE with no recorded provenance — it arrived in the
+# initial commit undocumented, unlike every other calibrated number here. RISE_CURVE does
+# trace to depth_fit.py (its values match that fit's bin medians to a tenth). Treat any
+# absolute depth shown on this page as rise-over-minimum plus an unverified base.
 RISE_CURVE=[[260,0.0],[500,0.5],[1000,1.3],[2000,2.7],[3900,4.4],[7500,7.2],[11000,10.1]]
 ACCESS=[
  {"name":"Long Branch","note":"at the dam","rm":26.4,"mfd":0.0,"types":["wade","paddle","ramp"],"reach":"trout","d0":1.8},
@@ -292,8 +296,14 @@ def _pin(c,x):
     a=c[-2];b2=c[-1];return b2[1]+(b2[1]-a[1])*(x-b2[0])/(b2[0]-a[0])
 _st=next(x for x in ACCESS if x["name"]=="Stonewall"); _bt=next(x for x in ACCESS if x["name"]=="Betty's Island")
 def condp(s,cfs):
+    # Wade threshold is MEASURED, not assumed: USGS field measurements at 03424860 show
+    # crews waded 80% of the time at 272 cfs, 75% at 398, but only 20% at 582 and never
+    # above 1,824 (analysis/channel_geom.py, n=110). This used to call anything under
+    # 1,000 cfs wadeable, which is well past the flow professionals stop getting in.
+    # d0 is an UNVERIFIED reference depth (see ACCESS below) so it only narrows the call,
+    # it never widens it.
     d=s["d0"]+_pin(RISE_CURVE,cfs)
-    return "high" if cfs>4500 else ("wade" if (cfs<1000 and d<3.2) else "boat")
+    return "high" if cfs>4500 else ("wade" if (cfs<riverlib.WATER_MODEL["caney"]["wade_marginal"] and d<3.2) else "boat")
 def _hm2ep(d,s,fb):
     if s and ":" in s: h,mn=s.split(":");return datetime.datetime(d.year,d.month,d.day,int(h),int(mn),tzinfo=CT).timestamp()
     return datetime.datetime(d.year,d.month,d.day,fb,0,tzinfo=CT).timestamp()

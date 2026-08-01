@@ -1,0 +1,296 @@
+{
+ "caney": {
+  "site": "03424860",
+  "label": "Caney Fork at Stonewall",
+  "n": 110,
+  "q_range": [
+   272,
+   26200
+  ],
+  "depth_exp": 0.514,
+  "depth_coef": 0.1246,
+  "r2": 0.759,
+  "depth_at": {
+   "100": 1.33,
+   "250": 2.13,
+   "500": 3.03,
+   "1000": 4.33,
+   "2000": 6.18,
+   "5000": 9.9,
+   "10000": 14.14
+  },
+  "waded_n": 25,
+  "boated_n": 85,
+  "waded_max_q": 1610,
+  "waded_p90_q": 945,
+  "boated_min_q": 272,
+  "substrate": [
+   [
+    "Gravel",
+    75
+   ],
+   [
+    "Cobbles",
+    28
+   ],
+   [
+    "SiltMud",
+    4
+   ]
+  ],
+  "wade_crossover_q": 582,
+  "wade_crossover_depth": 3.29
+ },
+ "cumberland": {
+  "site": "03414100",
+  "label": "Cumberland at Burkesville",
+  "n": 57,
+  "q_range": [
+   2540,
+   57200
+  ],
+  "depth_exp": 0.367,
+  "depth_coef": 0.509,
+  "r2": 0.966,
+  "depth_at": {
+   "100": 2.76,
+   "250": 3.87,
+   "500": 4.99,
+   "1000": 6.43,
+   "2000": 8.3,
+   "5000": 11.62,
+   "10000": 14.99
+  },
+  "waded_n": 0,
+  "boated_n": 57,
+  "waded_max_q": null,
+  "waded_p90_q": null,
+  "boated_min_q": 2540,
+  "substrate": [
+   [
+    "Cobbles",
+    22
+   ],
+   [
+    "Gravel",
+    18
+   ],
+   [
+    "SiltMud",
+    11
+   ]
+  ],
+  "wade_crossover_q": 2540,
+  "wade_crossover_depth": 9.04
+ },
+ "cumbnash": {
+  "site": "03431500",
+  "label": "Cumberland at Nashville",
+  "n": 99,
+  "q_range": [
+   3010,
+   158000
+  ],
+  "depth_exp": 0.163,
+  "depth_coef": 4.5474,
+  "r2": 0.766,
+  "depth_at": {
+   "100": 9.64,
+   "250": 11.19,
+   "500": 12.53,
+   "1000": 14.03,
+   "2000": 15.71,
+   "5000": 18.25,
+   "10000": 20.43
+  },
+  "waded_n": 0,
+  "boated_n": 99,
+  "waded_max_q": null,
+  "waded_p90_q": null,
+  "boated_min_q": 3010,
+  "substrate": [
+   [
+    "SiltMud",
+    86
+   ],
+   [
+    "Unspecified",
+    9
+   ],
+   [
+    "CobblesBoulders",
+    2
+   ]
+  ],
+  "wade_crossover_q": 4187,
+  "wade_crossover_depth": 17.71
+ },
+ "stones": {
+  "site": "03430200",
+  "label": "Stones River at US-70",
+  "n": 130,
+  "q_range": [
+   8,
+   12800
+  ],
+  "depth_exp": 0.245,
+  "depth_coef": 1.336,
+  "r2": 0.67,
+  "depth_at": {
+   "100": 4.14,
+   "250": 5.18,
+   "500": 6.14,
+   "1000": 7.28,
+   "2000": 8.63,
+   "5000": 10.8,
+   "10000": 12.81
+  },
+  "waded_n": 1,
+  "boated_n": 129,
+  "waded_max_q": 400,
+  "waded_p90_q": null,
+  "boated_min_q": 8,
+  "substrate": [
+   [
+    "Cobbles",
+    76
+   ],
+   [
+    "Gravel",
+    27
+   ],
+   [
+    "SiltMud",
+    27
+   ]
+  ],
+  "wade_crossover_q": 14,
+  "wade_crossover_depth": 2.55
+ },
+ "elktn": {
+  "site": "03582000",
+  "label": "Elk River above Fayetteville",
+  "n": 665,
+  "q_range": [
+   3,
+   32200
+  ],
+  "depth_exp": 0.603,
+  "depth_coef": 0.065,
+  "r2": 0.748,
+  "depth_at": {
+   "100": 1.05,
+   "250": 1.82,
+   "500": 2.76,
+   "1000": 4.2,
+   "2000": 6.37,
+   "5000": 11.08,
+   "10000": 16.83
+  },
+  "waded_n": 25,
+  "boated_n": 640,
+  "waded_max_q": 823,
+  "waded_p90_q": 530,
+  "boated_min_q": 3,
+  "substrate": [
+   [
+    "Unspecified",
+    554
+   ],
+   [
+    "Gravel",
+    45
+   ],
+   [
+    "SiltMud",
+    31
+   ]
+  ],
+  "wade_crossover_q": 66,
+  "wade_crossover_depth": 0.81
+ },
+ "elk": {
+  "site": "03584600",
+  "label": "Elk River at Prospect",
+  "n": 200,
+  "q_range": [
+   153,
+   45100
+  ],
+  "depth_exp": 0.455,
+  "depth_coef": 0.1676,
+  "r2": 0.677,
+  "depth_at": {
+   "100": 1.36,
+   "250": 2.07,
+   "500": 2.84,
+   "1000": 3.89,
+   "2000": 5.34,
+   "5000": 8.1,
+   "10000": 11.11
+  },
+  "waded_n": 19,
+  "boated_n": 181,
+  "waded_max_q": 1920,
+  "waded_p90_q": 1070,
+  "boated_min_q": 167,
+  "substrate": [
+   [
+    "Unspecified",
+    88
+   ],
+   [
+    "SiltMud",
+    60
+   ],
+   [
+    "Gravel",
+    30
+   ]
+  ],
+  "wade_crossover_q": 246,
+  "wade_crossover_depth": 2.05
+ },
+ "duck": {
+  "site": "03599500",
+  "label": "Duck River (USGS)",
+  "n": 255,
+  "q_range": [
+   128,
+   46700
+  ],
+  "depth_exp": 0.633,
+  "depth_coef": 0.041,
+  "r2": 0.867,
+  "depth_at": {
+   "100": 0.76,
+   "250": 1.35,
+   "500": 2.09,
+   "1000": 3.24,
+   "2000": 5.02,
+   "5000": 8.97,
+   "10000": 13.9
+  },
+  "waded_n": 143,
+  "boated_n": 112,
+  "waded_max_q": 980,
+  "waded_p90_q": 726,
+  "boated_min_q": 156,
+  "substrate": [
+   [
+    "Unspecified",
+    133
+   ],
+   [
+    "Gravel",
+    79
+   ],
+   [
+    "SiltMud",
+    36
+   ]
+  ],
+  "wade_crossover_q": 915,
+  "wade_crossover_depth": 3.07
+ }
+}

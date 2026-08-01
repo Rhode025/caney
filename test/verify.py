@@ -134,6 +134,21 @@ for rid, c in cards.items():
                     and any(x is not None for x in cv["vals"]))
             check("curve shape: %s/%s" % (rid, when), good,
                   "len=%s src=%s" % (len(cv.get("vals") or []), cv.get("src")))
+# every river in the wade/float model must carry a source for its numbers
+import importlib.util as _ilu
+_spec = _ilu.spec_from_file_location("_rl", os.path.join(ROOT, "riverlib.py"))
+_rl = _ilu.module_from_spec(_spec); _spec.loader.exec_module(_rl)
+check("water model covers every river", set(_rl.WATER_MODEL) == set(RIVERS),
+      "missing " + ",".join(sorted(set(RIVERS) - set(_rl.WATER_MODEL))))
+for _rid, _m in _rl.WATER_MODEL.items():
+    check("water model cites a source: " + _rid, bool(_m.get("src")) and len(_m["src"]) > 40)
+    _w, _f, _c = _rl.wade_float(_rid, 500)
+    check("wade_float returns a confidence: " + _rid,
+          _c in ("measured", "reported", "structural", "unknown"), repr(_c))
+# a river with no threshold must resolve to unknown, never to a guessed verdict
+check("stones is explicitly unknown, not guessed",
+      _rl.wade_float("stones", 300)[0] == "unknown")
+
 # a river with no forward flow forecast must SAY so rather than render an empty card
 for rid in ("elk", "elktn", "stones"):
     d = (cards.get(rid, {}).get("days") or {}).get("tomorrow", {})

@@ -454,10 +454,13 @@ def _duck_day(off):
     if not vals:
         return riverlib.day_state(headline="No NWPS reading for this day")
     med = sorted(vals)[len(vals) // 2]
-    if med < 400:    vk, vw, lk = "wade", "too skinny to float cleanly — wade and drag", "low"
-    elif med < 3000: vk, vw, lk = "both", "floatable and still wadeable at the shoals", "prime"
-    elif med < 8000: vk, vw, lk = "boat", "pushy — float it, don't wade it", "high"
-    else:            vk, vw, lk = "boat", "high and dirty", "blown"
+    # Vessel from the sourced model (riverlib.WATER_MODEL), not from guessed bands.
+    _w, _fl, _conf = riverlib.wade_float("duck", med)
+    vk = "both" if (_w in ("yes", "marginal") and _fl in ("yes", "marginal")) else ("wade" if _w == "yes" else "boat")
+    vw = {"measured": "wade/float split measured from USGS gaugings at this site",
+          "reported": "wade/float split from angler reports",
+          "structural": "navigable water", "unknown": "no wade data for this reach"}[_conf]
+    lk = "low" if med < 400 else "prime" if med < 3000 else "high" if med < 8000 else "blown"
     ck = "clear" if med < 1200 else "stained" if med < 4000 else "colored" if med < 8000 else "muddy"
     # Anything past the last observation is forecast; before that it is measured.
     last_obs = OBS[-1][0].timestamp() if OBS else 0

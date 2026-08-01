@@ -406,8 +406,14 @@ def _gauge_day(off):
         return riverlib.day_state(vessel="boat", vessel_why="jet / kayak float river", headline="No gauge reading today")
     med = sorted(vals)[len(vals) // 2]
     lk, ld = _lvl_g(med)
+    # Vessel from the sourced model (riverlib.WATER_MODEL) rather than a fixed guess.
+    _w, _fl, _conf = riverlib.wade_float("elk", med)
+    _vk = "both" if _w == "yes" else "boat"
+    _vw = {"measured": "wade threshold measured from USGS gaugings at this site",
+           "reported": "wade threshold from angler reports",
+           "structural": "navigable water", "unknown": "no wade data for this reach"}[_conf]
     ck = "clear" if med < _LO * 4 else "stained" if med < _LO * 12 else "colored"
-    return riverlib.day_state(vessel="boat", vessel_why="jet / kayak float river",
+    return riverlib.day_state(vessel=_vk, vessel_why=_vw,
         clarity=ck, clarity_why="inferred from flow, not measured",
         level=lk, level_detail=ld,
         curve=cv, curve_unit="cfs", curve_label="Observed flow (gauge)", curve_src="observed",

@@ -1304,6 +1304,143 @@ def today_wx(wx, tz):
             if pop >= 45: ico = "🌧️"
     return {"ico": ico, "hi": hi, "lo": lo, "pop": pop, "wind": wind, "sky": sky}
 
+
+# ── WADE / FLOAT MODEL ───────────────────────────────────────────────────────
+# Every threshold here is either MEASURED or SOURCED, and each carries which.
+#
+# Two independent evidence streams, combined:
+#
+# 1. USGS field measurements (analysis/channel_geom.py) — 1,516 physically measured
+#    cross-sections across 7 rivers. Each gauging records channel width, area, and
+#    HOW the crew worked: wading, or from a boat/bridge/cableway. The flow at which
+#    P(wading) crosses 50% is a behavioural wade threshold measured over decades.
+# 2. Angler/guide reports, used where stream 1 is confounded or absent.
+#
+# WHAT THIS MODEL DELIBERATELY DOES NOT DO: state an absolute depth at your ramp.
+# Mean depth at a gauge is area/width at a bridge or cableway section, which includes
+# the thalweg and is not the water you stand in. Caney measures 3.0 ft mean at 500 cfs
+# while USGS crews waded it 75% of the time at 398 cfs, and the Stones gauge reads
+# 4.1 ft at 100 cfs because it sits in Cheatham backwater. Absolute depth at the gauge
+# does not transfer to the reach. Flow thresholds do.
+#
+# depth_exp is the measured Leopold-Maddock exponent f in (mean depth ∝ Q^f). It is a
+# channel-shape property and DOES transfer: it says how fast the river deepens when
+# flow doubles (2^f), which is what "is it coming up fast" actually means.
+
+WATER_MODEL = {
+ "caney": {
+   "wade_ok": 400, "wade_marginal": 600, "no_wade": 1000,
+   "depth_exp": 0.514, "fit_r2": 0.76, "n_meas": 110, "substrate": "gravel",
+   "src": "USGS field measurements at 03424860: waded 80% at 272 cfs, 75% at 398, "
+          "20% at 582, 0% above 1,824 (P(wade) crosses 50% at ~582). Corroborated by "
+          "Middle TN Fly Fishers / Trout Zone: base flow 200-400 cfs wades well, one "
+          "unit (~1,200-2,000 cfs) is drift-boat water, not wadeable.",
+   "note": "Any generation ends wading regardless of the number — the bump arrives before the gauge shows it.",
+ },
+ "elktn": {
+   "wade_ok": 300, "wade_marginal": 400, "no_wade": 500,
+   "depth_exp": 0.603, "fit_r2": 0.75, "n_meas": 665, "substrate": "unspecified",
+   "src": "Angler reports (thefuntimesguide / Tennessee Fly Fishers): zero generation "
+          "with the ~245 cfs sluice is 'a great wading schedule', 240-400 cfs is the "
+          "best window, and 'anything over around 400 cfs makes it pretty much "
+          "non-wadeable'. USGS measurement_type is NOT usable here: this is a cableway "
+          "site, so crews rarely wade (9% even at 143 cfs) regardless of the water.",
+   "note": "TVA warns: do not wade during, or within 4 hours after, generation.",
+ },
+ "elk": {
+   "wade_ok": 250, "wade_marginal": 400, "no_wade": 550,
+   "depth_exp": 0.455, "fit_r2": 0.68, "n_meas": 200, "substrate": "unspecified",
+   "src": "USGS field measurements at 03584600: waded 78% at 153 cfs, 29% at 246, "
+          "17% at 395, 0% at 634 (crossover ~246). Consistent with the general "
+          "wading-safety guidance that above ~550 cfs current is unsafe to wade.",
+   "note": "",
+ },
+ "duck": {
+   "wade_ok": 560, "wade_marginal": 915, "no_wade": 1200,
+   "depth_exp": 0.633, "fit_r2": 0.87, "n_meas": 255, "substrate": "unspecified",
+   "src": "USGS field measurements at 03599500, the cleanest gradient of any river "
+          "here: waded 95% at 128 cfs, 100% at 209, 96% at 342, 74% at 559, 16% at "
+          "915, 0% at 1,495. P(wade) crosses 50% at ~915.",
+   "note": "Free-flowing: no generation to watch, but it rises fast after rain.",
+ },
+ "cumberland": {
+   "wade_ok": None, "wade_marginal": None, "no_wade": 1500,
+   "depth_exp": 0.367, "fit_r2": 0.97, "n_meas": 57, "substrate": "cobbles",
+   "src": "KY Fish & Wildlife / guide consensus: 'if no turbines are running you can "
+          "wade; if one is running you can float'. USGS has no wading measurements at "
+          "03414100 (lowest measured flow 2,540 cfs), so generation state is the "
+          "threshold, not a flow number. The existing WADE=1500 anchor matches.",
+   "note": "Wadeable only with the dam off, at the dam and Kendall shoals.",
+ },
+ "stones": {
+   "wade_ok": None, "wade_marginal": None, "no_wade": None,
+   "depth_exp": 0.245, "fit_r2": 0.67, "n_meas": 130, "substrate": "cobbles",
+   "src": "NO USABLE THRESHOLD. The gauge (03430200, US-70 near Donelson) sits in "
+          "Cheatham backwater: it measures 4.1 ft mean depth at 100 cfs, so its "
+          "geometry describes an impounded pool, not the fishable reach. Percy Priest "
+          "releases drive the upper river and are not in this gauge.",
+   "note": "Treated as unknown rather than guessed.",
+ },
+ # The three Cumberland mainstem pools are never wadeable at any release: navigable
+ # impoundments maintained for barge traffic. That is a fact about the river, not a
+ # missing measurement, so it is stated rather than modelled.
+ "cumbnash":  {"wade_ok": None, "wade_marginal": None, "no_wade": 0,
+               "depth_exp": 0.163, "fit_r2": 0.77, "n_meas": 99, "substrate": "silt/mud",
+               "src": "Navigable impoundment (Cheatham pool). USGS measured mean depth "
+                      "9.6 ft at 100 cfs; never waded in 99 measurements.", "note": ""},
+ "cheatham":  {"wade_ok": None, "wade_marginal": None, "no_wade": 0,
+               "depth_exp": None, "fit_r2": None, "n_meas": 0, "substrate": "silt/mud",
+               "src": "Navigable impoundment below Cheatham Dam. No working gauge on the "
+                      "reach (03435000 stopped reporting), so no fit exists.", "note": ""},
+ "cordell":   {"wade_ok": None, "wade_marginal": None, "no_wade": 0,
+               "depth_exp": None, "fit_r2": None, "n_meas": 0, "substrate": "unspecified",
+               "src": "Navigable impoundment into Old Hickory Lake. No gauge on the reach.",
+               "note": ""},
+}
+
+# A 60/40 jet drafts under a foot, but on GRAVEL and COBBLE the impeller eats what it
+# sucks up, so the practical floor is higher than the draft. Jet guidance converges on
+# staying in 1.5-2 ft over rock; a prop needs ~12 in where a jet needs 4-6 in of pure
+# draft. Rather than convert that to an absolute depth the gauge cannot give us, tie it
+# to the same measured anchor: water too shallow for a boat is water you could wade.
+def wade_float(river_id, cfs, generating=False):
+    """(wade_verdict, float_verdict, confidence) for this river at this flow.
+
+    confidence: "measured" (USGS crossover), "reported" (angler/agency source),
+                "structural" (a fact about the river), "unknown".
+    """
+    m = WATER_MODEL.get(river_id)
+    if not m:
+        return ("unknown", "unknown", "unknown")
+    conf = ("measured" if "USGS field measurements" in m["src"]
+            else "structural" if m.get("no_wade") == 0
+            else "reported" if m["src"] else "unknown")
+    if m.get("no_wade") == 0:
+        return ("never", "always", "structural")
+    if m["wade_ok"] is None and m["no_wade"] is None:
+        return ("unknown", "unknown", "unknown")
+    if generating or cfs is None:
+        return (("no" if generating else "unknown"), "yes", conf)
+    if m["wade_ok"] is None:                      # generation-gated (Cumberland KY)
+        return (("yes" if cfs < m["no_wade"] else "no"),
+                ("marginal" if cfs < m["no_wade"] else "yes"), conf)
+    if cfs <= m["wade_ok"]:      return ("yes", "marginal", conf)
+    if cfs <= m["wade_marginal"]: return ("marginal", "yes", conf)
+    return ("no", "yes", conf)
+
+def depth_ratio(river_id, cfs, ref_cfs):
+    """How much deeper the river is at cfs than at ref_cfs, from the measured exponent.
+
+    Relative only, and deliberately so — see the note above WATER_MODEL. Returns None
+    where no exponent was fitted.
+    """
+    m = WATER_MODEL.get(river_id) or {}
+    f = m.get("depth_exp")
+    if not f or not cfs or not ref_cfs or cfs <= 0 or ref_cfs <= 0:
+        return None
+    return round((cfs / ref_cfs) ** f, 2)
+
+
 # ── HQ DAY STATE ─────────────────────────────────────────────────────────────
 # What the board must answer at a glance, per river, per day: wade or boat · clear or
 # coloured · low, prime, high or blown · and what the flow does across the day.
