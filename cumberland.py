@@ -165,6 +165,7 @@ HATCH={"rows":[
  {"name":"Terrestrials","icon":"🐜","pattern":"ant / beetle / hopper","m":[0,0,0,0,1,2,3,3,3,2,0,0]},
  {"name":"Sculpin / streamer","icon":"🐟","pattern":"trophy browns on the rise","m":[2,2,2,1,1,1,1,1,2,3,3,3]},
 ]}
+
 # flow-timer timeline: TAILWATER — the Wolf Creek release travels downstream, so each access lags the
 # dam by its travel time and the "front" of generating water descends the strip as you scrub/play.
 _rel=[p["f"] for p in series]; _nowep=int(now.timestamp())
@@ -216,7 +217,63 @@ GENHINT=("Wolf Creek generation, midnight→midnight (bar height = units). The r
          "approximate (this big river routes weakly).")
 GENLEGEND=('<span><i style="background:#7db8e0"></i>1 unit</span><span><i style="background:#2f92d4"></i>2 units</span>'
            '<span><i style="background:#5e5ce6"></i>3+ units</span><span>Verify against the Wolf Creek horn &amp; TVA schedule.</span>')
-DATA={"today":now_ct.strftime("%A, %B %-d · %-I:%M %p"),"flysel":FLYSEL,"solunar":SOL,"hatch":HATCH,"month":now_ct.month,"chatter":riverlib.load_intel("cumberland"),"timeline":TIMELINE,
+# ---- CHANNEL DEPTH & JET FLOATABILITY (measured rise + one tunable threshold) ----
+# Fitted from the Burkesville gauge (USGS 03414100), which reports BOTH discharge (00060)
+# and gage height (00065): 100,984 paired hourly points, 2015-present, binned by flow and
+# referenced to the min-flow stage of 24.71 ft. Reproduce with:
+#     python3 depth_fit.py 03414100 "Burkesville (Cumberland KY)" 5500
+# This is RISE above minimum flow, not absolute depth. Absolute depth would need a surveyed
+# reference depth per ramp, which nobody has for this river — and Caney's equivalent numbers
+# (its ACCESS d0 values) are undocumented estimates, so copying that approach would just
+# spread an unverified number onto a second river. Rise is what the gauge actually measured.
+RISE_CURVE=[[1100,0.0],[1400,0.4],[1800,1.1],[2500,2.1],[3500,3.2],[5000,4.7],
+            [7000,6.3],[9500,8.1],[13000,10.6],[18000,13.7],[25000,16.9]]
+def rise_at(cfs):
+    c=RISE_CURVE
+    if cfs is None: return None
+    if cfs<=c[0][0]: return 0.0
+    for i in range(1,len(c)):
+        if cfs<=c[i][0]:
+            a,b=c[i-1],c[i]; return a[1]+(b[1]-a[1])*(cfs-a[0])/(b[0]-a[0])
+    a,b=c[-2],c[-1]; return b[1]+(b[1]-a[1])*(cfs-b[0])/(b[0]-a[0])
+
+# The one number that is NOT measured. WADE (1500 cfs) is the existing anchor: below it the
+# shoals at the dam/Kendall are wadeable, and water you can wade is water a 60/40 jet is
+# picking its way through. Everything else is scaled off that. TUNE THESE FROM THE WATER —
+# the first trip where the boat drags at a known release replaces the guess.
+JET={"skinny":WADE, "good":5000, "pushy":25000}
+def jet_read(cfs):
+    """(verdict, colour, note) for the 60/40 jet at this release."""
+    if cfs is None: return ("—","#93a3b3","no release data")
+    if cfs < JET["skinny"]:
+        return ("Skinny","#f2a832","water off — shoals are wadeable, so the jet picks its way; fine to run, watch the bars")
+    if cfs < JET["good"]:
+        return ("Floats","#7db85a","enough water to run the shoals without hunting")
+    if cfs < JET["pushy"]:
+        return ("Good","#28c76f","plenty of channel — run it anywhere")
+    return ("Pushy","#8b6cef","high and fast; plenty deep but heavy water")
+# Per-access read. Two different confidence levels, and the payload keeps them apart:
+#
+#   Burkesville  IS the gauge the rise curve was fitted at, so its depth-rise is measured.
+#   Everywhere else  is 20-30 river miles upstream in a completely different channel. The
+#   Burkesville stage relationship does NOT transfer there, so those accesses get the
+#   release-driven jet verdict and NO depth number. A fabricated "+0.0 ft" at Kendall would
+#   look like data and be nothing of the kind.
+#
+# Note the release is also not the flow: with the dam off, Burkesville still reads thousands
+# of cfs from 30 miles of drainage. The upstream verdict is deliberately driven by RELEASE,
+# because near the dam that is what governs whether the shoals are floatable.
+DEPTH=[]
+for _n,_l in _clag:
+    _q=rel_at(now_hr-_l*3600)
+    _v,_c,_note=jet_read(_q)
+    _gauged=(_n=="Burkesville")
+    DEPTH.append({"name":_n,"lag":_l,"cfs":(round(_q) if _q is not None else None),
+                  "rise":(round(rise_at(bk),1) if (_gauged and bk is not None) else None),
+                  "gauged":_gauged,
+                  "verdict":_v,"col":_c,"note":_note})
+DATA={"depth":DEPTH,"depthRef":"Depth rise measured at the Burkesville gauge (USGS 03414100, 100k paired points). Upstream ramps show the jet read off the release — no stage gauge exists there, so no depth is claimed.",
+      "today":now_ct.strftime("%A, %B %-d · %-I:%M %p"),"flysel":FLYSEL,"solunar":SOL,"hatch":HATCH,"month":now_ct.month,"chatter":riverlib.load_intel("cumberland"),"timeline":TIMELINE,
       "gen":CGEN,"genHint":GENHINT,"genLegend":GENLEGEND,"genOpts":{"minLabel":"water off — wade all day","arrLabel":"release reaches"},
       "now":{"cfs":round(cur) if cur is not None else None,"gen":bool(gen_now),"units":units(cur) if gen_now else 0,
              "bk":bk,"state":("Generating" if gen_now else "Wadeable — water off"),
@@ -269,6 +326,7 @@ __CHATTER_CSS__
  <h1>Cumberland River</h1><div class="cap" id="cap"></div>
  <div class="card now" id="now"></div>
  <div class="sec">Generation schedule</div><div class="card gen" id="genc"></div>
+ <div class="sec">Channel depth &amp; jet floatability</div><div class="card dep" id="dep"></div>
  <div class="sec">Flow timer · watch the release travel</div><div class="card ft" id="flowtimer"></div>
  <div class="sec">Live map · trophy reach</div>
  <div class="card" style="padding:8px"><div id="lmap"></div></div>
@@ -315,6 +373,20 @@ buildFlyMatrix('flysel',D.flysel);
 renderSolunar('sol',D.solunar,D.now.gen?'Best when a major window overlaps the generation rise — that moving water is when the trophy browns hunt.':'Best when a major window lines up with first light on the wadeable shoals.');
 renderHatch('hatch',D.hatch,D.month);
 buildMoonCal('mooncal',36.87,-85.14);
+(function(){
+  var el=document.getElementById('dep'); if(!el||!D.depth) return;
+  var h='';
+  D.depth.forEach(function(p){
+    h+='<div class="deprow"><div class="dn">'+p.name
+      +'<small>'+(p.lag?('release reaches it ~'+p.lag+' h after the dam'):'at the dam')+'</small></div>'
+      +'<div class="dq">'+(p.cfs!=null?('<b>'+p.cfs.toLocaleString()+' cfs</b>'):'<b>—</b>')
+      +(p.rise!=null ? ('+'+p.rise.toFixed(1)+' ft over min flow') : 'no stage gauge here')
+      +'</div><div class="depv" style="background:'+p.col+'">'+p.verdict+'</div></div>';
+  });
+  h+='<div class="depnote">'+D.depthRef+' Thresholds for the 60/40 jet are tuned off the wade '
+    +'threshold, not surveyed \u2014 the first trip the boat drags at a known release should replace them.</div>';
+  el.innerHTML=h;
+})();
 buildFlowTimer('flowtimer',D.timeline);
 renderChatter('chatter',D.chatter,'chatterSec');
 buildLog('log','riverlog-cumberland',D.points.map(p=>p.name),null);
