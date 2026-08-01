@@ -55,9 +55,12 @@ for nm,s in st.items():
     chk("stage band ordered (early>=median>=late mph): "+nm, s['early']>=s['mph']>=s['late'],
         "%s %s %s"%(s['early'],s['mph'],s['late']))
 # arrival spots must match ACCESS mfd exactly
+# An arrival spot is either a verified ACCESS or one of the user's trout holes. Both carry
+# an mfd, which is all the arrival model needs; only ACCESS may be a put-in or take-out.
 bym={p['name']:p['mfd'] for p in P}
+bym.update({o['name']:o['mfd'] for o in (D.get('holes') or [])})
 for sp in A['spots']:
-    chk("arrival spot mfd matches ACCESS: "+sp['name'], bym.get(sp['name'])==sp['mfd'],
+    chk("arrival spot mfd matches its source: "+sp['name'], abs((bym.get(sp['name']) or -1)-sp['mfd'])<1e-6,
         "%s vs %s"%(sp['mfd'],bym.get(sp['name'])))
 # release windows sane
 for w in A['rel']:
@@ -105,6 +108,25 @@ if n.get('stone') is not None and n.get('model') is not None:
     warn("model within 400 cfs of gauge", abs(n['stone']-n['model'])<400,
          "gauge %s vs model %s"%(n['stone'],n['model']))
 chk("wadeMax matches the measured wade threshold", D['wadeMax']==600, str(D['wadeMax']))
+# ---- trout holes (user-supplied spots) ----
+H=D.get('holes') or []
+chk("7 trout holes published", len(H)==7, str(len(H)))
+for i,o in enumerate(H,1):
+    chk("hole %d named in order"%i, o['name']=="Trout Hole #%d"%i, o['name'])
+    chk("hole %d has coordinates"%i, -90<o['lat']<90 and -180<o['lon']<180)
+    chk("hole %d mfd inside the trout reach"%i, 0<=o['mfd']<=15.0, str(o['mfd']))
+chk("holes ordered by distance below the dam", all(H[i]['mfd']<=H[i+1]['mfd'] for i in range(len(H)-1)),
+    str([o['mfd'] for o in H]))
+# a hole must NEVER be selectable as a put-in or take-out
+names={p['name'] for p in P}
+chk("no hole leaked into ACCESS (they are not launches)", not any(o['name'] in names for o in H))
+# every hole must be reachable by the arrival strip
+spots={s['name'] for s in D['arrival']['spots']}
+for o in H: chk("hole in the arrival selector: "+o['name'], o['name'] in spots)
+for o in H:
+    m=next(s for s in D['arrival']['spots'] if s['name']==o['name'])
+    chk("arrival mfd matches the hole: "+o['name'], abs(m['mfd']-o['mfd'])<1e-6)
+
 # ---- slider ----
 chk("slider range sane", D['sliderMin']<D['launchDefault']<D['sliderMax'])
 chk("planDefault indexes a real day", 0<=D['planDefault']<len(D['gen']))

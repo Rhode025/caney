@@ -57,6 +57,32 @@ def compressed_kernel(f):
 # so every point converges to the same steady flow — a frac-scaled baseflow would settle two points fed the
 # same sustained release at different flows, which is impossible with no tributary gain. (backtest finding)
 for s in ACCESS: s["kernel"]=compressed_kernel(frac(s["mfd"])); s["baseflow"]=CALIB_BASEFLOW
+# ── TROUT HOLES ──────────────────────────────────────────────────────────────
+# The user's own spots, supplied as Google Maps pins on 2026-08-01. Coordinates are
+# theirs and authoritative; the mfd (miles below the dam) is DERIVED, not given:
+# each pin was projected onto the OSM "Caney Fork River" centerline (308 vertices)
+# and converted using piecewise-linear interpolation between the VERIFIED access
+# anchors. Raw channel length is not usable for this — it runs 1.5-2.5 mi longer
+# than mfd over this reach because it counts every meander — so the guide-verified
+# access mfd values are the ruler and the centerline only supplies position between
+# them.
+#
+# These are FISHING SPOTS, deliberately kept out of ACCESS: they are not launches,
+# they must never appear as a put-in or take-out, and they take no part in routing.
+# What they do get is an arrival time, because mfd is all that needs.
+#
+# Nearest-vertex offsets at projection: #1 57ft, #2 608ft, #3 398ft, #4 457ft,
+# #5 77ft, #6 91ft, #7 154ft. The centerline averages 1,143 ft between vertices, so
+# these are consistent with vertex spacing rather than with pins being off the water.
+HOLES=[
+ {"name":"Trout Hole #1","lat":36.102895,"lon":-85.836451,"mfd":0.43},
+ {"name":"Trout Hole #2","lat":36.105043,"lon":-85.848323,"mfd":1.28},
+ {"name":"Trout Hole #3","lat":36.112232,"lon":-85.848162,"mfd":2.04},
+ {"name":"Trout Hole #4","lat":36.114482,"lon":-85.845822,"mfd":2.27},
+ {"name":"Trout Hole #5","lat":36.120734,"lon":-85.841664,"mfd":2.64},
+ {"name":"Trout Hole #6","lat":36.124645,"lon":-85.840173,"mfd":2.82},
+ {"name":"Trout Hole #7","lat":36.127628,"lon":-85.815704,"mfd":4.10},
+]
 # on-river coordinates (walked along the real Caney Fork channel from OpenStreetMap) + polyline for the satellite map
 _COORDS={"Long Branch":[36.10008,-85.83181],"Buffalo Valley":[36.10178,-85.8341],"Lancaster":[36.1189,-85.84255],
  "Happy Hollow":[36.13574,-85.82606],"I-40 Welcome Ctr":[36.14672,-85.83753],"Betty's Island":[36.14889,-85.8739],
@@ -461,9 +487,10 @@ FLYSEL={"matrix":FLYMATRIX,"order":FLYORDER,"lights":LIGHTS,"boxinv":BOXINV_K,
 # Keep windows that ended within the last 6 h so the "water is here" state still resolves.
 _arr_cut = now.timestamp() - 6*3600
 ARRIVAL = {"id":"caney", "mph":WATER_MPH, "validated":True,
-           "spots":[{"name":s["name"], "mfd":s["mfd"]} for s in (HH,BI,SW)],
+           "spots":([{"name":h["name"], "mfd":h["mfd"]} for h in HOLES]
+                     +[{"name":s["name"], "mfd":s["mfd"]} for s in (HH,BI,SW)]),
            "rel":[[int(a), int(b), round(pk)] for a,b,pk in GW if b >= _arr_cut]}
-DATA={"arrival":ARRIVAL,
+DATA={"arrival":ARRIVAL,"holes":HOLES,
       "todayLabel":now_ct.strftime("%A, %B %-d · %-I:%M %p"),"dateLabel":tom.strftime("%A, %B %-d"),"hatch":HATCH,"month":now_ct.month,"chatter":riverlib.load_intel("caney"),"flysel":FLYSEL,
       "damCap":dam_cap,"clarity":clar_word,"points":points,"riseCurve":RISE_CURVE,"weather":WX,"tips":tips,
       "calendar":cal,"itinerary":itin_steps,"now":NOW,"solunar":SOL,"best":BEST,"dayscores":DAYSCORES,
@@ -984,6 +1011,12 @@ function frontInfo(t){   // {rm, flow} of the leading edge — backtested ~2.5-m
     return {rm:rm,flow:flowAt(i,t)};}}
   return null;}
 function unitCol(f){return f>9000?'#5e5ce6':f>5200?'#4f5bd5':f>1800?'#0a84ff':'#22d3ee';}   // colour by the water it's carrying
+// Trout holes are fishing spots, not ramps: smaller, different colour, and no ramp
+// number, so they can never be mistaken for a place to put the boat in.
+function holeIcon(n){return L.divIcon({className:'',iconSize:[20,20],iconAnchor:[10,10],popupAnchor:[0,-10],
+ html:'<div style="width:20px;height:20px;border-radius:50%;background:#e05c3e;border:2.5px solid #fff;'
+     +'box-shadow:0 1px 5px rgba(20,50,80,.45);display:flex;align-items:center;justify-content:center;'
+     +'color:#fff;font:800 10px/1 -apple-system,sans-serif">'+n+'</div>'});}
 function frontIcon(col){return L.divIcon({className:'',iconSize:[18,18],iconAnchor:[9,9],html:'<div class="frontmk"><span class="fr" style="background:'+col+'"></span><span class="core" style="border-color:'+col+';box-shadow:0 0 10px 3px '+col+'"></span></div>'});}
 // Arrival = the MEASURED first-rise rule (mfd / 2.5 mph), the same model the generation
 // schedule and the arrival strip use. Previously this scanned for a 1,000 cfs crossing of
@@ -1016,6 +1049,15 @@ if(typeof L!=='undefined'){
   window._polyAt=function(fr){const t=Math.max(0,Math.min(1,fr))*PTOT;for(let i=1;i<POLY.length;i++){if(PCUM[i]>=t){const r=(t-PCUM[i-1])/(PCUM[i]-PCUM[i-1]+1e-9);return [POLY[i-1][0]+r*(POLY[i][0]-POLY[i-1][0]),POLY[i-1][1]+r*(POLY[i][1]-POLY[i-1][1])];}}return POLY[POLY.length-1];};
   window._polySub=function(fr){const tt=Math.max(0,Math.min(1,fr))*PTOT,out=[POLY[0]];for(let i=1;i<POLY.length;i++){if(PCUM[i]<tt)out.push(POLY[i]);else{const r=(tt-PCUM[i-1])/(PCUM[i]-PCUM[i-1]+1e-9);out.push([POLY[i-1][0]+r*(POLY[i][0]-POLY[i-1][0]),POLY[i-1][1]+r*(POLY[i][1]-POLY[i-1][1])]);break;}}return out;};
   window._risen=L.polyline([],{color:'#0a84ff',weight:7,opacity:.5,lineCap:'round'});   // "already up" wet reach behind the front
+  (DATA.holes||[]).forEach(hh=>{
+    const t=hh.mfd/DATA.mph;                       // measured first-rise rule
+    const hrs=Math.floor(t), mins=Math.round((t-hrs)*60);
+    L.marker([hh.lat,hh.lon],{icon:holeIcon(hh.name.replace(/\D/g,'')),zIndexOffset:500})
+     .addTo(map)
+     .bindPopup('<b>'+hh.name+'</b><br>'+hh.mfd.toFixed(1)+' mi below the dam<br>'
+       +'water reaches it ~'+(hrs?hrs+'h ':'')+mins+'m after a release starts'
+       +'<br><a href="'+gmapsUrl(hh.lat,hh.lon)+'" target="_blank" rel="noopener">📍 Open in Google Maps</a>');
+  });
   window._front=L.marker([P[0].lat,P[0].lon],{icon:frontIcon('#22d3ee'),interactive:false,zIndexOffset:1000});
 }
 document.querySelectorAll('.viewtog button').forEach(b=>b.onclick=()=>{const sat=b.dataset.v==='sat';

@@ -564,7 +564,18 @@ console.log('── caney layout: day picker placement ──');
     // one distance vocabulary on the page
     const rmLeft = await pg3.evaluate(() => document.getElementById('river').textContent.includes('rm '));
     assert('diagram uses miles-below-dam, not retired river miles', !rmLeft);
-    assert('no JS errors in the slider pass', e3.length === 0, e3.join(' | '));
+      // trout holes: the user's own spots, on the map and in the arrival selector
+    const holes = await pg3.evaluate(() => ({
+      published: (DATA.holes || []).length,
+      inSelector: [...document.querySelectorAll('#arSpot option')].filter(o => /Trout Hole/.test(o.textContent)).length,
+      markers: document.querySelectorAll('.leaflet-marker-icon').length,
+      inSegs: [...document.querySelectorAll('#segFrom button, #segTo button')].filter(e => /Trout Hole/.test(e.textContent)).length,
+    }));
+    assert('all 7 trout holes published', holes.published === 7, String(holes.published));
+    assert('trout holes are targetable in the arrival strip', holes.inSelector === 7, String(holes.inSelector));
+    assert('trout holes never offered as a put-in or take-out', holes.inSegs === 0, String(holes.inSegs));
+
+  assert('no JS errors in the slider pass', e3.length === 0, e3.join(' | '));
     await pg3.close();
   }
 
