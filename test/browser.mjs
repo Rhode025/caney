@@ -523,6 +523,51 @@ console.log('── caney layout: day picker placement ──');
   assert('changing the day updates the weather card', before !== after, 'weather did not change');
   const lbl = await pg.$eval('#dayWhen', e => e.textContent);
   assert('a non-today selection is labelled as such', /not today/.test(lbl), lbl);
+
+  // ── time slider: above the diagram, pinned, and driving it live ──
+  // It used to sit BELOW a ~780px map/diagram card, so while you watched the diagram the
+  // control was off-screen — the same control-away-from-effect bug as the day picker.
+  {
+    const pg3 = await browser.newPage({ viewport: { width: 390, height: 844 } });
+    const e3 = [];
+    pg3.on('pageerror', e => e3.push(String(e)));
+    await pg3.goto(url('caney.html'), { timeout: 20000 });
+    await pg3.waitForTimeout(1200);
+
+    const ord = await pg3.evaluate(() => {
+      const y = s => { const e = document.querySelector(s); return e ? e.getBoundingClientRect().top : null; };
+      return { tb: y('.timebar'), map: y('.mapcard') };
+    });
+    assert('time slider sits above the diagram it controls', ord.tb < ord.map, JSON.stringify(ord));
+
+    // both sticky bars must stack, never overlap
+    await pg3.evaluate(() => document.querySelector('.mapcard').scrollIntoView({ block: 'center' }));
+    await pg3.waitForTimeout(350);
+    const st = await pg3.evaluate(() => {
+      const r = s => { const b = document.querySelector(s).getBoundingClientRect(); return { top: b.top, bot: b.bottom }; };
+      return { day: r('#daybar'), tb: r('.timebar') };
+    });
+    assert('slider pins below the day bar without overlapping it',
+      st.tb.top >= st.day.bot - 3 && st.tb.top < 300, JSON.stringify(st));
+
+    // and it must actually drive the diagram
+    await pg3.click('button[data-v="diagram"]');
+    await pg3.waitForTimeout(300);
+    const read = async v => {
+      await pg3.evaluate(x => { const s = document.getElementById('slider'); s.value = x; s.dispatchEvent(new Event('input', { bubbles: true })); }, v);
+      await pg3.waitForTimeout(200);
+      return pg3.evaluate(() => [...document.querySelectorAll('[id^=gl]')].map(e => e.textContent).join('|'));
+    };
+    const am = await read(480), pm = await read(1020);
+    assert('dragging the slider updates the diagram live', am !== pm, 'diagram did not change');
+
+    // one distance vocabulary on the page
+    const rmLeft = await pg3.evaluate(() => document.getElementById('river').textContent.includes('rm '));
+    assert('diagram uses miles-below-dam, not retired river miles', !rmLeft);
+    assert('no JS errors in the slider pass', e3.length === 0, e3.join(' | '));
+    await pg3.close();
+  }
+
   assert('no JS errors in the layout pass', errs.length === 0, errs.join(' | '));
   await pg.close();
 }

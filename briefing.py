@@ -626,7 +626,9 @@ __FLYMATRIX_CSS__
 .timebar .timerow{align-items:center}
 .play{border:0;background:var(--blue);color:#fff;width:36px;height:36px;border-radius:50%;font-size:14px;cursor:pointer;margin:0 12px;flex:none;box-shadow:0 3px 10px rgba(10,132,255,.35)}
 .mapcard .stage{margin:2px auto}
-.timebar{background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:0 4px 14px rgba(20,50,80,.05);padding:8px 16px 12px;margin-top:12px}
+.timebar{position:sticky;z-index:25;top:var(--daybar-h,104px);
+ background:linear-gradient(180deg,#eef2f6 86%,rgba(238,242,246,.92));
+ backdrop-filter:blur(6px);margin:0 -4px;padding:8px 4px 6px;border-radius:12px;background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:0 4px 14px rgba(20,50,80,.05);padding:8px 16px 12px;margin-top:12px}
 .timebar .timerow{margin:4px 2px 2px}
 .summary{margin:12px 2px 0}.summary .frn{color:var(--blue);font-weight:600}
 __LOG_CSS__
@@ -667,13 +669,13 @@ __LOG_CSS__
  <div class="secbody open" id="bPlan">
    <div class="planwx" id="planwx"></div>
    <div class="viewtog"><button data-v="sat" class="on">🛰 Satellite</button><button data-v="diagram">📈 Diagram</button></div>
-   <div class="card mapcard"><div id="lmap"></div><div class="stage" id="river" style="display:none"><svg id="rsvg" width="620" height="780"></svg></div></div>
-   <div class="maptip" id="maptip">Pins sit on the OSM channel · pulsing pin = water arriving there now · tap to plan from it · drag to fine-tune its spot</div>
-   <div class="keys"><span><i style="background:#28c76f"></i>wade (low)</span><span><i style="background:#0a84ff"></i>prime boat (1–4k cfs)</span><span><i style="background:#5e5ce6"></i>high &amp; fast</span></div>
    <div class="timebar">
      <div class="timerow"><div class="t" id="tread"></div><button id="playbtn" class="play">▶</button><div class="lab">drag, or press play to watch the water move</div></div>
      <input type="range" id="slider"><div class="ticks" id="ticks"></div>
    </div>
+   <div class="card mapcard"><div id="lmap"></div><div class="stage" id="river" style="display:none"><svg id="rsvg" width="620" height="780"></svg></div></div>
+   <div class="maptip" id="maptip">Pins sit on the OSM channel · pulsing pin = water arriving there now · tap to plan from it · drag to fine-tune its spot</div>
+   <div class="keys"><span><i style="background:#28c76f"></i>wade (low)</span><span><i style="background:#0a84ff"></i>prime boat (1–4k cfs)</span><span><i style="background:#5e5ce6"></i>high &amp; fast</span></div>
    <div class="safety" id="safety"></div>
    <div class="summary" id="summary"></div>
    <div class="controls">
@@ -825,7 +827,7 @@ svg.innerHTML='<defs><linearGradient id="rg" x1=0 y1=0 x2=0 y2=1><stop offset=0 
  +'<path d="'+dpath+'" fill=none stroke="#eafaff" stroke-width=2.5 stroke-linecap=round opacity=".55" stroke-dasharray="2 15"><animate attributeName="stroke-dashoffset" from=0 to="-200" dur=6s repeatCount=indefinite/></path>'
  +'<g id="lead" stroke="#c7d5e2" stroke-width=1.3></g>';
 const lead=svg.querySelector('#lead');
-for(let mile=0;mile<=Math.ceil(rmMax);mile+=5){if(mile<rmMin-1)continue;const t=document.createElement('div');t.className='mtick';t.style.top=ry(mile)+'px';t.textContent='rm '+mile;stage.appendChild(t);}
+for(let mile=0;mile<=Math.ceil(rmMax);mile+=5){if(mile<rmMin-1)continue;const t=document.createElement('div');t.className='mtick';t.style.top=ry(mile)+'px';t.textContent=(rmMax-mile).toFixed(0)+' mi';stage.appendChild(t);}
 const dtop=document.createElement('div');dtop.className='endlbl';dtop.style.top=(padT-24)+'px';dtop.style.left=mx(padT)+'px';dtop.textContent='▲ Center Hill Dam';stage.appendChild(dtop);
 const dbot=document.createElement('div');dbot.className='endlbl';dbot.style.top=(RH-padB+16)+'px';dbot.style.left=mx(RH-padB)+'px';dbot.textContent='Cumberland R. ▼';stage.appendChild(dbot);
 const dyT=P.map(p=>ry(p.rm)),order=P.map((_,i)=>i).sort((a,b)=>dyT[a]-dyT[b]);
@@ -855,7 +857,7 @@ function render(){document.getElementById('tread').textContent=timeStr(launchMin
  P.forEach((p,i)=>{const bf=document.getElementById('segFrom'+i),bt=document.getElementById('segTo'+i);
   bf.classList.toggle('on',i===fromIdx);bt.classList.toggle('on',i===toIdx);
   bt.classList.toggle('dis', mode==='drift'? i<=fromIdx : i>=fromIdx);});
- const head=i=>'<div class="gnm">'+P[i].name+' <span class="ic">'+ic(P[i].types)+'</span><span class="rm">rm '+P[i].rm+'</span></div>';
+ const head=i=>'<div class="gnm">'+P[i].name+' <span class="ic">'+ic(P[i].types)+'</span><span class="rm">'+(P[i].mfd===0?'at the dam':P[i].mfd+' mi below dam')+'</span></div>';
  let s='';
  if(craft==='wade'){
   P.forEach((p,i)=>{const dot=document.getElementById('gd'+i),lbl=document.getElementById('gl'+i);
@@ -1032,6 +1034,16 @@ function markDay(){const d=DATA.calendar[dsel],el=document.getElementById('dayWh
  el.textContent=d.label+' '+d.date+(today?'':' \u2014 not today');
  el.className='dl-when'+(today?'':' notoday');}
 markDay();
+// Two stacked sticky controls: the day bar pins at 0, the time slider pins directly under
+// it. The offset is measured rather than assumed, because a wrapped day label or a
+// different font metric would otherwise overlap them.
+function syncStickyOffsets(){
+  const db=document.getElementById('daybar');
+  if(db) document.documentElement.style.setProperty('--daybar-h', Math.round(db.getBoundingClientRect().height)+'px');
+}
+syncStickyOffsets();
+addEventListener('resize',syncStickyOffsets);
+addEventListener('orientationchange',syncStickyOffsets);
 // craft selector — reconfigures the planner for how you're on the water
 const CRAFT={wade:{},raft:{hold:'row to hold with the oars',lo:1000,hi:3000,up:false,verb:'put in up top and drift down onto'},power:{hold:'hold with the trolling motor / oars',lo:1000,hi:4000,up:true,verb:'launch low and motor up to'}};
 function updateControls(){const isWade=craft==='wade';
