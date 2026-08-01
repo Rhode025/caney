@@ -4,11 +4,11 @@
  * blocked third-party assets, and a secure context for geolocation.
  *
  * Run:  cd test && node smoke.mjs [base-url]
- * Default base: https://master.caney.pages.dev
+ * Default base: https://caney.pages.dev (production; the master.* alias is dead)
  */
 import { chromium } from 'playwright';
 
-const BASE = (process.argv[2] || 'https://master.caney.pages.dev').replace(/\/$/, '');
+const BASE = (process.argv[2] || 'https://caney.pages.dev').replace(/\/$/, '');
 const PAGES = ['index.html', 'caney.html', 'cumbnash.html', 'stones.html',
                'duck.html', 'elktn.html', 'cumberland.html', 'elk.html',
                'cheatham.html', 'cordell.html'];

@@ -14,7 +14,12 @@ on:
   push:
     branches: [master]
   schedule:
-    - cron: '0 */3 * * *'   # every 3 hours, UTC. GitHub cron is best-effort, not exact.
+    - cron: '5 * * * *'    # hourly, UTC.
+    # GitHub delays scheduled workflows under load and drops them outright when backed up:
+    # observed 18:00 -> ran 19:44, 21:00 -> ran 22:11, 00:00 -> never fired. Asking hourly
+    # means a skipped or late run costs ~1 h of staleness instead of 6+. The build is ~30 s
+    # with no third-party deps, so the extra runs are close to free. Offset :05 to avoid the
+    # top-of-hour rush, which is when GitHub's scheduler is most congested.
   workflow_dispatch:
 
 # Never let a scheduled build race a push build; they write the same out/.

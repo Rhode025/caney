@@ -51,7 +51,15 @@ Install the pre-commit gate once: `ln -sf ../../test/hooks/pre-commit .git/hooks
 ## Deploy
 
 `.github/workflows/deploy.yml` builds and publishes to Cloudflare Pages on push to master,
-every 3 hours, and on manual dispatch. Static QA gates the deploy: a build that fails
+**hourly**, and on manual dispatch. **The live site is https://caney.pages.dev** — not the
+`master.caney.pages.dev` branch alias, which stopped being repointed after the first few
+deploys and is now permanently stale.
+
+Hourly rather than 3-hourly because GitHub delays scheduled workflows under load and drops
+them when backed up (observed: 18:00 ran at 19:44, 21:00 ran at 22:11, 00:00 never fired).
+Asking hourly makes a skipped run cost ~1 h of staleness instead of 6+.
+
+Static QA gates the deploy: a build that fails
 `verify.py` is never published.
 
 The cache step in that workflow is load-bearing, not an optimisation. `briefing.py:80-89`

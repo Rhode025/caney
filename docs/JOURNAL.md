@@ -61,9 +61,12 @@ instead of being hardcoded at 8 and 7, so adding a river no longer breaks the te
 
 ## 2026-07-30 (evening) — R1–R5 built, deployed, live
 
-**The tool is on the internet: https://master.caney.pages.dev** (also `caney.pages.dev`).
-Cloudflare Pages, HTTPS, private repo, rebuilt every 3 hours by
-`.github/workflows/deploy.yml`. All five tasks from the CEO review are shipped.
+**The tool is on the internet: https://caney.pages.dev**
+*(Corrected 2026-07-31: an earlier entry named `master.caney.pages.dev`. That branch alias
+stopped being repointed after the first few deploys — recent wrangler runs print only a hash
+URL, no `Deployment alias URL` line — while production started tracking every run. Use the
+bare `caney.pages.dev`.)*
+Cloudflare Pages, HTTPS, private repo, rebuilt hourly by `.github/workflows/deploy.yml`. All five tasks from the CEO review are shipped.
 
 - **R1 — hosting.** `build.sh` is now the single source of the generator list and order
   (`hq.py` last); `test/run.sh` calls it. Deploy is gated on `verify.py`, so a build failing
