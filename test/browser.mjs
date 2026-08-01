@@ -640,6 +640,51 @@ console.log('── cumberland striper card: design system ──');
   }
 }
 
+
+// ── 7-day outlook: show the working ──
+// A grade with no visible reasoning is not actionable. The weighting is genuinely
+// non-obvious — the moon carries 40 of ~100 points — so a "Tough" day can have perfect
+// water and be penalised entirely on moon and rain.
+console.log('── caney outlook: score breakdown ──');
+{
+  const pg = await browser.newPage({ viewport: { width: 390, height: 900 } });
+  const errs = [];
+  pg.on('pageerror', e => errs.push(String(e)));
+  await pg.goto(url('caney.html'), { timeout: 20000 });
+  await pg.waitForTimeout(1200);
+  await pg.evaluate(() => document.querySelectorAll('.secbody').forEach(e => e.classList.add('open')));
+  await pg.waitForTimeout(200);
+
+  const shape = await pg.evaluate(() => {
+    const bad = [];
+    DATA.week.forEach(d => {
+      const w = d.why;
+      if (!w) return bad.push(`${d.label}: no breakdown`);
+      const sum = w.parts.reduce((a, p) => a + p.pts, 0);
+      if (Math.abs(sum - w.total) > 1) bad.push(`${d.label}: parts ${sum} != total ${w.total}`);
+      if (!w.parts.every(p => p.pts >= 0 && p.pts <= p.max)) bad.push(`${d.label}: part out of range`);
+      if (!w.parts.every(p => p.why && p.why.length > 6)) bad.push(`${d.label}: a part has no explanation`);
+      const weakest = w.parts.reduce((a, p) => (p.pts / p.max < a.pts / a.max ? p : a));
+      if (weakest.k !== w.driver) bad.push(`${d.label}: driver ${w.driver} is not the weakest part`);
+    });
+    return bad;
+  });
+  assert('every outlook day carries a breakdown that sums to its score', shape.length === 0, shape.join(' | '));
+
+  // and it must actually reach the user
+  await pg.evaluate(() => {
+    const r = [...document.querySelectorAll('#cal .wkrow')];
+    (r.find(x => /Tue|Wed/.test(x.textContent)) || r[3]).click();
+  });
+  await pg.waitForTimeout(300);
+  const txt = await pg.$eval('#cal', e => e.innerText);
+  assert('expanding a day reveals why it scored that way', /Why .* points/.test(txt), txt.slice(0, 90));
+  assert('the breakdown names each component', /Moon/.test(txt) && /Water/.test(txt) && /Weather/.test(txt));
+  assert('the grade bands are stated', /Prime ≥ 88/.test(txt));
+  assert('no JS errors in the outlook', errs.length === 0, errs.join(' | '));
+  await pg.close();
+}
+
 await browser.close();
 console.log('');
 if (fails) { console.log(`\x1b[31mFAILED ${fails} check(s)\x1b[0m`); process.exit(1); }

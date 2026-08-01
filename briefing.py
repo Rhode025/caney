@@ -402,12 +402,32 @@ def score_day(di,d):
     wsc=15 if pop<=30 else 10 if pop<=60 else 3
     score=round(mr/5*40+gen+wsc)
     grade="Prime" if score>=88 else "Good" if score>=78 else "Fair" if score>=68 else "Tough"
+    # WHY, not just what. The weighting is not obvious from the verdict: the moon carries 40
+    # of ~100 points, so two days with identical generation can land two grades apart on moon
+    # phase alone. A user looking at "Tough" deserves to see which term cost the points.
+    _moonpts=round(mr/5*40)
+    _why={"total":score,"grade":grade,
+          "bands":"Prime \u2265 88 \u00b7 Good \u2265 78 \u00b7 Fair \u2265 68 \u00b7 below that Tough",
+          "parts":[
+            {"k":"Moon","pts":_moonpts,"max":40,
+             "why":"feeding rating %d/5 \u2014 %s"%(mr, "peak solunar period" if mr>=4 else
+                   "moderate" if mr==3 else "weak, between the major phases")},
+            {"k":"Water","pts":gen,"max":45,
+             "why":("%d-unit release, the band that fishes best"%peak_u) if 1<=peak_u<=2 else
+                   ("%d units \u2014 more water than ideal"%peak_u) if peak_u>2 else
+                   "no generation \u2014 low and clear, sight-fishing only"},
+            {"k":"Weather","pts":wsc,"max":15,
+             "why":("%d%% rain \u2014 clear enough"%pop) if pop<=30 else
+                   ("%d%% rain \u2014 unsettled"%pop) if pop<=60 else
+                   ("%d%% rain \u2014 wet"%pop)},
+          ]}
+    _why["driver"]=min(_why["parts"], key=lambda p: p["pts"]/p["max"])["k"]
     if peak_u>=1:
         window="rise %s–%s"%(fmt_ap(gs),fmt_ap(ge)); verdict="%d-unit afternoon rise%s"%(peak_u," · strong moon feed" if mr>=4 else "")
     else:
         window="wade dawn–dusk"; verdict="Low & clear — sight-fish the flats"
     return {"i":di,"label":cal[di]["label"],"date":cal[di]["date"],"score":score,"grade":grade,
-            "units":peak_u,"moon":mr,"ico":ico,"hi":hi,"pop":pop,"verdict":verdict,"window":window,
+            "units":peak_u,"moon":mr,"ico":ico,"hi":hi,"pop":pop,"verdict":verdict,"window":window,"why":_why,
             "blurb":"%s · moon %d/5"%(("%d-unit release %s"%(peak_u,fmt_ap(gs))) if peak_u else "minimum flow",mr)}
 _scores=[score_day(di, now_ct.date()+datetime.timedelta(days=di)) for di in range(7)]
 _top=sorted(_scores,key=lambda x:-x["score"])[:2]
@@ -675,6 +695,20 @@ __LOG_CSS__
  .cd{width:96px}.cxs{width:110px}.csteps{padding-left:110px}
  .modes button{font-size:12.5px}.seg button{font-size:11px}.dates button{font-size:12px}
 }
+
+.why{margin:2px 0 12px;padding:12px 14px;background:#f6f8fb;border:1px solid var(--line);border-radius:12px}
+.whyh{font-size:12.5px;font-weight:750;color:var(--ink);margin-bottom:9px}
+.whyr{display:grid;grid-template-columns:58px 62px 40px 1fr;align-items:center;gap:9px;padding:4px 0;font-size:12px}
+.whyk{font-weight:700;color:var(--ink)}
+.whybar{height:6px;background:#e3e9f0;border-radius:99px;overflow:hidden}
+.whybar i{display:block;height:100%;background:#0a84ff;border-radius:99px}
+.whyr.weak .whybar i{background:#f2a832}
+.whyr.weak .whyk{color:#a8701a}
+.whyp{font-variant-numeric:tabular-nums;color:var(--muted);font-weight:650}
+.whyw{color:var(--muted);line-height:1.4}
+.whyf{margin-top:9px;padding-top:8px;border-top:1px solid var(--line);font-size:11px;color:var(--faint)}
+@media(max-width:680px){.whyr{grid-template-columns:52px 44px 38px 1fr;gap:7px;font-size:11.5px}
+ .whyw{grid-column:1/-1;padding-left:0;margin-top:-2px}}
 </style></head><body><div class="app">
  __SWITCHER__
  <div class="eyebrow">Fly-fishing planner · DeKalb County, TN</div><h1>Caney Fork</h1><div class="cap" id="cap"></div>
@@ -837,6 +871,23 @@ function renderDay(){renderPlan();renderWx(dsel);renderFeed(dsel);renderPlanWx(d
 (function(){let h='';DATA.tips.forEach(t=>h+='<div class="tip"><div class="i">'+t[0]+'</div><div class="x">'+t[1]+'</div></div>');document.getElementById('tips').innerHTML=h;})();
 buildFlyMatrix('flysel',DATA.flysel);
 (function(){const gcol={Prime:'#28c76f',Good:'#0a84ff',Fair:'#f2a832',Tough:'#94a3b1'};
+// Show the working, not just the verdict. The weighting is not obvious: the moon carries 40
+ // of ~100 points, so two days with identical generation can land two grades apart on moon
+ // phase alone. Without this a "Tough" day reads as "the river is bad" when the water may be
+ // perfect and the penalty is entirely rain and moon.
+ function scoreWhy(d){
+   const w=d.why; if(!w) return '';
+   let b='<div class="why"><div class="whyh">Why <b>'+w.grade+'</b> \u2014 '+w.total+' points</div>';
+   w.parts.forEach(p=>{
+     const pct=Math.round(p.pts/p.max*100);
+     const weak=p.k===w.driver;
+     b+='<div class="whyr'+(weak?' weak':'')+'"><span class="whyk">'+p.k+'</span>'
+       +'<span class="whybar"><i style="width:'+pct+'%"></i></span>'
+       +'<span class="whyp">'+p.pts+'/'+p.max+'</span>'
+       +'<span class="whyw">'+p.why+'</span></div>';
+   });
+   return b+'<div class="whyf">'+w.bands+'</div></div>';
+ }
  let h='<div class="wksyn">🎯 '+DATA.weekSynth+'</div>';
  DATA.week.forEach((d,di)=>{
   const st=((DATA.calendar[di]||{}).steps||[]).map(s=>'<div class="step2"><span class="st2">'+s.t+'</span><span class="sx2">'+s.x+'</span></div>').join('');
@@ -846,7 +897,7 @@ buildFlyMatrix('flysel',DATA.flysel);
     +'<div class="wkd"><b>'+d.label+(best?' ⭐':'')+'</b><span>'+d.date+'</span></div>'
     +'<div class="wkm"><div class="wkv">'+d.verdict+'</div>'
     +'<div class="wkstat">'+d.ico+' '+(d.hi!=null?d.hi+'°':'')+' <i>·</i> ⚡'+(d.units?d.units+'U':'off')+' <i>·</i> 🌙'+d.moon+'/5 <i>·</i> '+d.window+'</div></div>'
-    +'<div class="chev">›</div></div><div class="csteps" id="cs'+di+'">'+st+'</div>';});
+    +'<div class="chev">›</div></div><div class="csteps" id="cs'+di+'">'+scoreWhy(d)+st+'</div>';});
  document.getElementById('cal').innerHTML=h;
  document.querySelectorAll('#cal .wkrow').forEach(r=>r.onclick=()=>{const p=document.getElementById('cs'+r.dataset.di);r.classList.toggle('open',p.classList.toggle('open'));});})();
 document.getElementById('foot').textContent='UH routing off the Center Hill release forecast (R²=0.89), anchored on a longtime guide’s real miles-from-dam with a backtested ~2.5 mph leading edge (Happy Hollow ~2½h · Betty’s ~3½h · Stonewall ~6h from release). Depth from measured Stonewall stage-rise; drift speed ≈ flow (1–4.6 mph); boatable ≈ 1,000–4,000 cfs. Trout reach (dam→Stonewall) calibrated; lower ramps are backwater approximations. Sources: USACE CWMS · USGS · Open-Meteo.';
