@@ -108,6 +108,17 @@ if n.get('stone') is not None and n.get('model') is not None:
     warn("model within 400 cfs of gauge", abs(n['stone']-n['model'])<400,
          "gauge %s vs model %s"%(n['stone'],n['model']))
 chk("wadeMax matches the measured wade threshold", D['wadeMax']==600, str(D['wadeMax']))
+# ---- Kirby Road (wade-only access) ----
+K=[p for p in P if p['name']=='Kirby Road']
+chk("Kirby Road present in ACCESS", len(K)==1)
+if K:
+    k=K[0]
+    chk("Kirby is wade-only (no ramp, no paddle)", k['types']==['wade'], str(k['types']))
+    chk("Kirby sits between I-40 and Betty's Island", 7.0<k['mfd']<9.0, str(k['mfd']))
+    chk("Kirby is in the trout reach", k['reach']=='trout', k['reach'])
+    chk("Kirby info warns it is not a launch", 'not' in (k.get('info') or '').lower()
+        and 'launch' in (k.get('info') or '').lower(), (k.get('info') or '')[:60])
+
 # ---- trout holes (user-supplied spots) ----
 H=D.get('holes') or []
 chk("7 trout holes published", len(H)==7, str(len(H)))

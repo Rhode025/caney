@@ -575,6 +575,19 @@ console.log('── caney layout: day picker placement ──');
     assert('trout holes are targetable in the arrival strip', holes.inSelector === 7, String(holes.inSelector));
     assert('trout holes never offered as a put-in or take-out', holes.inSegs === 0, String(holes.inSegs));
 
+    // a put-in must suit the craft: a wade-only roadside pull-off is not a boat launch
+    const byCraft = async c => {
+      await pg3.click(`button[data-c="${c}"]`); await pg3.waitForTimeout(250);
+      return pg3.evaluate(() => [...document.querySelectorAll('#segFrom button')]
+        .filter(e => e.style.display !== 'none').map(e => e.textContent.trim()));
+    };
+    const wadeOpts = await byCraft('wade'), powerOpts = await byCraft('power');
+    assert('wade-only accesses are offered when wading', wadeOpts.includes('Kirby Road'), wadeOpts.join(','));
+    assert('wade-only accesses are NOT offered as a powerboat put-in',
+      !powerOpts.includes('Kirby Road') && !powerOpts.includes('Lancaster'), powerOpts.join(','));
+    assert('ramp accesses stay available to a powerboat',
+      powerOpts.includes('Stonewall') && powerOpts.includes('Long Branch'), powerOpts.join(','));
+
   assert('no JS errors in the slider pass', e3.length === 0, e3.join(' | '));
     await pg3.close();
   }

@@ -26,6 +26,8 @@ CALIB_BASEFLOW=205.0; DAM_RM,STONE_RM=26.6,10.0   # zero-release intercept; 90-d
 # events) → ~2.5 mph, size-independent. So `mfd` drives routing and arrival = (miles-from-dam)/2.5 h.
 WATER_MPH=2.5; MFD_STONE=15.0
 _g=sum(CALIB_KERNEL); KERNEL=[w/_g for w in CALIB_KERNEL]; CENTROID=sum(i*w for i,w in enumerate(KERNEL))
+# Kirby Road's d0 is INTERPOLATED between its neighbours, which puts it on the same
+# unverified footing as the rest — see the note below rather than trusting the figure.
 # d0 below is a REFERENCE DEPTH ESTIMATE with no recorded provenance — it arrived in the
 # initial commit undocumented, unlike every other calibrated number here. RISE_CURVE does
 # trace to depth_fit.py (its values match that fit's bin medians to a tenth). Treat any
@@ -37,6 +39,8 @@ ACCESS=[
  {"name":"Lancaster","note":"Hwy 96","rm":24.0,"mfd":2.5,"types":["wade"],"reach":"trout","d0":2.0},
  {"name":"Happy Hollow","note":"off I-40","rm":19.0,"mfd":6.0,"types":["wade","paddle","ramp"],"reach":"trout","d0":2.2},
  {"name":"I-40 Welcome Ctr","note":"bank access","rm":18.0,"mfd":7.0,"types":["wade","paddle"],"reach":"trout","d0":2.3},
+ {"name":"Kirby Road","note":"Elmwood — roadside gravel lot","rm":16.5,"mfd":8.0,"types":["wade"],"reach":"trout","d0":2.0,
+  "info":"Public roadside access off Kirby Rd, Elmwood. Small gravel lot with room for about seven or eight vehicles. Public property, legal to park. WADE ACCESS ONLY \u2014 no ramp, do not plan a launch here."},
  {"name":"Betty's Island","note":"the flats","rm":15.0,"mfd":9.0,"types":["wade","paddle","ramp"],"reach":"trout","d0":1.6},
  {"name":"Stonewall","note":"Gordonsville gauge","rm":10.0,"mfd":15.0,"types":["wade","paddle","ramp"],"reach":"trout","d0":2.8},
  {"name":"South Carthage","note":"Bob Lowery ramp","rm":3.0,"mfd":22.0,"types":["ramp"],"reach":"lower","d0":6.0},
@@ -85,7 +89,7 @@ HOLES=[
 ]
 # on-river coordinates (walked along the real Caney Fork channel from OpenStreetMap) + polyline for the satellite map
 _COORDS={"Long Branch":[36.10008,-85.83181],"Buffalo Valley":[36.10178,-85.8341],"Lancaster":[36.1189,-85.84255],
- "Happy Hollow":[36.13574,-85.82606],"I-40 Welcome Ctr":[36.14672,-85.83753],"Betty's Island":[36.14889,-85.8739],
+ "Happy Hollow":[36.13574,-85.82606],"I-40 Welcome Ctr":[36.14672,-85.83753],"Kirby Road":[36.146707,-85.863610],"Betty's Island":[36.14889,-85.8739],
  "Stonewall":[36.19569,-85.91774],"South Carthage":[36.23924,-85.9086],"Carthage":[36.23816,-85.93415]}
 for s in ACCESS: s["lat"],s["lon"]=_COORDS[s["name"]]
 RIVER_POLY=[[36.098,-85.82633],[36.10387,-85.83965],[36.10947,-85.85155],[36.12086,-85.84187],[36.12823,-85.83537],[36.12257,-85.82596],[36.12932,-85.81278],[36.13329,-85.80541],[36.13805,-85.80305],[36.14135,-85.8036],[36.14214,-85.81095],[36.13852,-85.81969],[36.13594,-85.82657],[36.14433,-85.83465],[36.14678,-85.83908],[36.14824,-85.84456],[36.14969,-85.86014],[36.14316,-85.86597],[36.13968,-85.86988],[36.14434,-85.87618],[36.14991,-85.87354],[36.15366,-85.87074],[36.15718,-85.87194],[36.16099,-85.87521],[36.16461,-85.88182],[36.16917,-85.89096],[36.17114,-85.89563],[36.17322,-85.90126],[36.17718,-85.90746],[36.17953,-85.90941],[36.18555,-85.90561],[36.19192,-85.904],[36.19535,-85.91016],[36.19896,-85.9269],[36.20265,-85.93565],[36.20696,-85.94516],[36.21367,-85.9516],[36.22372,-85.94275],[36.22356,-85.93078],[36.21204,-85.92484],[36.21762,-85.91578],[36.23064,-85.90877],[36.24552,-85.9043],[36.2451,-85.91868],[36.23843,-85.94015],[36.24,-85.94254]]
@@ -161,7 +165,9 @@ try:
         print("gauge auto-calibration: baseflow %+.0f cfs (n=%d low-flow hrs)"%(CALIB_ADJ,len(_resid)))
 except Exception as e: print("calib warn:",e)
 
-points=[{"name":s["name"],"note":s["note"],"rm":s["rm"],"mfd":s["mfd"],"types":s["types"],"reach":s["reach"],"d0":s["d0"],
+# "info" is what accessPopup shows when present; without it the popup falls back to the
+# short note, which silently dropped Kirby Road's "wade access only, not a launch" warning.
+points=[{"name":s["name"],"note":s["note"],"info":s.get("info",""),"rm":s["rm"],"mfd":s["mfd"],"types":s["types"],"reach":s["reach"],"d0":s["d0"],
          "lat":s["lat"],"lon":s["lon"],
          "flow":[round(flow_at(s,tod_mid+h*3600) or 0) for h in range(180)]} for s in ACCESS]
 
@@ -759,7 +765,10 @@ const COND={wade:{c:'#28c76f',t:'wadeable'},boat:{c:'#0a84ff',t:'prime boat'},hi
 // board uses: before noon you are deciding about today, after noon you are planning the
 // next trip.
 const _openDay=(new Date().getHours()<12)?0:Math.min(1,(DATA.calendar||[]).length-1);
-let mode='drift',fromIdx=0,toIdx=6,launchMin=DATA.launchDefault,dsel=_openDay,daybase=_openDay*1440,craft='power';
+const _idxOf=n=>Math.max(0,DATA.points.findIndex(p=>p.name===n));
+// Defaults keyed by NAME, not index: adding an access used to silently shift the
+// take-out to whatever happened to land on position 6.
+let mode='drift',fromIdx=_idxOf('Long Branch'),toIdx=_idxOf('Stonewall'),launchMin=DATA.launchDefault,dsel=_openDay,daybase=_openDay*1440,craft='power';
 function interp(c,x){if(x<=c[0][0])return c[0][1];for(let i=1;i<c.length;i++){if(x<=c[i][0]){const a=c[i-1],b=c[i];return a[1]+(b[1]-a[1])*(x-a[0])/(b[0]-a[0]);}}const n=c.length,a=c[n-2],b=c[n-1];return b[1]+(b[1]-a[1])*(x-b[0])/(b[0]-a[0]);}
 function depthAt(i,cfs){return P[i].d0+interp(DATA.riseCurve,cfs);}
 // Wade threshold is MEASURED (USGS gaugings, see riverlib.WATER_MODEL) and arrives via
@@ -864,9 +873,28 @@ P.forEach((p,i)=>{const x=mx(dyN[i]);
  const dot=document.createElement('div');dot.className='gdot';dot.id='gd'+i;dot.style.left=x+'px';dot.style.top=dyN[i]+'px';dot.textContent=i+1;dot.onclick=()=>{fromIdx=i;fixTo();render();};stage.appendChild(dot);
  const lbl=document.createElement('div');lbl.className='glbl';lbl.id='gl'+i;lbl.style.top=lyN[i]+'px';stage.appendChild(lbl);
  const ln=document.createElementNS('http://www.w3.org/2000/svg','line');ln.setAttribute('x1',x);ln.setAttribute('y1',dyN[i]);ln.setAttribute('x2',298);ln.setAttribute('y2',lyN[i]);lead.appendChild(ln);});
+// A put-in has to suit the craft. Every access carries a types list (wade / paddle / ramp)
+// and until now the planner ignored it, happily offering a wade-only roadside pull-off as a
+// powerboat launch. Kirby Road made that obvious, but Lancaster and the I-40 Welcome Center
+// had the same problem all along.
+const CRAFT_NEEDS={power:['ramp'],raft:['ramp','paddle'],wade:['wade','paddle','ramp']};
+function usableFor(p,c){const need=CRAFT_NEEDS[c]||CRAFT_NEEDS.wade;
+ return (p.types||[]).some(t=>need.includes(t));}
 function mkseg(id,cb){const seg=document.getElementById(id);P.forEach((p,i)=>{const b=document.createElement('button');b.textContent=p.name;b.id=id+i;b.onclick=()=>cb(i);seg.appendChild(b);});}
+// Hide what the current craft cannot use, and move the selection off it if it is now invalid.
+function syncSegs(){
+  let movedFrom=false,movedTo=false;
+  P.forEach((p,i)=>{
+    const ok=usableFor(p,craft);
+    ['segFrom','segTo'].forEach(sid=>{const b=document.getElementById(sid+i);if(b)b.style.display=ok?'':'none';});
+    if(!ok&&fromIdx===i){fromIdx=P.findIndex(q=>usableFor(q,craft));movedFrom=true;}
+    if(!ok&&toIdx===i){for(let k=P.length-1;k>=0;k--)if(usableFor(P[k],craft)){toIdx=k;break;}movedTo=true;}
+  });
+  return movedFrom||movedTo;
+}
 mkseg('segFrom',i=>{fromIdx=i;fixTo();render();});
 mkseg('segTo',i=>{toIdx=i;render();});
+syncSegs();
 const slider=document.getElementById('slider');slider.min=DATA.sliderMin;slider.max=DATA.sliderMax;slider.step=DATA.sliderStep;slider.value=launchMin;
 slider.oninput=()=>{launchMin=+slider.value;render();};
 let playT=null;const playbtn=document.getElementById('playbtn');
@@ -1095,8 +1123,10 @@ function updateControls(){const isWade=craft==='wade';
  document.getElementById('lblFrom').textContent=(isWade?'':'3 · ')+(mode==='drift'?'Put in at':(craft==='power'?'Launch at (low)':'Put in up top at'));}
 document.querySelectorAll('#crafts button').forEach(b=>b.onclick=()=>{craft=b.dataset.c;
  document.querySelectorAll('#crafts button').forEach(x=>x.classList.toggle('on',x===b));
- if(craft!=='wade'&&mode==='up')fromIdx=CRAFT[craft].up?6:0;
- updateControls();render();});
+ // index 6 used to mean Stonewall; adding Kirby Road shifted it to Betty's Island. Key it
+ // by name so inserting an access can never silently retarget the chase-the-rise launch.
+ if(craft!=='wade'&&mode==='up')fromIdx=CRAFT[craft].up?_idxOf('Stonewall'):0;
+ syncSegs(); updateControls();render();});
 // collapsible sections
 document.querySelectorAll('.sec.fold').forEach(sec=>{const body=document.getElementById(sec.dataset.t);sec.onclick=()=>{const o=sec.classList.toggle('open');body.classList.toggle('open',o);};});
 // section summaries (shown when collapsed)
