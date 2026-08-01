@@ -723,10 +723,17 @@ function edgeScore(i,m){if(P[i].reach!=='trout')return 0;const f=flowAt(i,m),df=
 function bestEdge(m){let bi=-1,bs=0.22;for(let i=0;i<N;i++){const s=edgeScore(i,m);if(s>bs){bs=s;bi=i;}}return bi;}
 function driftSpeed(cfs){return 1.0+3.6*Math.pow(Math.min(cfs,11000)/11000,0.6);}
 function flowAt(i,min){const a=P[i].flow,h=Math.max(0,Math.min((daybase+min)/60,a.length-1.001)),lo=Math.floor(h),fr=h-lo;return a[lo]*(1-fr)+a[lo+1]*fr;}
-function timeStr(m){m=((Math.round(m/5)*5)%1440+1440)%1440;let h=Math.floor(m/60),mm=m%60,ap=h<12?'AM':'PM',hh=(h%12)||12;return hh+':'+String(mm).padStart(2,'0')+' '+ap;}
-function waterArrival(i,fromMin){if(flowAt(i,fromMin)>=1000)return -1;for(let m=Math.ceil(fromMin/60)*60;m<=29*60;m+=60){if(flowAt(i,m)>=1000)return m;}return null;}
+// A float that runs past midnight must SAY so. This used to wrap silently, so a late launch
+// showed an arrival of "5:20 AM" that looked like the same morning.
+function timeStr(m){const nx=m>=1440||m<0;m=((Math.round(m/5)*5)%1440+1440)%1440;
+ let h=Math.floor(m/60),mm=m%60,ap=h<12?'AM':'PM',hh=(h%12)||12;
+ return hh+':'+String(mm).padStart(2,'0')+' '+ap+(nx?' next day':'');}
+// Distance comes from mfd (miles-from-dam), the verified distances, NOT from rm. rm is the
+// superseded river-mile estimate — it puts Stonewall 16.4 mi down where the real figure is
+// 15.0, and Betty's at 11.4 where it is 9.0. Arrival timing moved to mfd when those landed;
+// drift timing was left behind, inflating every float by up to 9%.
 function driftPlan(){const arr=new Array(N).fill(null),fl=new Array(N).fill(null);arr[fromIdx]=launchMin;fl[fromIdx]=flowAt(fromIdx,launchMin);
- for(let j=fromIdx;j<N-1;j++){const f=flowAt(j,arr[j]),dist=P[j].rm-P[j+1].rm,dt=dist/driftSpeed(f)*60;arr[j+1]=arr[j]+dt;fl[j+1]=flowAt(j+1,arr[j+1]);}return{arr,fl};}
+ for(let j=fromIdx;j<N-1;j++){const f=flowAt(j,arr[j]),dist=Math.max(0,P[j+1].mfd-P[j].mfd),dt=dist/driftSpeed(f)*60;arr[j+1]=arr[j]+dt;fl[j+1]=flowAt(j+1,arr[j+1]);}return{arr,fl};}
 function ic(t){return t.map(x=>ICON[x]).join('');}
 
 document.getElementById('cap').innerHTML=DATA.todayLabel+' &nbsp;·&nbsp; Center Hill tailwater &nbsp;·&nbsp; water '+DATA.clarity;
@@ -843,7 +850,8 @@ function render(){document.getElementById('tread').textContent=timeStr(launchMin
    let tag='';if(i===fromIdx)tag=' <span class="tag" style="background:#0a84ff">PUT-IN</span>';else if(i===toIdx)tag=' <span class="tag" style="background:#16a34a">TAKE-OUT</span>';
    const extra=(i===fromIdx?'launch <b>'+timeStr(launchMin)+'</b>':'arrive <b>'+timeStr(dp.arr[i])+'</b>');
    lbl.innerHTML=head(i)+'<div class="gval">'+extra+tag+' · '+Math.round(cfs).toLocaleString()+' cfs · ~'+dep.toFixed(1)+' ft <span class="badge" style="background:'+COND[k].c+'">'+COND[k].t+'</span></div>';});
-  const miles=(P[fromIdx].rm-P[toIdx].rm).toFixed(1),dur=Math.round(dp.arr[toIdx]-launchMin),d0=depthAt(fromIdx,dp.fl[fromIdx]);
+  const miles=Math.abs(P[toIdx].mfd-P[fromIdx].mfd).toFixed(1),   // mfd, same basis as driftPlan
+  dur=Math.round(dp.arr[toIdx]-launchMin),d0=depthAt(fromIdx,dp.fl[fromIdx]);
   s='⬇ Put in at <b>'+P[fromIdx].name+'</b> <b>'+timeStr(launchMin)+'</b> ('+Math.round(dp.fl[fromIdx]).toLocaleString()+' cfs, ~'+d0.toFixed(1)+' ft). Float <b>'+miles+' mi</b> to <b>'+P[toIdx].name+'</b> ≈ <b>'+(dur>=60?Math.floor(dur/60)+'h '+(dur%60)+'m':dur+'m')+'</b>, take out <b>'+timeStr(dp.arr[toIdx])+'</b> ('+Math.round(dp.fl[toIdx]).toLocaleString()+' cfs). ';
   let w=null;for(let i=fromIdx+1;i<=toIdx;i++){if(condFor(i,dp.fl[i])==='high'&&condFor(fromIdx,dp.fl[fromIdx])!=='high'){w=i;break;}}
   s+=w!==null?'<span class="warn">⚠ The release catches you near '+P[w].name+' ~'+timeStr(dp.arr[w])+' — ride it down fishing the leading edge.</span>':'Water holds steady through the float.';
@@ -885,7 +893,7 @@ function render(){document.getElementById('tread').textContent=timeStr(launchMin
     }
     return true;
   }
-  let seq=[];for(let i=0;i<N;i++){let t=null;for(let m=launchMin;m<=20*60;m+=30){if(edgeScore(i,m)>0.42&&reachable(i,m)){t=m;break;}}if(t!==null)seq.push([t,i]);}
+  let seq=[];for(let i=0;i<N;i++){let t=null;for(let m=launchMin;m<=23*60+30;m+=30){if(edgeScore(i,m)>0.42&&reachable(i,m)){t=m;break;}}if(t!==null)seq.push([t,i]);}
   seq.sort((a,b)=>a[0]-b[0]);
   const lc=flowAt(fromIdx,launchMin),C=CRAFT[craft];
   s='⬆ '+(C.up?'Launch low at ':'Put in up top at ')+'<b>'+P[fromIdx].name+'</b> <b>'+timeStr(launchMin)+'</b> ('+Math.round(lc).toLocaleString()+' cfs). ';
@@ -956,7 +964,8 @@ function frontArrival(i){const g=DATA.gen[dsel];if(!g||g.relStart==null)return n
  const st=DATA.arrivalStages.first;const m=g.relStart+(P[i].mfd/st.mph)*60;return (m>=0&&m<=1439)?m:null;}
 function frontWindow(i){const g=DATA.gen[dsel];if(!g||g.relStart==null)return null;
  const st=DATA.arrivalStages.first;
- return [g.relStart+(P[i].mfd/st.early)*60, g.relStart+(P[i].mfd/st.late)*60];}
+ const a=g.relStart+(P[i].mfd/st.early)*60, b=g.relStart+(P[i].mfd/st.late)*60;
+ return (Math.abs(b-a)<10)?null:[a,b];}   // at the dam the band collapses; show one time
 // satellite map (Esri imagery) — access points on the real channel; clicking a pin sets the put-in
 let LM=[];
 if(typeof L!=='undefined'){

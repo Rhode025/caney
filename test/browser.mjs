@@ -441,6 +441,44 @@ console.log('── caney planner: reachability + arrival consistency ──');
   }
   assert('arrival is presented as a measured band, not a false point value',
     /–|—/.test(txt) && /starts moving|release reaches/.test(txt), txt.slice(0, 160));
+
+  // ── time-plan arithmetic ──
+  // Two distance systems used to coexist: rm (superseded river-mile estimates) and mfd
+  // (verified miles-from-dam). Arrival timing moved to mfd; drift timing did not, inflating
+  // every float by up to 9%. And timeStr wrapped past midnight silently, so a late launch
+  // showed a next-morning take-out as if it were the same day.
+  {
+    const pg2 = await browser.newPage({ viewport: { width: 430, height: 1100 } });
+    await pg2.goto(url('caney.html'), { timeout: 20000 });
+    await pg2.waitForTimeout(1000);
+
+    const consistent = await pg2.evaluate(() => {
+      // drift distance must be measured on the same basis the times are
+      const a = DATA.points[0], b = DATA.points[6];
+      return { mfd: +(b.mfd - a.mfd).toFixed(1), rm: +(a.rm - b.rm).toFixed(1) };
+    });
+    await pg2.click('button[data-c="raft"]'); await pg2.waitForTimeout(150);
+    await pg2.click('button[data-m="drift"]'); await pg2.waitForTimeout(150);
+    await pg2.evaluate(() => { const s = [...document.querySelectorAll('input[type=range]')]
+      .find(x => +x.max >= 420 && +x.min <= 420); if (s) { s.value = 420; s.dispatchEvent(new Event('input', { bubbles: true })); } });
+    await pg2.waitForTimeout(450);
+    const t1 = await pg2.$eval('#summary', e => e.innerText);
+    assert('drift distance uses verified mfd, not superseded river miles',
+      t1.includes(consistent.mfd.toFixed(1) + ' mi') && !t1.includes(consistent.rm.toFixed(1) + ' mi'),
+      t1.slice(0, 120));
+
+    // late launch must mark a next-day take-out
+    await pg2.evaluate(() => { const s = [...document.querySelectorAll('input[type=range]')]
+      .find(x => +x.max >= 1200 && +x.min <= 1200); if (s) { s.value = 1200; s.dispatchEvent(new Event('input', { bubbles: true })); } });
+    await pg2.waitForTimeout(450);
+    const t2 = await pg2.$eval('#summary', e => e.innerText);
+    assert('a float running past midnight says "next day"', /next day/.test(t2), t2.slice(0, 160));
+
+    // a collapsed band (at the dam, mfd 0) must not print the same time twice
+    assert('arrival band never renders as "X–X"', !/(\d+:\d\d [AP]M)[–—]\1/.test(t2), t2.slice(0, 200));
+    await pg2.close();
+  }
+
   assert('no JS errors in the planner', errs.length === 0, errs.join(' | '));
   await pg.close();
 }
