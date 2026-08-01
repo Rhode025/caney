@@ -12,6 +12,23 @@ Codifies the checks we kept running by hand. Two layers, both exit non-zero on f
   bug — then exercises the HQ: species filter, sort, per-day weather-row alignment,
   day-tap detail, and card-body navigation.
 
+## Caney deep QC
+
+`qc_caney.py` + `qc_caney.mjs` audit the Caney page specifically, because it is the only
+river with a planner that gives timed, actionable advice — and therefore the only one where
+a wrong number sends you somewhere.
+
+```bash
+python3 test/qc_caney.py            # DATA payload: ~120 invariants, instant, no browser
+cd test && node qc_caney.mjs        # renders + every plan it can suggest
+```
+
+`qc_caney.mjs` sweeps **216 scenarios** (craft x mode x 9 launch times x 4 days) and checks
+each for internal contradiction: mileage against the distance basis the clock used, take-out
+after launch, arrival inside the measured band, and never routing upstream through water the
+page itself calls wadeable. It also checks the model against the LIVE gauge, which is the one
+check here that can fail for real-world reasons rather than code reasons.
+
 ## Run
 
 ```bash
