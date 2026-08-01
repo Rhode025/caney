@@ -39,7 +39,66 @@
    ]
   ],
   "wade_crossover_q": 582,
-  "wade_crossover_depth": 3.29
+  "waded_frac_table": [
+   [
+    272,
+    10,
+    0.8
+   ],
+   [
+    398,
+    12,
+    0.75
+   ],
+   [
+    582,
+    10,
+    0.2
+   ],
+   [
+    852,
+    15,
+    0.33
+   ],
+   [
+    1247,
+    5,
+    0.2
+   ],
+   [
+    1824,
+    4,
+    0.0
+   ],
+   [
+    2670,
+    10,
+    0.0
+   ],
+   [
+    5716,
+    11,
+    0.0
+   ],
+   [
+    8363,
+    16,
+    0.0
+   ],
+   [
+    12237,
+    9,
+    0.0
+   ],
+   [
+    17906,
+    4,
+    0.0
+   ]
+  ],
+  "wade_crossover_depth": 3.28,
+  "crossover_trustworthy": true,
+  "crossover_caveat": ""
  },
  "cumberland": {
   "site": "03414100",
@@ -81,7 +140,51 @@
    ]
   ],
   "wade_crossover_q": 2540,
-  "wade_crossover_depth": 9.04
+  "waded_frac_table": [
+   [
+    2540,
+    4,
+    0.0
+   ],
+   [
+    3293,
+    5,
+    0.0
+   ],
+   [
+    4268,
+    11,
+    0.0
+   ],
+   [
+    5533,
+    10,
+    0.0
+   ],
+   [
+    7173,
+    4,
+    0.0
+   ],
+   [
+    12054,
+    4,
+    0.0
+   ],
+   [
+    15625,
+    4,
+    0.0
+   ],
+   [
+    26258,
+    6,
+    0.0
+   ]
+  ],
+  "wade_crossover_depth": 9.06,
+  "crossover_trustworthy": false,
+  "crossover_caveat": "Crews never wade a majority at any measured flow \u2014 cableway/bridge station. This crossover reflects site equipment, not wadeability. Use a reported source instead."
  },
  "cumbnash": {
   "site": "03431500",
@@ -123,7 +226,56 @@
    ]
   ],
   "wade_crossover_q": 4187,
-  "wade_crossover_depth": 17.71
+  "waded_frac_table": [
+   [
+    4187,
+    4,
+    0.0
+   ],
+   [
+    5824,
+    11,
+    0.0
+   ],
+   [
+    8102,
+    9,
+    0.0
+   ],
+   [
+    11270,
+    24,
+    0.0
+   ],
+   [
+    15677,
+    7,
+    0.0
+   ],
+   [
+    21808,
+    13,
+    0.0
+   ],
+   [
+    30336,
+    7,
+    0.0
+   ],
+   [
+    42198,
+    13,
+    0.0
+   ],
+   [
+    58700,
+    6,
+    0.0
+   ]
+  ],
+  "wade_crossover_depth": 17.73,
+  "crossover_trustworthy": false,
+  "crossover_caveat": "Crews never wade a majority at any measured flow \u2014 cableway/bridge station. This crossover reflects site equipment, not wadeability. Use a reported source instead."
  },
  "stones": {
   "site": "03430200",
@@ -165,7 +317,56 @@
    ]
   ],
   "wade_crossover_q": 14,
-  "wade_crossover_depth": 2.55
+  "waded_frac_table": [
+   [
+    14,
+    4,
+    0.0
+   ],
+   [
+    49,
+    8,
+    0.0
+   ],
+   [
+    91,
+    20,
+    0.0
+   ],
+   [
+    169,
+    12,
+    0.0
+   ],
+   [
+    314,
+    5,
+    0.2
+   ],
+   [
+    582,
+    19,
+    0.0
+   ],
+   [
+    1081,
+    19,
+    0.0
+   ],
+   [
+    2005,
+    9,
+    0.0
+   ],
+   [
+    3719,
+    27,
+    0.0
+   ]
+  ],
+  "wade_crossover_depth": 2.55,
+  "crossover_trustworthy": false,
+  "crossover_caveat": "Crews never wade a majority at any measured flow \u2014 cableway/bridge station. This crossover reflects site equipment, not wadeability. Use a reported source instead."
  },
  "elktn": {
   "site": "03582000",
@@ -207,7 +408,51 @@
    ]
   ],
   "wade_crossover_q": 66,
-  "wade_crossover_depth": 0.81
+  "waded_frac_table": [
+   [
+    66,
+    16,
+    0.0
+   ],
+   [
+    143,
+    166,
+    0.09
+   ],
+   [
+    310,
+    144,
+    0.06
+   ],
+   [
+    673,
+    116,
+    0.01
+   ],
+   [
+    1458,
+    98,
+    0.0
+   ],
+   [
+    3161,
+    65,
+    0.0
+   ],
+   [
+    6852,
+    36,
+    0.0
+   ],
+   [
+    14854,
+    20,
+    0.0
+   ]
+  ],
+  "wade_crossover_depth": 0.81,
+  "crossover_trustworthy": false,
+  "crossover_caveat": "Crews never wade a majority at any measured flow \u2014 cableway/bridge station. This crossover reflects site equipment, not wadeability. Use a reported source instead."
  },
  "elk": {
   "site": "03584600",
@@ -249,7 +494,71 @@
    ]
   ],
   "wade_crossover_q": 246,
-  "wade_crossover_depth": 2.05
+  "waded_frac_table": [
+   [
+    153,
+    9,
+    0.78
+   ],
+   [
+    246,
+    17,
+    0.29
+   ],
+   [
+    395,
+    30,
+    0.17
+   ],
+   [
+    634,
+    15,
+    0.0
+   ],
+   [
+    1018,
+    28,
+    0.04
+   ],
+   [
+    1635,
+    23,
+    0.04
+   ],
+   [
+    2627,
+    33,
+    0.0
+   ],
+   [
+    4219,
+    17,
+    0.0
+   ],
+   [
+    6777,
+    13,
+    0.0
+   ],
+   [
+    10884,
+    4,
+    0.0
+   ],
+   [
+    17482,
+    6,
+    0.0
+   ],
+   [
+    28079,
+    4,
+    0.0
+   ]
+  ],
+  "wade_crossover_depth": 2.06,
+  "crossover_trustworthy": true,
+  "crossover_caveat": ""
  },
  "duck": {
   "site": "03599500",
@@ -291,6 +600,65 @@
    ]
   ],
   "wade_crossover_q": 915,
-  "wade_crossover_depth": 3.07
+  "waded_frac_table": [
+   [
+    128,
+    38,
+    0.95
+   ],
+   [
+    209,
+    32,
+    1.0
+   ],
+   [
+    342,
+    48,
+    0.96
+   ],
+   [
+    559,
+    35,
+    0.74
+   ],
+   [
+    915,
+    19,
+    0.16
+   ],
+   [
+    1495,
+    28,
+    0.0
+   ],
+   [
+    2445,
+    21,
+    0.0
+   ],
+   [
+    3997,
+    11,
+    0.0
+   ],
+   [
+    6536,
+    8,
+    0.0
+   ],
+   [
+    10685,
+    8,
+    0.0
+   ],
+   [
+    17470,
+    4,
+    0.0
+   ]
+  ],
+  "wade_crossover_depth": 3.06,
+  "crossover_trustworthy": true,
+  "crossover_caveat": ""
  }
 }

@@ -60,6 +60,31 @@ def powerfit(xs, ys):
     ssr = sum((y-(lc+f*x))**2 for x, y in zip(lx, ly)); sst = sum((y-my)**2 for y in ly)
     return f, math.exp(lc), (1 - ssr/sst if sst else 0.0)
 
+def crossover(rows, nbins=12):
+    """Flow at which P(wading) crosses 50%, plus the per-bin table.
+
+    max(waded) is one bold crew on one day. This is the behavioural threshold: below it
+    crews nearly always wade, above it they nearly always take a boat.
+
+    CAVEAT, and it matters: measurement_type also reflects how the SITE is equipped.
+    A cableway or bridge station gets boat-type measurements at any flow, so a low
+    crossover there means "they have a cableway", not "you cannot wade it". Check
+    waded_frac_table before trusting a crossover.
+    """
+    typed = [r for r in rows if r["how"]]
+    if len(typed) < 20: return None, []
+    qs = sorted(r["q"] for r in typed)
+    lo, hi = max(qs[0], 1.0), qs[-1]
+    edges = [lo * (hi/lo) ** (i/nbins) for i in range(nbins+1)]
+    table, cross = [], None
+    for a, b in zip(edges, edges[1:]):
+        g = [r for r in typed if a <= r["q"] < b]
+        if len(g) < 4: continue
+        frac = sum(1 for r in g if r["how"].lower().startswith("wad")) / len(g)
+        table.append([round(a), len(g), round(frac, 2)])
+        if cross is None and frac < 0.5: cross = round(a)
+    return cross, table
+
 out = {}
 for rid, (site, label) in SITES.items():
     try:
@@ -84,32 +109,26 @@ for rid, (site, label) in SITES.items():
         "boated_min_q": (round(min(boated)) if boated else None),
         "substrate": sorted(mats.items(), key=lambda x: -x[1])[:3],
     }
+    _cross, _tab = crossover(rows)
+    rec["wade_crossover_q"] = _cross
+    rec["waded_frac_table"] = _tab      # [[flow_bin_start, n, fraction_waded], ...]
+    rec["wade_crossover_depth"] = (round(c * _cross**f, 2) if _cross else None)
+    # Is the crossover a real signal or just the site's equipment? If crews NEVER wade a
+    # majority even at the lowest measured flows, this is a cableway/bridge station and the
+    # crossover says nothing about whether YOU can wade it. Four of seven sites fail this.
+    _peak_waded = max((row[2] for row in _tab), default=0.0)
+    rec["crossover_trustworthy"] = bool(_peak_waded >= 0.5)
+    rec["crossover_caveat"] = ("" if _peak_waded >= 0.5 else
+        "Crews never wade a majority at any measured flow — cableway/bridge station. "
+        "This crossover reflects site equipment, not wadeability. Use a reported source instead.")
     out[rid] = rec
-    print("%-11s n=%-4d Q %5d-%-7d  d=%.3f·Q^%.3f (R2 %.2f)  waded<=%s  boat>=%s  %s"
+    print("%-11s n=%-4d Q %5d-%-7d  d=%.3f·Q^%.3f (R2 %.2f)  cross@%s  boat>=%s  %s"
           % (rid, rec["n"], rec["q_range"][0], rec["q_range"][1], c, f, r2,
-             rec["waded_max_q"], rec["boated_min_q"],
-             rec["substrate"][0][0] if rec["substrate"] else "?"))
+             (rec["wade_crossover_q"] if rec["crossover_trustworthy"] else "n/a"),
+             rec["boated_min_q"],
+             ("" if rec["crossover_trustworthy"] else "[cableway] ") +
+             (rec["substrate"][0][0] if rec["substrate"] else "?")))
 p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "channel_geom.json")
 json.dump(out, open(p, "w"), indent=1)
 print("\nwrote", p)
 
-# ── wade crossover: the flow at which USGS crews STOP wading ──────────────────
-# max(waded) is one bold crew on one day. The honest statistic is the flow where the
-# probability of wading crosses 50%: below it they nearly always wade, above it they
-# nearly always take a boat. That is a behavioural threshold measured over decades.
-def crossover(rows, nbins=12):
-    typed = [r for r in rows if r["how"]]
-    if len(typed) < 20: return None, []
-    qs = sorted(r["q"] for r in typed)
-    lo, hi = qs[0], qs[-1]
-    if lo <= 0: lo = 1.0
-    edges = [lo * (hi/lo) ** (i/nbins) for i in range(nbins+1)]
-    table, cross = [], None
-    for a, b in zip(edges, edges[1:]):
-        g = [r for r in typed if a <= r["q"] < b]
-        if len(g) < 4: continue
-        frac = sum(1 for r in g if r["how"].lower().startswith("wad")) / len(g)
-        table.append((round(a), round(b), len(g), round(frac, 2)))
-        if cross is None and frac < 0.5:
-            cross = round(a)
-    return cross, table
