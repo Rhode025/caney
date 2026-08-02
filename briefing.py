@@ -452,6 +452,53 @@ SCORE_W={"wade": {"Level":35,"Clarity":20,"Weather":25,"Window":10,"Moon":10},
 # carries no measurement behind it, so it is stated once here and quoted from this constant
 # rather than retyped into prose (see the "no hardcoded calibrated numbers" invariant).
 DRIFT_SWEET=(1500,3000)
+# A 60/40 jet working upstream against the current. Conservative; it was previously a bare 6.0
+# inside the page JS, so Python could not reason about interception at all.
+UP_MPH=6.0
+# Drift speed vs flow. Was a bare expression inside the page JS, so Python could not simulate a
+# float at all and the two could drift apart silently. Python is the source; JS reads DRIFT_C.
+DRIFT_C=(1.0,3.6,11000.0,0.6)
+def drift_mph(cfs):
+    a,b,cap,ex=DRIFT_C
+    return a+b*((min(max(cfs or 0,0),cap)/cap)**ex)
+
+def float_meet(L,put,T,d0):
+    """Where and when the rise catches a boat that put in at L and is drifting.
+
+    Steps the boat downstream at its local drift speed (which the rise itself increases) while
+    the leading edge walks down at WATER_MPH, and returns (epoch, mfd) at the moment the edge
+    catches it -- or None if the boat reaches the bottom of the trout reach first. This is the
+    one fact a float day turns on and it moves with BOTH the put-in time and the release.
+    """
+    pos=put["mfd"]; t=L; end=max(x["mfd"] for x in TOUR)
+    while t<T+14*3600 and pos<end:
+        q=flow_at(put,t) or 0
+        for x in sorted(TOUR,key=lambda y:y["mfd"]):
+            if x["mfd"]>=pos: q=flow_at(x,t) or q; break
+        pos+=drift_mph(q)/4.0
+        t+=900
+        if t>=T and travel_h(pos)*3600<=(t-T): return t,pos
+    return None
+def intercept(T,frm,spots):
+    """Where and when a boat leaving `frm` can first meet a leading edge released at T.
+
+    The edge leaves the dam at T and walks down at WATER_MPH. A boat leaving `frm` runs up at
+    UP_MPH. To be at spot s when the edge gets there you must be off the ramp by
+
+        launch_by(s) = T + mfd(s)/WATER_MPH - (mfd(frm) - mfd(s))/UP_MPH
+
+    which is EARLIER the further up you want to meet it. Returns the upstream-most spot that is
+    still reachable, as (launch_by, spot, edge_arrival) -- the actual decision the day turns on,
+    and the reason "launch at first light" is wrong for a midday release: with a noon start you
+    want to be leaving the ramp around 10-11am, not at 5:53.
+    """
+    best=None
+    for s in sorted(spots,key=lambda x:x["mfd"]):
+        if s["mfd"]>=frm["mfd"]: continue
+        edge=T+travel_h(s["mfd"])*3600
+        lb=edge-((frm["mfd"]-s["mfd"])/UP_MPH)*3600
+        if best is None: best=(lb,s,edge)
+    return best
 def _band(t): return "%s–%s cfs"%(_cf(t[0]),_cf(t[1]))
 def _wxfor(d):
     i=(d-now_ct.date()).days
@@ -524,35 +571,84 @@ def day_steps(d,craft="power"):
                        %(units(pk),hh["name"],fmt_hm(hr_key(a+travel_h(hh["mfd"])*3600)))))
 
     elif craft=="power":
-        ev.append((k0,fmt_hm(sr),"First light — launch at <b>%s</b> (~%s cfs) and run up. Fish the seams on the way; you want to be up top before the release."
-                   %(_st["name"],_cf(fl(_st,k0)))))
-        for a,b,pk in onday:
-            ev.append((a,fmt_hm(a),"%d-unit release starts at Center Hill — be up top by now and get on the leading edge as it comes."%units(pk)))
         rs=arrivals(TOUR)
-        for n,(c,s,q) in enumerate(rs):
+        first=min((a for a,b,pk in onday),default=None)
+        ic=intercept(first,_st,TOUR) if first else None
+        if ic and ic[0]>k0+1800:
+            lb,sp,edge=ic
+            _top=sorted(TOUR,key=lambda x:x["mfd"])[0]
+            _qt,_qb=fl(_top,k0),fl(_st,k0)
+            _split=("<b>%s</b> is down to ~%s cfs up top while <b>%s</b> still carries ~%s from last night's release"
+                    %(_top["name"],_cf(_qt),_st["name"],_cf(_qb))) if _qb>_qt*1.6 else \
+                   ("the whole reach is sitting around ~%s cfs"%_cf(_qb))
+            ev.append((k0,fmt_hm(sr),"First light — %s. Nothing is moving yet: an early run up buys you clear water before the bump, but you do not have to be on it this early."%_split))
+            # a ramp closer to the intercept buys real time; worth naming when it is a big saving
+            _alt=[x for x in ACCESS if x.get("reach")=="trout" and "ramp" in x.get("types",[])
+                  and sp["mfd"]<x["mfd"]<_st["mfd"]]
+            _altxt=""
+            if _alt:
+                _a=max(_alt,key=lambda x:-x["mfd"]) if False else min(_alt,key=lambda x:abs(x["mfd"]-9))
+                _lb2=edge-((_a["mfd"]-sp["mfd"])/UP_MPH)*3600
+                if _lb2-lb>=1800:
+                    _altxt=" Putting in higher at <b>%s</b> instead buys you until %s."%(_a["name"],fmt_hm(_lb2))
+            ev.append((lb,fmt_hm(lb),"<b>Launch by %s</b> at <b>%s</b> and run up — the last departure that still puts you at <b>%s</b> when the leading edge arrives (%s). Earlier just means more low water on the way up.%s"
+                       %(fmt_hm(lb),_st["name"],sp["name"],fmt_hm(edge),_altxt)))
+        elif ic:
+            lb,sp,edge=ic
+            ev.append((k0,fmt_hm(sr),"First light — launch at <b>%s</b> (~%s cfs) and run straight up. The release is early today, so you have no time to spare: <b>%s</b> comes up at %s."
+                       %(_st["name"],_cf(fl(_st,k0)),sp["name"],fmt_hm(edge))))
+        else:
+            ev.append((k0,fmt_hm(sr),"First light — launch at <b>%s</b> (~%s cfs). No release to chase today, so run up and fish the low water: the shoals are skinny, so pick your line and work the seams."
+                       %(_st["name"],_cf(fl(_st,k0)))))
+        for a,b,pk in onday:
+            ev.append((a,fmt_hm(a),"%d-unit release starts at Center Hill — the edge is walking down at ~%.1f mph from here."%(units(pk),WATER_MPH)))
+        for n,(c,sp,q) in enumerate(rs):
             if n<len(rs)-1:
                 ev.append((c,fmt_hm(c),"Leading edge at <b>%s</b> (~%s cfs) — hold on the front and work down with it toward <b>%s</b>.%s"
-                           %(s["name"],_cf(q),rs[n+1][1]["name"]," It fishes best in the %s band; if it flattens out, run back up and meet it again."%_band(DRIFT_SWEET) if n==0 else "")))
+                           %(sp["name"],_cf(q),rs[n+1][1]["name"]," It fishes best in the %s band; if it flattens out, run back up and meet it again."%_band(DRIFT_SWEET) if n==0 else "")))
             else:
-                ev.append((c,fmt_hm(c),"Edge reaches <b>%s</b> (~%s cfs) — ride it out down to the take-out."%(s["name"],_cf(q))))
-        if not blocks:
-            ev.append((k0+3600,fmt_hm(sr+3600),"No release today — the reach stays at minimum flow. It is skinny over the shoals, so run slow and pick your line."))
+                ev.append((c,fmt_hm(c),"Edge reaches <b>%s</b> (~%s cfs) — ride it out down to the take-out."%(sp["name"],_cf(q))))
 
     else:   # raft / drift boat: you cannot run back up, so the plan is about being in the right place first
         put=next((x for x in ACCESS if x.get("reach")=="trout" and ({"ramp","paddle"}&set(x.get("types",[])))),WADE_SPOTS[0])
-        ev.append((k0,fmt_hm(sr),"First light — put in up top at <b>%s</b> (~%s cfs). You can't run back up, so start above the bump and let it come to you."
-                   %(put["name"],_cf(fl(put,k0)))))
-        for a,b,pk in onday:
-            ev.append((a,fmt_hm(a),"%d-unit release starts at Center Hill — from here the water builds behind you; expect the drift to speed up."%units(pk)))
-        rs=arrivals(TOUR)
-        for n,(c,s,q) in enumerate(rs):
-            if n<len(rs)-1:
-                ev.append((c,fmt_hm(c),"The rise catches you at <b>%s</b> (~%s cfs)%s — stay on the front and work the banks toward <b>%s</b>."
-                           %(s["name"],_cf(q),", and %s is the band that fishes best on the oars"%_band(DRIFT_SWEET) if n==0 else "",rs[n+1][1]["name"])))
+        first=min((a for a,b,pk in onday),default=None)
+        # Search put-in times for the one that has the rise catch you in the MIDDLE of the reach:
+        # too early and you are at the take-out before it arrives, too late and you barely fish.
+        best=None
+        if first:
+            _mid=(min(x["mfd"] for x in TOUR)+max(x["mfd"] for x in TOUR))/2
+            for _o in range(0,13*4):
+                _L=k0+_o*900
+                _m=float_meet(_L,put,first,d0)
+                if not _m or _m[0]>k1: continue
+                _sc=abs(_m[1]-_mid)
+                if best is None or _sc<best[0]: best=(_sc,_L,_m)
+        if best:
+            _,L,(mt,mp)=best
+            near=min(TOUR,key=lambda x:abs(x["mfd"]-mp))
+            if L<=k0+1800:
+                ev.append((k0,fmt_hm(sr),"First light — put in up top at <b>%s</b> (~%s cfs). You can't run back up, so start above the bump: drifting from here the rise catches you near <b>%s</b> around <b>%s</b>."
+                           %(put["name"],_cf(fl(put,k0)),near["name"],fmt_hm(mt))))
             else:
-                ev.append((c,fmt_hm(c),"Rise reaches <b>%s</b> (~%s cfs) — ride it to the take-out."%(s["name"],_cf(q))))
-        if not blocks:
-            ev.append((k0+3600,fmt_hm(sr+3600),"No release today — a slow float on minimum flow. Long day on the oars; plan a short beat."))
+                ev.append((k0,fmt_hm(sr),"First light — no rush. Put in at first light and you reach the take-out before the rise ever catches you; the water up top is ~%s cfs and going nowhere until the release."
+                           %_cf(fl(put,k0))))
+                ev.append((L,fmt_hm(L),"<b>Put in at %s</b> at <b>%s</b> (~%s cfs) — from here the rise catches you near <b>%s</b> around <b>%s</b>, which puts you on the front in the middle of the reach rather than at the bottom of it."
+                           %(fmt_hm(L),put["name"],_cf(fl(put,L)),near["name"],fmt_hm(mt))))
+        elif first:
+            ev.append((k0,fmt_hm(sr),"First light — put in up top at <b>%s</b> (~%s cfs). The release is late enough that the rise will not reach you in daylight; fish the low water and treat any bump as a bonus."
+                       %(put["name"],_cf(fl(put,k0)))))
+        else:
+            ev.append((k0,fmt_hm(sr),"First light — put in up top at <b>%s</b> (~%s cfs). No release today: a slow float on minimum flow at ~%.1f mph, so plan a short beat and take your time."
+                       %(put["name"],_cf(fl(put,k0)),drift_mph(fl(put,k0)))))
+        for a,b,pk in onday:
+            ev.append((a,fmt_hm(a),"%d-unit release starts at Center Hill — the water builds behind you from here and the drift speeds up."%units(pk)))
+        rs=arrivals(TOUR)
+        for n,(c,sp,q) in enumerate(rs):
+            if n<len(rs)-1:
+                ev.append((c,fmt_hm(c),"The rise reaches <b>%s</b> (~%s cfs, drift ~%.1f mph)%s — stay on the front and work the banks toward <b>%s</b>."
+                           %(sp["name"],_cf(q),drift_mph(q),", and %s is the band that fishes best on the oars"%_band(DRIFT_SWEET) if n==0 else "",rs[n+1][1]["name"])))
+            else:
+                ev.append((c,fmt_hm(c),"Rise reaches <b>%s</b> (~%s cfs) — ride it to the take-out."%(sp["name"],_cf(q))))
 
     # --- the falling limb: when the water leaves, which is when the river fishes again ---
     if blocks and craft!="wade":
@@ -581,7 +677,6 @@ for _i in range(7):
     _d=now_ct.date()+datetime.timedelta(days=_i)
     cal[_i]["steps"]=day_steps(_d,"power")                       # legacy default
     cal[_i]["stepsBy"]={c:day_steps(_d,c) for c in CRAFTS}
-itin_steps=day_steps(tom,"power")
 
 # ---- score each of the 7 days -> "best bet this week" ----
 def moon_rating(d):
@@ -846,9 +941,9 @@ ARRIVAL = {"id":"caney", "mph":WATER_MPH, "validated":True,
 DATA={"arrival":ARRIVAL,"holes":HOLES,
       "todayLabel":now_ct.strftime("%A, %B %-d · %-I:%M %p"),"dateLabel":tom.strftime("%A, %B %-d"),"hatch":HATCH,"month":now_ct.month,"chatter":riverlib.load_intel("caney"),"flysel":FLYSEL,
       "damCap":dam_cap,"clarity":clar_word,"points":points,"riseCurve":RISE_CURVE,"weather":WX,"tips":tips,
-      "calendar":cal,"itinerary":itin_steps,"now":NOW,"solunar":SOL,"best":BEST,"dayscores":DAYSCORES,
+      "calendar":cal,"now":NOW,"solunar":SOL,"best":BEST,"dayscores":DAYSCORES,
       "wxDays":WXDAYS,"solDays":SOLDAYS,"gen":GEN,"week":_scores,"weekSynth":WEEK_SYNTH,"bestBy":BEST_BY,
-      "craftOrder":CRAFTS,"craftName":CRAFT_NAME,"craftIco":CRAFT_ICO,"scoreW":SCORE_W,"wxv":WXV,"riverPoly":RIVER_POLY,
+      "driftC":list(DRIFT_C),"upMph":UP_MPH,"craftOrder":CRAFTS,"craftName":CRAFT_NAME,"craftIco":CRAFT_ICO,"scoreW":SCORE_W,"wxv":WXV,"riverPoly":RIVER_POLY,
       "genHint":"Center Hill generation, midnight→midnight (bar height = units). Then the bump travels ~2.5 mph downstream — arrival times backtested at the Stonewall gauge (Happy Hollow ~2½h · Betty's ~3½h · Stonewall ~6h after release).",
       "genLegend":'<span><i style="background:#7db8e0"></i>1 unit</span><span><i style="background:#2f92d4"></i>2 units</span><span><i style="background:#5e5ce6"></i>3 units</span><span>Verify against TVA before you launch.</span>',
       "genOpts":{"minLabel":"minimum flow — wade all day","arrLabel":"bump reaches"},
@@ -1146,7 +1241,7 @@ const IDEAL=2200;
 // only the trout reach, and only water that is actually RISING (the leading edge), scored by nearness to ideal flow
 function edgeScore(i,m){if(P[i].reach!=='trout')return 0;const f=flowAt(i,m),df=f-flowAt(i,m-60);if(df<=120||f<700||f>4800)return 0;return Math.max(0.05,1-Math.abs(f-IDEAL)/2200);}
 function bestEdge(m){let bi=-1,bs=0.22;for(let i=0;i<N;i++){const s=edgeScore(i,m);if(s>bs){bs=s;bi=i;}}return bi;}
-function driftSpeed(cfs){return 1.0+3.6*Math.pow(Math.min(cfs,11000)/11000,0.6);}
+function driftSpeed(cfs){const c=DATA.driftC;return c[0]+c[1]*Math.pow(Math.min(cfs,c[2])/c[2],c[3]);}
 function flowAt(i,min){const a=P[i].flow,h=Math.max(0,Math.min((daybase+min)/60,a.length-1.001)),lo=Math.floor(h),fr=h-lo;return a[lo]*(1-fr)+a[lo+1]*fr;}
 // A float that runs past midnight must SAY so. This used to wrap silently, so a late launch
 // showed an arrival of "5:20 AM" that looked like the same morning.
@@ -1380,7 +1475,7 @@ function render(){document.getElementById('tread').textContent=timeStr(launchMin
   // which is always the one nearest the dam — so it would tell you to launch at Stonewall
   // and be at Long Branch, 15 miles upstream, through six stretches it had just labelled
   // wade water.
-  const UP_MPH=6.0;      // 60/40 jet working upstream against current, conservative
+  const UP_MPH=DATA.upMph;   // Python is the source (see UP_MPH there)
   function reachable(i,byMin){
     if(i===fromIdx)return true;
     const up=(i<fromIdx);                                  // lower index = closer to the dam = upstream

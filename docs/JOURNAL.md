@@ -9,6 +9,45 @@ belongs to a commit goes in the commit message. This file is for *state and inte
 
 ---
 
+## 2026-08-01 (later still) — The plan now solves for the launch time
+
+"Why is every daily recommendation essentially *launch at first light at Stonewall and run up*?"
+Because it was one hardcoded sentence. It never looked at the release. With a noon release it
+was telling you to sit at the top of the river for six hours.
+
+**The powerboat plan now solves the intercept.** The edge leaves the dam at T and walks down at
+`WATER_MPH`; a boat leaves `frm` and runs up at `UP_MPH`. To be at spot s when the edge arrives:
+
+```
+launch_by(s) = T + mfd(s)/WATER_MPH - (mfd(frm) - mfd(s))/UP_MPH
+```
+
+For a noon release that is **10:55am at Stonewall**, not 5:53am — and 11:55am for a 1pm release,
+so it moves with the schedule. The plan also names the saving from putting in higher (Betty's
+Island buys an hour), and the first-light step now reports the real morning split (upper reach
+~509 cfs while Stonewall still carries last night's 1,145) instead of calling 1,912 cfs "low".
+
+**The float plan searches put-in times** so the rise catches you in the middle of the reach
+rather than at the take-out — 11:30am today, 10:30am Monday. `float_meet()` steps the boat at
+its local drift speed while the edge walks down, and returns where they meet.
+
+**Two constants moved out of the page JS into Python** (`UP_MPH`, `DRIFT_C`), which the
+no-hardcoded-calibrated-numbers invariant already required and which Python needed anyway — it
+could not simulate a boat at all without them.
+
+**`DATA.itinerary` was dead payload.** Never referenced by the page. Worse, both QC harnesses
+"checked" it: `qc_caney.py` asserted `len(itinerary)==7`, which passed only because the old
+fixed plan happened to emit seven steps, and `qc_caney.mjs` indexed the STEP LIST by day and
+read `.short`/`.long` off it, so that field was always `''`. Two checks, neither testing
+anything. Removed; replaced with per-craft plan checks that assert the intercept arithmetic
+actually holds and that the launch time varies when the release schedule does.
+
+**Open:** the live warn `model 886 cfs off the live gauge (1523 vs 637)` is the same ~1–2 h
+early bias at Stonewall noted in the entry below — the model has water arriving before the
+gauge sees it. It is a warning, not a gate, and it is the next thing worth a real backtest.
+
+---
+
 ## 2026-08-01 (later) — Timed plan rebuilt per craft; wade scoring corrected
 
 **Correction to the entry below.** That entry claims "dawn is the worst time to wade Caney".

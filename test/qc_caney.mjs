@@ -250,7 +250,8 @@ const res = await p.evaluate(() => {
       d, label: wk.label, grade: wk.grade, score: DATA.dayscores[d],
       peakUnits: g.peak, genhrs: g.genhrs, relStart: g.relStart,
       windows: (g.windows || []).map(w => w.span + ' ' + w.units + 'U'),
-      itin: (DATA.itinerary[d] || {}).short || (DATA.itinerary[d] || {}).long || '',
+      plans: Object.fromEntries((DATA.craftOrder || []).map(c =>
+        [c, ((DATA.calendar[d] || {}).stepsBy || {})[c] || []])),
     });
   }
   out.best = DATA.best;

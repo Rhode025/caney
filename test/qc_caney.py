@@ -94,7 +94,11 @@ for gi,g in enumerate(D['gen'][:3]):
 chk("week has 7 days", len(D['week'])==7)
 chk("dayscores has 7", len(D['dayscores'])==7)
 chk("calendar has 7", len(D['calendar'])==7)
-chk("itinerary has 7", len(D['itinerary'])==7)
+chk("no dead itinerary payload", 'itinerary' not in D)
+for _c in D['craftOrder']:
+    chk("every day has a non-trivial %s plan"%_c,
+        all(len(((c.get('stepsBy') or {}).get(_c)) or [])>=2 for c in D['calendar']),
+        str([len(((c.get('stepsBy') or {}).get(_c)) or []) for c in D['calendar']]))
 chk("wxDays has 7", len(D['wxDays'])==7)
 chk("solDays has 7", len(D['solDays'])==7)
 for i,w in enumerate(D['week']):
@@ -292,6 +296,44 @@ for _c in D['craftOrder']:
         else:
             chk("no storm warning on a storm-free day: %s day %d"%(_c,_i),
                 'Storms due' not in _txt)
+
+# ---- the plan must COMPUTE its recommendation, not assert one ----
+# Every day used to open "First light - launch at Stonewall and run up", identical all week,
+# which with a noon release meant sitting at the top of the river for six hours. The launch
+# time is now solved from the release, so it has to actually satisfy the arithmetic.
+_UP=D['upMph']; _MPH=D['mph']
+_bym2={p['name']:p['mfd'] for p in D['points']}
+_launches=set(); _putins=set()
+for _i,_cal in enumerate(D['calendar']):
+    _pw=" ".join(_STRIP(x['x']) for x in (_cal.get('stepsBy') or {}).get('power') or [])
+    _m=_rp.search(r'Launch by (\d{1,2}:\d{2}(?:am|pm)) at ([A-Za-z0-9 .\'-]+?) and run up.*?puts you at ([A-Za-z0-9 .\'-]+?) when the leading edge arrives \((\d{1,2}:\d{2}(?:am|pm))\)',_pw)
+    if _m:
+        _launches.add(_m.group(1))
+        def _M(t):
+            g=_rp.match(r'(\d{1,2}):(\d{2})(am|pm)',t); hh=int(g.group(1))%12+(12 if g.group(3)=='pm' else 0)
+            return hh*60+int(g.group(2))
+        _ramp,_spot=_m.group(2).strip(),_m.group(3).strip()
+        chk("launch ramp is a real access: day %d"%_i, _ramp in _bym2, _ramp)
+        chk("intercept spot is a real access: day %d"%_i, _spot in _bym2, _spot)
+        if _ramp in _bym2 and _spot in _bym2:
+            _run=(_bym2[_ramp]-_bym2[_spot])/_UP*60.0        # minutes motoring upstream
+            _gap=_M(_m.group(4))-_M(_m.group(1))
+            chk("launch time satisfies the intercept arithmetic: day %d"%_i,
+                abs(_gap-_run)<=20, "gap %d min vs run %.0f min"%(_gap,_run))
+            chk("you launch before the edge arrives: day %d"%_i, _gap>0, str(_gap))
+    _pr=" ".join(_STRIP(x['x']) for x in (_cal.get('stepsBy') or {}).get('raft') or [])
+    _mr=_rp.search(r'Put in at (\d{1,2}:\d{2}(?:am|pm))',_pr)
+    if _mr: _putins.add(_mr.group(1))
+    # a float plan must not say you'll miss the rise and then narrate riding it
+    if 'reach the take-out before the rise ever catches you' in _pr:
+        chk("float plan that says you'd miss it also gives a put-in: day %d"%_i, bool(_mr), _pr[:140])
+# release times vary across the week, so the recommendation must vary too
+_relspans={ (g.get('span') or 'none') for g in D['gen'] }
+if len(_relspans)>1:
+    chk("launch time responds to the release schedule", len(_launches)>1,
+        "spans %s -> launches %s"%(sorted(_relspans),sorted(_launches)))
+    chk("float put-in responds to the release schedule", len(_putins)>1,
+        "spans %s -> put-ins %s"%(sorted(_relspans),sorted(_putins)))
 
 print("QC LAYER A — DATA integrity")
 print("  passed : %d"%len(OK))
