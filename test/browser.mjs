@@ -793,6 +793,20 @@ console.log('── caney timed plan: craft-aware ──');
     /Wade/.test(await pg.$eval('#planh', e => e.textContent)),
     await pg.$eval('#planh', e => e.textContent));
 
+  // Force the cached-schedule path: it only fires when USACE is down, so it is precisely the
+  // branch normal QA never sees, and it is the one where every time on the page is provisional.
+  const stalePlan = await pg.evaluate(() => {
+    DATA.now = DATA.now || {};
+    DATA.now.stale = new Date(Date.now() - 4 * 24 * 3600 * 1000).toISOString();
+    renderPlan();
+    return document.getElementById('itin').innerText;
+  });
+  assert('a cached schedule is called out on the plan itself', /cached/i.test(stalePlan), stalePlan.slice(0, 90));
+  assert('the staleness warning states the age in days', /\b4 days\b/.test(stalePlan), stalePlan.slice(0, 140));
+  assert('the warning says the times are provisional', /provisional/i.test(stalePlan), stalePlan.slice(0, 140));
+  const freshPlan = await pg.evaluate(() => { delete DATA.now.stale; renderPlan(); return document.getElementById('itin').innerText; });
+  assert('no staleness warning when the schedule is live', !/cached/i.test(freshPlan), freshPlan.slice(0, 90));
+
   assert('no JS errors in the timed plan', errs.length === 0, errs.join(' | '));
   await pg.close();
 }

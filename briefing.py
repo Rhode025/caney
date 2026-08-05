@@ -1045,6 +1045,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:30px;heigh
 .calcraft button span{font-size:15px;line-height:1}
 .calcraft button.on{border-color:var(--blue);background:#f2f8ff;color:var(--ink);box-shadow:0 2px 8px rgba(10,132,255,.14)}
 .stormf{color:#b42318;font-weight:700}
+.stalep{background:#fef3f2;border:1px solid #fecdca;color:#912018;border-radius:10px;padding:9px 12px;margin:0 0 10px;font-size:12.5px;line-height:1.45}
 .wksyn{font-size:13.5px;color:var(--ink);background:#eef6ff;border:1px solid #dbeafe;border-radius:12px;padding:11px 14px;margin:2px 0 10px;font-weight:500}
 .wkrow{display:flex;align-items:center;gap:13px;padding:12px 4px;border-top:1px solid var(--line);cursor:pointer}
 .wksyn+.wkrow{border-top:0}
@@ -1259,7 +1260,9 @@ function ic(t){return t.map(x=>ICON[x]).join('');}
 document.getElementById('cap').innerHTML=DATA.todayLabel+' &nbsp;·&nbsp; Center Hill tailwater &nbsp;·&nbsp; water '+DATA.clarity;
 (function(){const n=DATA.now,g=n.gen?'#5e5ce6':'#28c76f';
  let chk='';if(n.stone!=null){const off=Math.abs(n.stone-n.model);chk=' <span class="mchk">gauge '+n.stone.toLocaleString()+' cfs · model '+n.model.toLocaleString()+(off<400?' ✓':' (±'+off.toLocaleString()+')')+(n.calib?' · auto-tuned '+(n.calib>0?'+':'')+n.calib+' cfs':'')+'</span>';}
- const stale=n.stale?' <span style="color:#c0392b;font-weight:600">⚠ cached schedule (USACE API down)</span>':'';
+ const staleAge=n.stale?(function(){const h=(Date.now()-Date.parse(n.stale))/3600000;
+   return h<1?'under an hour old':h<48?(Math.round(h)+' h old'):(Math.round(h/24)+' days old');})():'';
+ const stale=n.stale?' <span style="color:#c0392b;font-weight:600">⚠ cached schedule, '+staleAge+' (USACE API down)</span>':'';
  const tr=n.trend==='rising'?' ↑ rising':n.trend==='falling'?' ↓ falling':'';
  document.getElementById('nowstrip').innerHTML='<span class="dotlg" style="background:'+g+'"></span><b>Right now</b> · Center Hill '+(n.gen?(n.units+'-unit generating'):'minimum flow')+' ~'+(n.cfs||'–').toLocaleString()+' cfs'+tr+' · Stonewall'+chk+' · water '+n.clarity+stale+' <span class="asof">as of '+n.asof+'</span>';})();
 const GCOL={Prime:'#28c76f',Good:'#0a84ff',Fair:'#f2a832',Tough:'#94a3b1',Great:'#28c76f','—':'#94a3b1'};
@@ -1293,7 +1296,10 @@ function renderFeed(di){const s=DATA.solDays[di],el=document.getElementById('fee
  if(s.moon)h+='<div class="fx moon">🌙 '+s.moon+'</div>';if(s.approx)h+='<div class="fx" style="color:var(--faint);font-size:11px">computed from moon phase &amp; sun times</div>';el.innerHTML=h;}
 function renderPlan(){const d=DATA.calendar[dsel];
  const steps=((d.stepsBy||{})[craft])||d.steps||[];
- let h='';steps.forEach(s=>h+='<div class="step"><span class="st">'+s.t+'</span><span class="sx">'+s.x+'</span></div>');
+ let h='';
+ if(DATA.now&&DATA.now.stale){const hh=(Date.now()-Date.parse(DATA.now.stale))/3600000;
+   h+='<div class="stalep">⚠ These times come from a <b>cached</b> release schedule ('
+     +(hh<48?Math.round(hh)+' h':Math.round(hh/24)+' days')+' old) — USACE was unreachable at build time. Treat every clock time below as provisional.</div>';}steps.forEach(s=>h+='<div class="step"><span class="st">'+s.t+'</span><span class="sx">'+s.x+'</span></div>');
  document.getElementById('itin').innerHTML=h;
  document.getElementById('planh').textContent='Timed plan · '+CRAFT_NAME[craft]+' · '+d.label+' '+d.date;}
 function renderWx(di){const w=DATA.wxDays[di],el=document.getElementById('wx');document.getElementById('wxSecLabel').textContent='Conditions · '+DATA.calendar[di].label+' '+DATA.calendar[di].date;

@@ -9,6 +9,58 @@ belongs to a commit goes in the commit message. This file is for *state and inte
 
 ---
 
+## 2026-08-05 — Backtested the timing. The model was right; I was wrong.
+
+I had recorded a "~1–2 h early bias at Stonewall" as the next thing worth backtesting. Backtested
+it over 120 days. **There is no early bias.**
+
+```
+window: 120 days · 2,702 aligned hourly points · gauge mean 1,848 cfs
+
+A. MAGNITUDE   bias +29  MAE 252  RMSE 345  r 0.978  NSE 0.956
+               gauge peak 7,725 vs model peak 7,567  (98% of observed)
+B. TIMING      model -> gauge  best lag 0 h (r=0.978)      <- timing is correct
+               release -> gauge best lag 7 h  [centroid 7.8 h]
+C. PER-EVENT   111 events · rise lag median 6 h (range 0-13)  [2.5-mph rule says 6 h]
+               peak lag median 10 h  [kernel centroid 7.8 h]
+D. KERNEL      empirical vs deployed, near-identical; implied baseflow 214 (model 205)
+               steady-state gain 1.01 (model 1.00) · centroid 7.97 (model 7.76)
+```
+
+Cross-correlation of model against gauge peaks at **zero lag**. `WATER_MPH=2.5` is confirmed
+independently a second time: 111 events, median rise lag 6 h, and 15 mi / 2.5 mph = 6 h.
+
+**Where my wrong conclusion came from.** Two things, neither of them a model defect:
+
+1. The 886-cfs live discrepancy was a **stale-data artifact**. CWMS was 500ing, so the build
+   fell back to a release schedule cached four days earlier. Rebuilt against live CWMS the same
+   hour: gauge 723 vs model 626, a 97-cfs gap.
+2. The diurnal comparison behind the "1–2 h early" claim was not apples-to-apples — the 14-day
+   climatology was mostly 2U 12pm–8pm days against a 1U 1pm–7pm forecast.
+
+The one real residual: **modelled peaks land ~2 h before observed peaks** (peak lag median 10 h
+vs centroid 7.8 h) while the leading edge is exactly right. Not worth chasing — the page's
+user-facing timing is arrival, not peak, and shifting the kernel to fix the peak would break the
+edge. Per-event rise lag spreads 0–13 h, which is why `ARRIVAL_STAGES` publishes bands.
+
+**Conclusion: change nothing in the model.** Recorded so the next session does not re-litigate it.
+
+**Three bugs found doing it:**
+
+1. `backtest_flow.py` carried a hand-copied "verbatim from briefing.py" constants block that had
+   gone stale: `WATER_MPH = 3.0` after `2c2bc2c` overrode it to 2.5, and `375` baseflow labels
+   after `b2115c3` moved it to 205. **The backtest was grading a model that is not deployed.**
+   It now READS the constants out of `briefing.py` by regex; the logic stays an independent
+   reimplementation (briefing.py is still never imported) but the numbers are authoritative.
+2. **CWMS 500s on a history-only window** for `CETT1-CENTER_HILL...man-rev` — `begin=-90d,
+   end=now` fails at every chunk size, `begin=-120d, end=+1d` returns 2,774 hours. Production
+   never hit this because it always asks for the forecast too. Ask past the present.
+3. The cached-schedule warning said only "⚠ cached schedule (USACE API down)" — a 2-hour-old
+   cache and a 4-day-old one read identically. It now states the age, and the timed plan carries
+   its own banner, because every clock time in it is computed FROM that schedule.
+
+---
+
 ## 2026-08-01 (later still) — The plan now solves for the launch time
 
 "Why is every daily recommendation essentially *launch at first light at Stonewall and run up*?"
@@ -42,9 +94,9 @@ read `.short`/`.long` off it, so that field was always `''`. Two checks, neither
 anything. Removed; replaced with per-craft plan checks that assert the intercept arithmetic
 actually holds and that the launch time varies when the release schedule does.
 
-**Open:** the live warn `model 886 cfs off the live gauge (1523 vs 637)` is the same ~1–2 h
-early bias at Stonewall noted in the entry below — the model has water arriving before the
-gauge sees it. It is a warning, not a gate, and it is the next thing worth a real backtest.
+**Open:** ~~the live warn `model 886 cfs off the live gauge` is a ~1–2 h early bias~~ — **wrong,
+see the 2026-08-05 entry above.** Backtested over 120 days: timing is correct at zero lag. That
+warn was a stale-cache artifact, not a model defect.
 
 ---
 
