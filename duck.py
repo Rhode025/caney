@@ -232,7 +232,7 @@ SECTIONS = [
    "blurb":"Columbia to Williamsport — town water and the Chickasaw Trace ramp."},
   {"id":"duckmid","label":"Middle","seat":"Williamsport","rm0":113.9,"rm1":95.0,"f0":0.345,"f1":0.653,"p0":14,"p1":28,
    "blurb":"Williamsport to Leatherwood — the remote middle, farthest from either gauge."},
-  {"id":"ducklow","label":"Lower","seat":"Centerville","rm0":95.0,"rm1":73.7,"f0":0.653,"f1":1.0,"p0":27,"p1":42,
+  {"id":"ducklow","label":"Lower","seat":"Centerville","rm0":95.0,"rm1":73.7,"f0":0.653,"f1":1.0,"p0":25,"p1":42,
    "blurb":"Leatherwood to Centerville — biggest water, and the only reach with its own forecast."},
 ]
 POLY_ALL = [[35.61751,-87.03207],[35.64052,-87.03417],[35.64567,-87.05225],[35.63305,-87.06279],[35.64842,-87.0952],[35.6626,-87.09369],[35.67267,-87.10234],[35.67217,-87.13523],[35.68927,-87.13215],[35.69384,-87.14539],[35.69114,-87.16986],[35.68861,-87.20545],[35.69447,-87.2217],[35.68422,-87.23105],[35.68417,-87.2515],[35.66517,-87.24522],[35.65368,-87.25189],[35.67352,-87.26481],[35.66518,-87.29375],[35.68362,-87.28392],[35.6954,-87.2937],[35.69625,-87.26124],[35.71402,-87.25208],[35.72568,-87.26761],[35.74636,-87.26901],[35.75304,-87.29156],[35.75135,-87.30295],[35.76951,-87.28752],[35.78347,-87.30462],[35.77757,-87.3177],[35.76857,-87.33439],[35.75324,-87.34272],[35.76903,-87.35345],[35.78674,-87.3486],[35.80574,-87.36191],[35.79475,-87.38546],[35.77478,-87.38914],[35.77149,-87.41367],[35.77365,-87.44111],[35.78598,-87.46126],[35.78068,-87.47548],[35.77788,-87.47369]]
@@ -557,9 +557,10 @@ def build_section(_S):
     # ---- HQ day state ----
     # The only non-dam river with a real forward flow forecast: NWPS publishes observed +
     # forecast stage/flow for CNVT1. Rows are (time, stage_ft, flow_kcfs), so scale to cfs.
+    _CURVE_LABEL=("Duck \u00b7 %s reach (scaled from Centerville)"%_S["label"]) if _oscale!=1.0 else "Duck at Centerville (NWPS)"
     def _duck_day(off):
         d0, _ = riverlib.day_bounds(CT, off)
-        rows = [(t, (v * 1000 if v is not None else None)) for t, s, v in (OBS + FC)]
+        rows = [(t, (v * 1000 * _oscale if v is not None else None)) for t, s, v in (OBS + FC)]
         cv = riverlib.curve_from_rows(rows, d0)
         vals = [v for v in (cv or []) if v is not None]
         if not vals:
@@ -575,7 +576,7 @@ def build_section(_S):
         return riverlib.day_state(vessel=vk, vessel_why=vw, vessel_label=_vlabel,
             clarity=ck, clarity_why="inferred from flow; Duck colours up fast after rain",
             level=lk, level_detail=format(round(med), ",") + " cfs",
-            curve=cv, curve_unit="cfs", curve_label="Duck at Centerville (NWPS)", curve_src=src,
+            curve=cv, curve_unit="cfs", curve_label=_CURVE_LABEL, curve_src=src,
             headline=format(round(med), ",") + " cfs \u00b7 " + {"wade":"skinny","both":"prime float","boat":"pushy","":""}.get(vk, ""))
     DAYS = {"today": _duck_day(0), "tomorrow": _duck_day(1)}
 
@@ -583,7 +584,7 @@ def build_section(_S):
         {"grade":FG,"cond":FN,"col":FC_,"note":FNOTE,
          "detail":(("%s cfs"%format(round(cur_flow*1000),",")) if cur_flow is not None else "—"),
          "asof":(OBS[-1][0].astimezone(CT).strftime("%-I:%M %p") if OBS else now_ct.strftime("%-I:%M %p"))},
-        wx, riverlib.GRADE_SCORE.get(FG,1.3), CT, ["Smallmouth","Panfish"], "Warmwater smallmouth", "~50 min · Columbia", days=DAYS)
+        wx, [riverlib.GRADE_SCORE.get(o["grade"], 1.3) for o in outlook] or riverlib.GRADE_SCORE.get(FG,1.3), CT, ["Smallmouth","Panfish"], "Warmwater smallmouth", "~50 min · Columbia", days=DAYS)
     print("wrote out/%s.html | %s %s\u2013%s | flow %s kcfs %s | grade %s | lag %.1fh"%(_S["id"],_S["label"],ACC[0][0],ACC[-1][0],cur_flow,trend,FG,_lag))
 
 

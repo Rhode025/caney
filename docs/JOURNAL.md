@@ -9,6 +9,59 @@ belongs to a commit goes in the commit message. This file is for *state and inte
 
 ---
 
+## 2026-08-10 (later still) — Map pins audited; HQ and the river pages made to agree
+
+**1. Access-point coordinates.** Audited all 50 pins against the real OSM river centrelines
+(1,173 river ways, 113k segments). The Caney pins are excellent (0–70 m). **The Buffalo ones I
+shipped were town centres** — Lobelville 1,236 m and Topsy Bridge 1,099 m from the water, so the
+Google Maps link dropped you in the middle of town rather than at the launch.
+
+Fixed by intersecting OSM highway geometry with the OSM Buffalo centreline: 19 road bridges
+cross the river, and the named accesses match them exactly (Topsy Road, US 412/SR 100, SR 13).
+All Buffalo pins are now ≤ 99 m from the channel. The mapped channel itself was redrawn the same
+way — it had been a line through those town centres — by chaining the two OSM `waterway=river`
+ways end-to-end: 48.7 mi, terminating exactly at the mouth.
+
+Topsy Bridge was dropped: OSM does not name the river above it, so it cannot be placed on the
+channel, and the Buffalo above Flat Woods only floats Nov–Aug anyway. The reach now starts at
+Flat Woods, where the gauge is.
+
+**A correction to the audit criterion itself.** My first pass flagged any pin >120 m from the
+centreline. That is wrong for navigation: **a Google Maps pin should land on the ramp you drive
+to, not mid-river.** Parking legitimately sits off the water. Snapping everything to the
+centreline would have made the links worse — pins in the river are not drivable. Only the
+town-centroid errors were genuinely broken, and the QC threshold is now 800 m, which catches
+those without false-flagging bank parking.
+
+**2. HQ vs the river pages — they disagreed, systematically.**
+
+- HQ showed **all three Duck sections at 1,580 cfs** while their pages read 0.48 / 0.89 / 1.30
+  kcfs. The HQ day-state used the Centerville gauge for every section — the exact bug the split
+  existed to fix, leaking into the board. Now scaled per reach.
+- HQ's week **persisted today's grade for seven days** even on rivers with a real multi-day flow
+  forecast. `build_week()` already accepted a per-day list; the Duck, Buffalo, Cumberland and
+  Caney were all passing a scalar. Now they pass their own outlook.
+- **The moon term was one-sided**: `+0.5 / +0.2 / +0.0`, never negative. Its expected value is
+  strictly positive, so HQ read a full grade above the pages on **24 of 24** day-grades. Grade
+  bands are 0.8 wide and Fair (1.3) + 0.5 = 1.8 lands in Good, so the moon alone promoted a day.
+  Now zero-mean and bounded to ±0.3.
+- Even then HQ contradicted Caney, because it re-applied a weather penalty on top of a page grade
+  that **already scores weather at 25 of 100 points** — double-counting. The rule is now
+  coherent: a per-day list is the river's own verdict and is shown verbatim; the weather/moon
+  blend applies only to the scalar case, where the river has no forecast and the nudge is the
+  only forward information there is.
+
+**Result: 0 of 30 day-grades differ**, down from 24 of 30.
+
+**QC.** `qc_rivers.py` grew to 114 checks: HQ must agree with every river page's own outlook,
+the moon term must stay zero-mean (a regression guard — the offset returns the moment it goes
+one-sided again), and no access pin may sit more than 800 m from its river.
+
+Also fixed while in there: `build_week()` raised `IndexError` on a per-day base shorter than 7
+days (NWPS publishes 6), which took the whole generator down; the last forecast day now persists.
+
+---
+
 ## 2026-08-10 (later) — Backtested the routing engine. The model I shipped was the worst one.
 
 Built `analysis/backtest_route.py`: fit on the first 70% of the record, score only on the last

@@ -1264,7 +1264,10 @@ def _grade_from_score(s):
 
 def build_week(wx, base, tz, per_date_note=None):
     """7-day conditions projection blending the river's current water state (base: a 0..3
-    score, or a per-day list) with weather (rain/temps) and moon feeding (solunar rating).
+    score, or a PER-DAY list where the river has a real multi-day flow forecast) with weather
+    and moon feeding. The moon term is zero-mean and bounded to +/-0.3 so it can shade a day
+    either way without crossing a grade boundary by itself -- it used to be one-sided and put
+    HQ a full grade above the river pages.
     Honest by design — most of these rivers have no true multi-day FLOW forecast, so the
     baseline is 'today's water persists' nudged by weather & moon. wx=Open-Meteo (needs
     daily temperature_2m_max/min, precipitation_probability_max, sunrise, sunset, 7 days)."""
@@ -1281,9 +1284,17 @@ def build_week(wx, base, tz, per_date_note=None):
         rating = sol["rating"] if sol else 3
         pop = pp_all[i] or 0
         hi = round(D["temperature_2m_max"][i]); lo = round(D["temperature_2m_min"][i])
-        b = base[i] if isinstance(base, (list, tuple)) else base
-        score = b + (0.5 if rating >= 4 else 0.2 if rating >= 3 else 0.0) \
-                  - (1.0 if pop >= 70 else 0.5 if pop >= 50 else 0.0)
+        if isinstance(base, (list, tuple)):
+            b = base[min(i, len(base) - 1)] if base else 1.3
+        else:
+            b = base
+        if isinstance(base, (list, tuple)) and base:
+            score = b                            # the river's own per-day verdict, shown as-is
+            moon_adj = rain_adj = 0.0
+        else:
+            moon_adj = 0.15 * (rating - 3)       # rating 1..5 -> -0.30 .. +0.30, zero-mean
+            rain_adj = -(1.0 if pop >= 70 else 0.5 if pop >= 50 else 0.0)
+            score = b + moon_adj + rain_adj
         score = max(0.0, min(3.0, score))
         grade, col = _grade_from_score(score)
         feed = "strong" if rating >= 4 else "fair" if rating >= 3 else "slow"

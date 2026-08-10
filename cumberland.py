@@ -431,5 +431,5 @@ DAYS = {"today": _cumb_day(0), "tomorrow": _cumb_day(1)}
 riverlib.emit_status("cumberland",
     {"grade":_t["grade"],"cond":_t.get("cond","—"),"col":_t["col"],"note":_t.get("verdict",""),
      "detail":(("%s cfs release"%format(round(cur),",")) if cur is not None else "water off"),"asof":now_ct.strftime("%-I:%M %p")},
-    wx, riverlib.GRADE_SCORE.get(_t["grade"],2.0), CT, ["Trout"], "Trophy trout tailwater", "~2.5 hr · destination (KY)", days=DAYS)
+    wx, [riverlib.GRADE_SCORE.get(o["grade"], 2.0) for o in outlook] or riverlib.GRADE_SCORE.get(_t["grade"],2.0), CT, ["Trout"], "Trophy trout tailwater", "~2.5 hr · destination (KY)", days=DAYS)
 print("wrote out/cumberland.html | release now %s cfs (gen=%s) | Burkesville %s | outlook %d"%(cur,gen_now,bk,len(outlook)))

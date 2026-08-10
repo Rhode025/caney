@@ -9,7 +9,7 @@ forecast — and the page has to be honest about which.
 
     python3 test/qc_rivers.py
 """
-import json, os, re, sys
+import json, math, os, re, sys
 
 ROOT = "/Users/stevenrhodes/caney"
 sys.path.insert(0, ROOT)
@@ -111,6 +111,64 @@ mid_why = (D["duckmid"].get("route") or {}).get("why", "").lower()
 chk("the ungauged reach admits it has no gauge", "no gauge" in mid_why, mid_why[:80])
 low_why = (D["ducklow"].get("route") or {}).get("why", "").lower()
 chk("the gauged reach says it is gauged", "forecast" in low_why, low_why[:80])
+
+# ── HQ must agree with the river page it links to ─────────────────────────────
+# HQ's week used to persist TODAY's grade for seven days even on rivers that publish a real
+# multi-day flow forecast, and its moon term was one-sided (+0.5/+0.2/+0.0, never negative), so
+# HQ read a full grade above the page on 24 of 24 day-grades. Two views of the same river must
+# not disagree about the same day.
+import glob
+def page_any(rid):
+    h = open(os.path.join(ROOT, "out", rid + ".html")).read()
+    for pat in (r"\bDATA=\{", r"\bconst D=\{"):
+        m = re.search(pat, h)
+        if m:
+            j = h.index("{", m.start()); d = 0
+            for k in range(j, len(h)):
+                if h[k] == "{": d += 1
+                elif h[k] == "}":
+                    d -= 1
+                    if d == 0: break
+            return json.loads(h[j:k + 1])
+    return None
+
+mismatch = []
+for f in sorted(glob.glob(os.path.join(ROOT, "out", "status", "*.json"))):
+    rid = os.path.basename(f)[:-5]
+    st = json.load(open(f))
+    pg = page_any(rid)
+    if not pg: continue
+    series = pg.get("outlook") or pg.get("week") or []
+    if not series: continue                      # river with no multi-day page forecast
+    for i, w in enumerate((st.get("week") or [])[:6]):
+        if i >= len(series): continue
+        if w.get("grade") != series[i].get("grade"):
+            mismatch.append("%s/%s HQ=%s page=%s" % (rid, w.get("label"), w.get("grade"), series[i].get("grade")))
+chk("HQ week agrees with every river page's own outlook", not mismatch, "; ".join(mismatch[:6]))
+
+# the moon nudge must stay zero-mean and inside a grade band, or the offset comes straight back
+import inspect
+_bw = inspect.getsource(riverlib.build_week)
+chk("HQ moon term is zero-mean, not one-sided", "rating - 3" in _bw, "one-sided moon term is back")
+chk("HQ moon term cannot cross a grade band alone", "0.15" in _bw, _bw[:0])
+
+# ── access coordinates must be at the water, not at a town centre ─────────────
+# The Buffalo shipped with geocoded TOWN CENTRES: Lobelville was 1,236 m and Topsy Bridge
+# 1,099 m from the river, so the Google Maps pin dropped in the middle of town rather than at
+# the launch. A ramp pin may sit off the centreline (parking is on the bank) but not by a mile.
+def segd(pt, a, b):
+    latm = 111320.0; lonm = 111320.0 * math.cos(math.radians(pt[0]))
+    px, py = (pt[1] - a[1]) * lonm, (pt[0] - a[0]) * latm
+    bx, by = (b[1] - a[1]) * lonm, (b[0] - a[0]) * latm
+    L = bx * bx + by * by
+    t = 0 if L == 0 else max(0, min(1, (px * bx + py * by) / L))
+    return math.hypot(px - t * bx, py - t * by)
+for rid in RIVERS:
+    poly = D[rid].get("poly") or []
+    if len(poly) < 2: continue
+    for p in D[rid]["points"]:
+        dm = min(segd((p["lat"], p["lon"]), poly[i], poly[i + 1]) for i in range(len(poly) - 1))
+        chk("access pin is on the river, not in town: %s/%s" % (rid, p["name"]), dm < 800, "%.0f m" % dm)
 
 print("QC — Duck sections + Buffalo")
 print("  passed : %d" % len(OK))

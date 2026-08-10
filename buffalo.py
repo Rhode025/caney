@@ -135,8 +135,8 @@ cen_flow=cur_flow
 # REAL Buffalo River accesses (TWRA / higherpursuits paddler access table), upstream->downstream:
 # (name, river-mile, channel-frac). River miles are mouth-referenced; frac is position along
 # our OSM channel (approximate: TWRA publishes no river miles for the Buffalo). Section distance = ΔRM.
-ACC=[("Topsy Bridge",64.0,0.0),("Flatwoods",47.0,0.24),("Linden (Hwy 100)",38.0,0.44),
-     ("Beardstown",30.0,0.66),("Lobelville",22.0,0.86),("Buffalo Mouth (Hwy 13)",19.0,1.0)]
+ACC=[("Flatwoods",47.0,0.0),("Linden (Hwy 100)",38.0,0.321),
+     ("Beardstown",30.0,0.607),("Lobelville",22.0,0.893),("Buffalo Mouth (Hwy 13)",19.0,1.0)]
 def local_flow(f,scale=1.0):
     if col_flow is None: return (cen_flow*scale if cen_flow else None)
     if cen_flow is None: return col_flow*scale
@@ -164,9 +164,17 @@ def floatab(fl,craft="jet"):
 CRAFT0="jet"  # default the page + the "best float" pick to the user's boat
 # real access coordinates, placed on the OSM channel at each ramp's river mile
 # (town/bridge coordinates along the corridor; the Buffalo has no published ramp table)
-COORD_ALL={"Topsy Bridge":(35.42563,-87.70308),"Flatwoods":(35.47660,-87.82411),
-       "Linden (Hwy 100)":(35.61729,-87.83947),"Beardstown":(35.71229,-87.79919),
-       "Lobelville":(35.77201,-87.78391),"Buffalo Mouth (Hwy 13)":(35.81184,-87.77875)}
+# Coordinates are the ACTUAL road-over-river crossings, found by intersecting OSM highway
+# geometry with the OSM Buffalo River centreline (analysis: 19 bridges cross the river; these
+# six match the named accesses). The first cut of this page geocoded TOWN CENTRES, which put
+# Lobelville 1,236 m and Topsy Bridge 1,099 m from the water -- a Google Maps pin in the middle
+# of town rather than at the launch. Bridge crossings are where the public access actually is on
+# this river: TWRA publishes no ramp coordinates for the Buffalo.
+COORD_ALL={"Flatwoods":(35.48816,-87.83493),                 # State Highway 13, by the USGS gauge
+       "Linden (Hwy 100)":(35.62116,-87.83092),          # US 412 / SR 100 bridge
+       "Beardstown":(35.70833,-87.79681),                # SR 438 bridge
+       "Lobelville":(35.76214,-87.77534),                # East 8th Avenue bridge, in town
+       "Buffalo Mouth (Hwy 13)":(35.81215,-87.77875)}    # State Highway 13 bridge
 # hazards — real, not guessed. Confirmed: a low-head dam sits in downtown Flat Woods, between the
 # Buffalo: no dams at all, so the hazards are strainers and flashy rises, not impoundments.
 DAM_WARN=("No dam anywhere on the Buffalo \u2014 it is a free-flowing State Scenic River. Nothing buffers "
@@ -221,10 +229,13 @@ def route_lag_h(frac):
     return ROUTE_LAG_H * max(0.0, min(1.0, frac))
 
 SECTIONS = [
-  {"id":"buffalo","label":"Buffalo","seat":"Lobelville","rm0":64.0,"rm1":19.0,"f0":0.0,"f1":1.0,"p0":0,"p1":10,
+  {"id":"buffalo","label":"Buffalo","seat":"Lobelville","rm0":47.0,"rm1":19.0,"f0":0.0,"f1":1.0,"p0":0,"p1":142,
    "blurb":"Topsy to the Buffalo confluence — the clearest smallmouth water in Middle Tennessee."},
 ]
-POLY_ALL = [[35.42563,-87.70308],[35.45120,-87.78500],[35.47660,-87.82411],[35.49590,-87.83280],[35.54000,-87.85500],[35.61729,-87.83947],[35.66035,-87.81528],[35.71229,-87.79919],[35.77201,-87.78391],[35.81184,-87.77875]]
+# Buffalo River centreline traced from OSM waterway=river geometry (nearest-neighbour chained
+# from Topsy downstream, simplified to ~700 m spacing). The first cut drew this line through
+# TOWN CENTRES, so the mapped channel did not follow the river.
+POLY_ALL = [[35.45398,-87.77254],[35.45776,-87.77567],[35.45833,-87.78226],[35.46076,-87.78809],[35.46484,-87.79131],[35.46724,-87.79636],[35.46323,-87.79885],[35.45840,-87.80161],[35.45480,-87.80551],[35.45944,-87.80687],[35.46471,-87.80663],[35.46802,-87.81070],[35.46411,-87.81497],[35.46018,-87.81815],[35.46128,-87.82353],[35.46626,-87.82304],[35.46989,-87.81962],[35.47309,-87.81493],[35.47688,-87.81798],[35.47495,-87.82421],[35.46975,-87.82739],[35.46632,-87.83127],[35.46082,-87.83241],[35.45648,-87.83459],[35.45132,-87.83270],[35.45104,-87.83857],[35.45584,-87.84167],[35.45961,-87.84503],[35.46460,-87.84688],[35.46977,-87.84574],[35.47378,-87.84311],[35.47762,-87.84642],[35.47647,-87.85207],[35.47834,-87.85723],[35.48273,-87.85475],[35.48298,-87.84839],[35.48355,-87.84291],[35.48564,-87.83758],[35.48951,-87.83425],[35.49403,-87.83307],[35.49890,-87.83513],[35.50062,-87.82925],[35.50651,-87.82712],[35.51124,-87.82531],[35.51273,-87.83084],[35.51150,-87.83682],[35.51421,-87.84188],[35.52014,-87.84361],[35.52422,-87.84125],[35.52758,-87.83755],[35.53139,-87.83368],[35.53588,-87.83167],[35.53783,-87.83695],[35.54205,-87.83440],[35.54535,-87.82939],[35.54342,-87.82133],[35.54216,-87.81593],[35.54408,-87.81026],[35.55157,-87.81120],[35.55557,-87.81379],[35.55936,-87.81801],[35.55886,-87.82434],[35.55801,-87.83036],[35.56054,-87.83506],[35.56538,-87.83290],[35.56710,-87.82699],[35.56762,-87.82112],[35.57045,-87.81511],[35.57513,-87.81525],[35.57891,-87.82282],[35.58163,-87.82738],[35.58331,-87.83322],[35.58291,-87.83893],[35.58731,-87.83769],[35.59126,-87.83408],[35.59482,-87.83940],[35.59516,-87.84499],[35.59969,-87.84650],[35.60421,-87.84562],[35.60410,-87.83987],[35.60251,-87.83418],[35.60647,-87.83097],[35.61216,-87.82998],[35.61623,-87.83247],[35.62085,-87.83100],[35.62578,-87.83034],[35.63047,-87.82958],[35.63073,-87.82133],[35.63563,-87.82148],[35.64022,-87.82240],[35.64378,-87.81876],[35.64851,-87.81798],[35.65298,-87.81544],[35.65668,-87.81119],[35.66049,-87.81428],[35.66487,-87.81606],[35.67013,-87.80962],[35.67499,-87.80435],[35.67719,-87.79937],[35.68249,-87.79630],[35.68597,-87.80012],[35.68981,-87.80312],[35.69345,-87.79902],[35.69462,-87.79181],[35.69958,-87.78724],[35.70457,-87.78742],[35.70424,-87.79314],[35.70869,-87.79707],[35.71328,-87.79629],[35.71630,-87.79165],[35.71943,-87.78764],[35.72429,-87.78765],[35.72816,-87.79309],[35.73314,-87.79582],[35.73805,-87.79653],[35.74244,-87.79985],[35.74742,-87.80206],[35.75225,-87.80102],[35.75054,-87.79544],[35.74924,-87.79002],[35.75096,-87.78405],[35.75443,-87.78020],[35.76015,-87.77873],[35.76203,-87.77260],[35.76529,-87.76765],[35.76417,-87.76208],[35.76650,-87.75716],[35.77055,-87.76072],[35.77513,-87.76288],[35.77837,-87.76678],[35.78073,-87.77165],[35.78463,-87.77471],[35.78857,-87.77773],[35.79384,-87.77879],[35.79860,-87.77971],[35.80235,-87.78307],[35.80580,-87.77824],[35.80712,-87.77294],[35.81038,-87.76898],[35.81352,-87.77307],[35.81221,-87.77839],[35.81210,-87.77908]]
 ACC_ALL = list(ACC)
 
 TEMPLATE=r"""<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
@@ -471,10 +482,9 @@ def build_section(_S):
     flybox={"season":season,"clar":clar,"now":flies,
       "rig":"Get crawfish & Clousers on the bottom along rock, ledges and current seams (split-shot or a sink-tip), 8–10 lb tippet. Fish topwater on a floating line at first and last light.",
       "sources":[["FlyFishFinder","https://flyfishfinder.com/pages/best-smallmouth-bass-rivers-in-tennessee/"],["River Run Angling","https://riverrunangling.com/blog/bass-fishing-in-tennessee/"],["Wooly Buggin'","https://woolybuggin.com/smallies-on-the-fly-a-guide-for-river-smallmouth-bass/"]]}
-    ACC_TYPES={"Topsy Bridge":["paddle"],"Flatwoods":["ramp","paddle"],"Linden (Hwy 100)":["ramp","paddle"],
+    ACC_TYPES={"Flatwoods":["ramp","paddle"],"Linden (Hwy 100)":["ramp","paddle"],
            "Beardstown":["paddle"],"Lobelville":["ramp","paddle"],"Buffalo Mouth (Hwy 13)":["ramp","paddle"]}
-    ACC_INFO={"Topsy Bridge":"Upper river, Lawrence Co. Floatable Nov\u2013Aug; too skinny in a dry late summer.",
- "Flatwoods":"Perry Co. Crystal-clear water, and the USGS gauge here (03604000) is the only Buffalo gauge carrying water temperature.",
+    ACC_INFO={"Flatwoods":"Top of the mapped reach, Perry Co. Crystal-clear water and the USGS gauge (03604000) \u2014 the only Buffalo gauge carrying water temperature. The river ABOVE here floats only Nov\u2013Aug and is too skinny in a dry late summer.",
  "Linden (Hwy 100)":"Perry Co seat at the Hwy 100 bridge. Canoe liveries; year-round floatable below this point.",
  "Beardstown":"Mid-river access between Linden and Lobelville.",
  "Lobelville":"Main lower-river access with canoe rental. The NWPS forecast point (LBVT1) sits just below.",
@@ -544,9 +554,10 @@ def build_section(_S):
     # ---- HQ day state ----
     # The only non-dam river with a real forward flow forecast: NWPS publishes observed +
     # forecast stage/flow for LBVT1. Rows are (time, stage_ft, flow_kcfs), so scale to cfs.
+    _CURVE_LABEL=("Buffalo \u00b7 %s reach"%_S["label"]) if _oscale!=1.0 else "Buffalo near Lobelville (NWPS)"
     def _buff_day(off):
         d0, _ = riverlib.day_bounds(CT, off)
-        rows = [(t, (v * 1000 if v is not None else None)) for t, s, v in (OBS + FC)]
+        rows = [(t, (v * 1000 * _oscale if v is not None else None)) for t, s, v in (OBS + FC)]
         cv = riverlib.curve_from_rows(rows, d0)
         vals = [v for v in (cv or []) if v is not None]
         if not vals:
@@ -562,7 +573,7 @@ def build_section(_S):
         return riverlib.day_state(vessel=vk, vessel_why=vw, vessel_label=_vlabel,
             clarity=ck, clarity_why="inferred from flow; the Buffalo runs clear and colours up fast after rain",
             level=lk, level_detail=format(round(med), ",") + " cfs",
-            curve=cv, curve_unit="cfs", curve_label="Buffalo near Lobelville (NWPS)", curve_src=src,
+            curve=cv, curve_unit="cfs", curve_label=_CURVE_LABEL, curve_src=src,
             headline=format(round(med), ",") + " cfs \u00b7 " + {"wade":"skinny","both":"prime float","boat":"pushy","":""}.get(vk, ""))
     DAYS = {"today": _buff_day(0), "tomorrow": _buff_day(1)}
 
@@ -570,7 +581,7 @@ def build_section(_S):
         {"grade":FG,"cond":FN,"col":FC_,"note":FNOTE,
          "detail":(("%s cfs"%format(round(cur_flow*1000),",")) if cur_flow is not None else "—"),
          "asof":(OBS[-1][0].astimezone(CT).strftime("%-I:%M %p") if OBS else now_ct.strftime("%-I:%M %p"))},
-        wx, riverlib.GRADE_SCORE.get(FG,1.3), CT, ["Smallmouth","Panfish"], "Warmwater smallmouth", "~95 min · Lobelville", days=DAYS)
+        wx, [riverlib.GRADE_SCORE.get(o["grade"], 1.3) for o in outlook] or riverlib.GRADE_SCORE.get(FG,1.3), CT, ["Smallmouth","Panfish"], "Warmwater smallmouth", "~95 min · Lobelville", days=DAYS)
     print("wrote out/%s.html | %s %s\u2013%s | flow %s kcfs %s | grade %s | lag %.1fh"%(_S["id"],_S["label"],ACC[0][0],ACC[-1][0],cur_flow,trend,FG,_lag))
 
 
