@@ -171,8 +171,13 @@ def floatab(fl,craft="jet"):
 CRAFT0="jet"  # default the page + the "best float" pick to the user's boat
 # real access coordinates, placed on the OSM channel at each ramp's river mile
 # (Chickasaw Trace & Centerville River Park use their exact ramp coords)
-COORD_ALL={"Riverside":(35.63641,-87.03379),"Chickasaw Trace":(35.66285,-87.09328),"Williamsport":(35.68417,-87.25116),
-       "Leatherwood Bridge":(35.7554,-87.29951),"Littlelot":(35.76656,-87.33548),"River Park (Centerville)":(35.77788,-87.47369)}
+# Cross-referenced against the TWRA Boating & Fishing Access layer. Riverside, Williamsport
+# and the Centerville ramp are TWRA/city published coordinates (ours were 1.8 km, 3.0 km and
+# 1.4 km off). Chickasaw Trace already agreed to 11 m. Leatherwood and Littlelot are not TWRA
+# sites -- Leatherwood is private, Littlelot is not in the layer -- so those keep the
+# paddler-table coordinates.
+COORD_ALL={"Riverside":(35.61840,-87.02520),"Chickasaw Trace":(35.66281,-87.09317),"Williamsport":(35.69490,-87.22080),
+       "Leatherwood Bridge":(35.7554,-87.29951),"Littlelot":(35.76656,-87.33548),"River Park (Centerville)":(35.78482,-87.46122)}
 # hazards — real, not guessed. Confirmed: a low-head dam sits in downtown Columbia, between the
 # Iron Bridge ramp (RM136.6, upstream) and Riverside (RM133.5). Float DOWNSTREAM from Riverside.
 DAM_WARN=("⚠ Low-head dam in downtown Columbia sits just UPSTREAM (between the Iron Bridge ramp and here). "
@@ -228,14 +233,18 @@ def route_lag_h(frac):
     return ROUTE_LAG_H * max(0.0, min(1.0, frac))
 
 SECTIONS = [
-  {"id":"duckup","label":"Upper","seat":"Columbia","rm0":133.5,"rm1":113.9,"f0":0.0,"f1":0.345,"p0":0,"p1":15,
+  {"id":"duckup","label":"Upper","seat":"Columbia","rm0":133.5,"rm1":113.9,"f0":0.0,"f1":0.345,"p0":0,"p1":37,
    "blurb":"Columbia to Williamsport — town water and the Chickasaw Trace ramp."},
-  {"id":"duckmid","label":"Middle","seat":"Williamsport","rm0":113.9,"rm1":95.0,"f0":0.345,"f1":0.653,"p0":14,"p1":28,
+  {"id":"duckmid","label":"Middle","seat":"Williamsport","rm0":113.9,"rm1":95.0,"f0":0.345,"f1":0.653,"p0":36,"p1":75,
    "blurb":"Williamsport to Leatherwood — the remote middle, farthest from either gauge."},
-  {"id":"ducklow","label":"Lower","seat":"Centerville","rm0":95.0,"rm1":73.7,"f0":0.653,"f1":1.0,"p0":25,"p1":42,
+  {"id":"ducklow","label":"Lower","seat":"Centerville","rm0":95.0,"rm1":73.7,"f0":0.653,"f1":1.0,"p0":74,"p1":111,
    "blurb":"Leatherwood to Centerville — biggest water, and the only reach with its own forecast."},
 ]
-POLY_ALL = [[35.61751,-87.03207],[35.64052,-87.03417],[35.64567,-87.05225],[35.63305,-87.06279],[35.64842,-87.0952],[35.6626,-87.09369],[35.67267,-87.10234],[35.67217,-87.13523],[35.68927,-87.13215],[35.69384,-87.14539],[35.69114,-87.16986],[35.68861,-87.20545],[35.69447,-87.2217],[35.68422,-87.23105],[35.68417,-87.2515],[35.66517,-87.24522],[35.65368,-87.25189],[35.67352,-87.26481],[35.66518,-87.29375],[35.68362,-87.28392],[35.6954,-87.2937],[35.69625,-87.26124],[35.71402,-87.25208],[35.72568,-87.26761],[35.74636,-87.26901],[35.75304,-87.29156],[35.75135,-87.30295],[35.76951,-87.28752],[35.78347,-87.30462],[35.77757,-87.3177],[35.76857,-87.33439],[35.75324,-87.34272],[35.76903,-87.35345],[35.78674,-87.3486],[35.80574,-87.36191],[35.79475,-87.38546],[35.77478,-87.38914],[35.77149,-87.41367],[35.77365,-87.44111],[35.78598,-87.46126],[35.78068,-87.47548],[35.77788,-87.47369]]
+# Duck channel traced from OSM waterway=river geometry (shortest path along the river graph
+# from the Riverside ramp to the Centerville ramp, simplified to ~700 m spacing). The previous
+# line was hand-drawn THROUGH our own access coordinates, so when TWRA's published ramp
+# positions replaced them the channel no longer passed the ramps.
+POLY_ALL = [[35.61823, -87.02482], [35.61812, -87.03258], [35.62549, -87.0346], [35.63428, -87.03631], [35.64052, -87.03417], [35.64558, -87.03949], [35.64592, -87.04736], [35.64616, -87.05614], [35.63864, -87.05861], [35.63305, -87.06279], [35.63596, -87.0714], [35.63853, -87.08021], [35.64205, -87.0897], [35.64668, -87.09542], [35.6512, -87.08989], [35.65824, -87.08939], [35.66373, -87.09424], [35.6713, -87.09446], [35.67267, -87.10234], [35.6713, -87.11114], [35.6734, -87.12151], [35.67236, -87.12997], [35.67409, -87.13826], [35.68059, -87.14057], [35.68794, -87.13357], [35.69339, -87.12733], [35.6994, -87.13168], [35.69769, -87.14052], [35.69214, -87.14712], [35.69435, -87.15676], [35.69331, -87.16553], [35.68772, -87.17571], [35.68591, -87.18542], [35.68602, -87.19367], [35.68823, -87.20154], [35.6904, -87.21095], [35.69373, -87.21903], [35.69145, -87.22689], [35.6853, -87.22983], [35.6819, -87.23728], [35.68354, -87.24655], [35.67948, -87.25267], [35.67368, -87.24948], [35.6675, -87.24505], [35.66033, -87.24679], [35.65383, -87.24527], [35.6551, -87.25308], [35.66388, -87.25923], [35.67081, -87.26078], [35.6739, -87.26868], [35.6725, -87.27665], [35.66618, -87.28317], [35.66421, -87.29274], [35.67226, -87.29254], [35.67935, -87.28559], [35.68679, -87.2938], [35.69294, -87.29695], [35.69668, -87.29063], [35.69702, -87.2813], [35.69631, -87.27127], [35.69595, -87.26265], [35.70015, -87.25588], [35.70656, -87.25074], [35.71402, -87.25208], [35.71689, -87.26063], [35.7238, -87.26731], [35.73019, -87.26677], [35.73729, -87.2655], [35.74298, -87.26891], [35.74948, -87.2708], [35.75397, -87.28139], [35.75349, -87.29004], [35.74744, -87.29394], [35.74736, -87.30169], [35.75465, -87.30275], [35.76085, -87.29784], [35.76521, -87.29117], [35.77284, -87.28798], [35.77865, -87.29159], [35.78131, -87.29881], [35.78484, -87.30673], [35.78475, -87.31518], [35.77757, -87.3177], [35.77075, -87.31946], [35.76735, -87.32734], [35.76857, -87.33647], [35.75602, -87.34034], [35.75483, -87.34807], [35.76036, -87.35191], [35.76756, -87.35317], [35.77459, -87.35405], [35.7829, -87.35259], [35.78965, -87.34699], [35.79714, -87.34317], [35.80416, -87.34932], [35.80669, -87.35706], [35.80399, -87.36453], [35.80005, -87.37337], [35.79588, -87.38219], [35.78669, -87.38651], [35.77688, -87.38532], [35.76964, -87.38992], [35.76763, -87.39911], [35.76956, -87.40845], [35.7734, -87.41683], [35.77672, -87.424], [35.7767, -87.43392], [35.77365, -87.44111], [35.77463, -87.44959], [35.77978, -87.45676], [35.7849, -87.46048]]
 ACC_ALL = list(ACC)
 
 TEMPLATE=r"""<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">

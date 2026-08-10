@@ -171,7 +171,7 @@ CRAFT0="jet"  # default the page + the "best float" pick to the user's boat
 # of town rather than at the launch. Bridge crossings are where the public access actually is on
 # this river: TWRA publishes no ramp coordinates for the Buffalo.
 COORD_ALL={"Flatwoods":(35.48816,-87.83493),                 # State Highway 13, by the USGS gauge
-       "Linden (Hwy 100)":(35.62116,-87.83092),          # US 412 / SR 100 bridge
+       "Linden (Hwy 100)":(35.61410,-87.83050),          # TWRA "LINDEN" access (their coordinate)
        "Beardstown":(35.70833,-87.79681),                # SR 438 bridge
        "Lobelville":(35.76214,-87.77534),                # East 8th Avenue bridge, in town
        "Buffalo Mouth (Hwy 13)":(35.81215,-87.77875)}    # State Highway 13 bridge

@@ -9,6 +9,46 @@ belongs to a commit goes in the commit message. This file is for *state and inte
 
 ---
 
+## 2026-08-10 (4) — Cross-referenced every access against the TWRA access map
+
+Pulled the official TWRA Boating & Fishing Access layer (`tnmap.tn.gov/arcgis/rest/services/
+ENVIRONMENTAL/TWRA/MapServer/1`) — **982 georeferenced sites statewide**, 57 on the waters this
+tool covers. Saved to `analysis/twra_access.json` so it is reviewable and testable offline.
+
+**Where TWRA lists a site, our pins were wrong — and the Caney was the worst.**
+
+Measured along the channel from Long Branch against each access's own `mfd`:
+
+```
+our pins        Happy Hollow  +1.2 mi     Betty's Island  +2.2 mi     (disagree by 1.0)
+TWRA's          Happy Hollow  -0.8 mi     Betty's Island  -0.8 mi     (agree exactly)
+```
+
+A **constant** −0.8 offset is just the polyline's datum; a *drifting* +1.2/+2.2 is error. TWRA's
+coordinates land precisely on the model's mfd of 6.0 and 9.0. Our hand-placed pins were sitting
+1–2 miles downstream of the actual ramps. `mfd` itself is unchanged, so the flow model is
+untouched — this was a navigation bug, not a model bug.
+
+Corrected from TWRA: Caney Happy Hollow + Betty's Island; Duck Riverside (1.8 km off),
+Williamsport (3.0 km), Centerville ramp (1.4 km); Buffalo Linden (0.8 km). Chickasaw Trace
+already agreed to 11 m, as did Old Dam Ford (10 m), Veto Access (40 m), Cleece's Ferry (61 m) and
+the Percy Priest tailwater (5 m) — where names match, TWRA and our data agree tightly.
+
+**Not in TWRA's layer, correctly left alone:** Littlelot, Stonewall, Lancaster, Buffalo Valley,
+the I-40 Welcome Center, Leatherwood (private). These are county, private or informal accesses;
+absence from the state layer is not evidence of a bad coordinate.
+
+**The Duck channel had to be retraced.** Its polyline was hand-drawn THROUGH our own access
+coordinates, so once TWRA's positions replaced them the drawn channel no longer passed the
+ramps (Williamsport ended up 3 km off its own river). Rebuilt as the shortest path along the
+OSM river graph from the Riverside ramp to the Centerville ramp — 111 points, 56.8 mi against a
+59.8-river-mile reach — and the three section slices re-cut from it.
+
+**QC** is now 126 checks. The TWRA-matched pins are guarded individually: if any of the six
+corrected coordinates drifts more than 250 m from TWRA's published position again, it fails.
+
+---
+
 ## 2026-08-10 (later still) — Map pins audited; HQ and the river pages made to agree
 
 **1. Access-point coordinates.** Audited all 50 pins against the real OSM river centrelines

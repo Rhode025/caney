@@ -170,6 +170,38 @@ for rid in RIVERS:
         dm = min(segd((p["lat"], p["lon"]), poly[i], poly[i + 1]) for i in range(len(poly) - 1))
         chk("access pin is on the river, not in town: %s/%s" % (rid, p["name"]), dm < 800, "%.0f m" % dm)
 
+# ── access pins vs the TWRA Boating & Fishing Access layer ────────────────────
+# Where TWRA publishes a site, TWRA is the authority for where the ramp is. Our hand-placed
+# Caney pins drifted downstream (+1.2 mi Happy Hollow, +2.2 mi Betty's Island against their own
+# mfd) until they were cross-referenced. This guards the ones we corrected: if a coordinate
+# wanders away from TWRA's again, it fails here. Sites TWRA does not list (Littlelot, Stonewall,
+# Lancaster, Buffalo Valley, the I-40 Welcome Center) are county/private/informal and exempt.
+TWRA_PATH = os.path.join(ROOT, "analysis", "twra_access.json")
+if os.path.exists(TWRA_PATH):
+    _tw = json.load(open(TWRA_PATH))["sites"]
+    def _near(nm, water_key):
+        c = [t for t in _tw if water_key in t["water"].lower() and nm.lower() in t["name"].lower()]
+        return c[0] if c else None
+    # (page, our access name, TWRA site name, TWRA water key)
+    MATCHED = [("caney", "Happy Hollow", "HAPPY HOLLOW", "caney"),
+               ("caney", "Betty's Island", "BETTYS ISLAND", "caney"),
+               ("duckup", "Riverside", "Riverside Access Area", "duck"),
+               ("duckup", "Chickasaw Trace", "Chickasaw Trace park", "duck"),
+               ("duckmid", "Williamsport", "Williamsport Bridge", "duck"),
+               ("buffalo", "Linden (Hwy 100)", "LINDEN", "buffalo")]
+    for pg, ours, twn, wk in MATCHED:
+        d_ = page_any(pg)
+        if not d_: continue
+        p_ = next((x for x in d_["points"] if x["name"] == ours), None)
+        t_ = _near(twn, wk)
+        chk("TWRA site is still in the reference data: " + twn, t_ is not None)
+        if not (p_ and t_): continue
+        dm = math.hypot((p_["lat"] - t_["lat"]) * 111320,
+                        (p_["lon"] - t_["lon"]) * 111320 * math.cos(math.radians(p_["lat"])))
+        chk("pin matches TWRA's published ramp: %s/%s" % (pg, ours), dm < 250, "%.0f m from TWRA" % dm)
+else:
+    warn("TWRA reference data present", False, "analysis/twra_access.json missing")
+
 print("QC — Duck sections + Buffalo")
 print("  passed : %d" % len(OK))
 print("  warned : %d" % len(WARN))
