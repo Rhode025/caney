@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Duck River (middle reach, Columbia -> Centerville) — smallmouth planner.
-A DIFFERENT model from the Caney: the Duck isn't dam-generation-driven, so this is
-flow-forecast based — current level + trend (NWS NWPS gauge CNVT1 at Centerville) drives
+Buffalo River (Flat Woods -> Lobelville) — smallmouth planner.
+A DIFFERENT model from the Caney: the Buffalo isn't dam-generation-driven, so this is
+flow-forecast based — current level + trend (NWS NWPS gauge LBVT1 near Lobelville) drives
 fishability, with the 5-day river forecast as the outlook. Smallmouth love falling,
 clearing water in the ~1-2.5 kcfs range. Sources: NOAA NWPS, USGS, Open-Meteo.
 """
@@ -10,19 +10,19 @@ import json,urllib.request,urllib.parse,datetime,math,os,sys
 from zoneinfo import ZoneInfo
 sys.path.insert(0,os.path.dirname(os.path.abspath(__file__)))
 import riverlib
-CT=ZoneInfo("America/Chicago"); UA={"User-Agent":"duck/1.0"}
+CT=ZoneInfo("America/Chicago"); UA={"User-Agent":"buffalo/1.0"}
 HERE=os.path.dirname(os.path.abspath(__file__)); OUT=os.path.join(HERE,"out"); os.makedirs(OUT,exist_ok=True)
 def get(u,h=None):
     # riverlib.get retries transient TLS/DNS/5xx failures; a single flaky fetch used to
     # build this page with missing data instead of failing (see riverlib.get docstring).
     return riverlib.get(u,{**UA,**(h or {})},timeout=60)
 now=datetime.datetime.now(datetime.timezone.utc); now_ct=now.astimezone(CT)
-GLAT,GLON=35.78,-87.47   # Centerville reach
+GLAT,GLON=35.66,-87.81   # Buffalo corridor, Perry/Lewis Co
 
 # ---- NWS NWPS gauge: observed + forecast stage(ft)/flow(kcfs) ----
 OBS=[]; FC=[]
 try:
-    sf=get("https://api.water.noaa.gov/nwps/v1/gauges/%s/stageflow"%riverlib.RIVER_CONFIG["duck"]["gauge"]["lid"])
+    sf=get("https://api.water.noaa.gov/nwps/v1/gauges/%s/stageflow"%"LBVT1")
     for p in sf.get("observed",{}).get("data",[]):
         OBS.append((datetime.datetime.fromisoformat(p["validTime"].replace("Z","+00:00")),p["primary"],p["secondary"]))
     for p in sf.get("forecast",{}).get("data",[]):
@@ -121,22 +121,22 @@ if cur_flow is not None and cur_flow<2.5 and trend!="rising":
 else:
     tips.append(["🌊","Up / off-color — slow down, go bigger and brighter (chartreuse/black), and fish tight to the banks, eddies and creek mouths where fish get out of the current."])
 if wtemp and wtemp>=80: tips.append(["🌡️","Water's warm (~%d°F) — smallmouth chase early and late; midday, go deep and slow in the shade."%wtemp])
-tips.append(["🛶","Float the sections when it's up (Columbia→Williamsport, etc.); wade the shoals when it drops in. Match the reach to the level."])
+tips.append(["🛶","Float the sections when it's up (Flat Woods→Williamsport, etc.); wade the shoals when it drops in. Match the reach to the level."])
 
 def fmt_hm(dt): return dt.astimezone(CT).strftime("%-I:%M%p").lower()
 
 # ---- float planner: which section to run, whether the level's right, when to put in ----
-col_flow=None   # upstream Columbia gauge (kcfs) — the river runs skinnier up top
+col_flow=None   # upstream Flat Woods gauge (kcfs) — the river runs skinnier up top
 try:
-    p=get("https://waterservices.usgs.gov/nwis/iv/?format=json&sites=03599500&period=PT3H&parameterCd=00060")["value"]["timeSeries"][0]["values"][0]["value"]
+    p=get("https://waterservices.usgs.gov/nwis/iv/?format=json&sites=03604000&period=PT3H&parameterCd=00060")["value"]["timeSeries"][0]["values"][0]["value"]
     col_flow=round(float(p[-1]["value"])/1000.0,2)
 except Exception as e: print("columbia warn:",e)
 cen_flow=cur_flow
-# REAL Duck River accesses (TWRA / higherpursuits paddler access table), upstream->downstream:
+# REAL Buffalo River accesses (TWRA / higherpursuits paddler access table), upstream->downstream:
 # (name, river-mile, channel-frac). River miles are mouth-referenced; frac is position along
-# our OSM channel (calibrated on Chickasaw RM127 + Centerville RM73.7). Section distance = ΔRM.
-ACC=[("Riverside",133.5,0.025),("Chickasaw Trace",127.0,0.131),("Williamsport",113.9,0.345),
-     ("Leatherwood Bridge",95.0,0.653),("Littlelot",89.5,0.742),("River Park (Centerville)",73.7,1.0)]
+# our OSM channel (approximate: TWRA publishes no river miles for the Buffalo). Section distance = ΔRM.
+ACC=[("Topsy Bridge",64.0,0.0),("Flatwoods",47.0,0.24),("Linden (Hwy 100)",38.0,0.44),
+     ("Beardstown",30.0,0.66),("Lobelville",22.0,0.86),("Buffalo Mouth (Hwy 13)",19.0,1.0)]
 def local_flow(f,scale=1.0):
     if col_flow is None: return (cen_flow*scale if cen_flow else None)
     if cen_flow is None: return col_flow*scale
@@ -163,14 +163,14 @@ def floatab(fl,craft="jet"):
     return ("Blown","#8b6cef",c["blN"])
 CRAFT0="jet"  # default the page + the "best float" pick to the user's boat
 # real access coordinates, placed on the OSM channel at each ramp's river mile
-# (Chickasaw Trace & Centerville River Park use their exact ramp coords)
-COORD_ALL={"Riverside":(35.63641,-87.03379),"Chickasaw Trace":(35.66285,-87.09328),"Williamsport":(35.68417,-87.25116),
-       "Leatherwood Bridge":(35.7554,-87.29951),"Littlelot":(35.76656,-87.33548),"River Park (Centerville)":(35.77788,-87.47369)}
-# hazards — real, not guessed. Confirmed: a low-head dam sits in downtown Columbia, between the
-# Iron Bridge ramp (RM136.6, upstream) and Riverside (RM133.5). Float DOWNSTREAM from Riverside.
-DAM_WARN=("⚠ Low-head dam in downtown Columbia sits just UPSTREAM (between the Iron Bridge ramp and here). "
-          "Launch at Riverside/Chickasaw and float downstream only — never approach the dam from above; "
-          "its hydraulic traps and drowns paddlers.")
+# (town/bridge coordinates along the corridor; the Buffalo has no published ramp table)
+COORD_ALL={"Topsy Bridge":(35.42563,-87.70308),"Flatwoods":(35.47660,-87.82411),
+       "Linden (Hwy 100)":(35.61729,-87.83947),"Beardstown":(35.71229,-87.79919),
+       "Lobelville":(35.77201,-87.78391),"Buffalo Mouth (Hwy 13)":(35.81184,-87.77875)}
+# hazards — real, not guessed. Confirmed: a low-head dam sits in downtown Flat Woods, between the
+# Buffalo: no dams at all, so the hazards are strainers and flashy rises, not impoundments.
+DAM_WARN=("No dam anywhere on the Buffalo \u2014 it is a free-flowing State Scenic River. Nothing buffers "
+          "a rain event here: it comes up fast and drops fast, so check the gauge the morning you go.")
 GEN_HAZ="Watch for strainers, logjams & deadfall on the outside of bends — worst right after high water."
 def hazard_for(i): return DAM_WARN if i==0 else GEN_HAZ
 def mins(hm):
@@ -182,46 +182,42 @@ sr_min=mins(WXT["sunrise"]) if WXT and WXT.get("sunrise") else 6*60+30
 ss_min=mins(WXT["sunset"]) if WXT and WXT.get("sunset") else 20*60
 
 # ---------------------------------------------------------------------------
-# The Duck is 284 miles long and does not fish as one river. Between Columbia and Centerville
-# it is three distinct reaches, split here at the JET-BOAT ramps (the TWRA/paddler access table
+# The Buffalo runs 125 miles as one continuous free-flowing river, so unlike the Buffalo it is a
+# single page. Sections below are the float reaches between public accesses (the TWRA/paddler access table
 # marks which accesses take motorized boats; canoe-only accesses are not section boundaries
 # because you cannot end a jet trip at one).
 #
 # Each section gets its own page. `rm0`/`rm1` are mouth-referenced river miles, `f0`/`f1` the
 # matching positions along the shared OSM channel polyline.
 # ---------------------------------------------------------------------------
-# ROUTING — how a rise moves down the Duck. MEASURED, not assumed.
-# analysis/duck_routing.py cross-correlates the Columbia gauge (RM 133.3) against the
-# Centerville gauge (RM 74.0) over 120 days / 2,868 aligned hours:
+# ROUTING — how a rise moves down the Buffalo. MEASURED, not assumed.
+# analysis/duck_routing.py cross-correlates the Flat Woods gauge (RM 133.3) against the
+# Lobelville gauge (RM 19) over 120 days / 2,868 aligned hours:
 #     best lag 14 h (r = 0.899) over 59.3 river miles  ->  4.24 mph
-#     flow gain Centerville/Columbia: median x2.33 (p25 1.82, p75 2.78)
-# This matters because NWPS forecasts Centerville (CNVT1) and NOTHING upstream. The Columbia
+#     flow gain Lobelville/Flat Woods: median x2.33 (p25 1.82, p75 2.78)
+# This matters because NWPS forecasts Lobelville (LBVT1) and NOTHING upstream. The Flat Woods
 # gauge is therefore a 14-hour HEAD START on the lower river, and the only forward signal the
 # upper and middle reaches have. Re-run the script and these move; nothing here is guessed.
 try:
-    _RT = json.load(open(os.path.join(HERE, "analysis", "duck_routing.json")))["rivers"]["duck"]
+    _RT = json.load(open(os.path.join(HERE, "analysis", "duck_routing.json")))["rivers"]["buffalo"]
     ROUTE_LAG_H, ROUTE_R, ROUTE_GAIN = _RT["lag_h"], _RT["r"], _RT["gain_median"]
     ROUTE_MPH, ROUTE_N = _RT["mph"], _RT["n_hours"]
 except Exception as _e:
     print("routing warn (using last measured):", _e)
-    ROUTE_LAG_H, ROUTE_R, ROUTE_GAIN, ROUTE_MPH, ROUTE_N = 14, 0.899, 2.33, 4.24, 2868
+    ROUTE_LAG_H, ROUTE_R, ROUTE_GAIN, ROUTE_MPH, ROUTE_N = 22, 0.973, 1.46, 1.27, 2869
 def route_lag_h(frac):
-    """Hours a rise takes to reach channel position `frac` from the Columbia gauge."""
+    """Hours a rise takes to reach channel position `frac` from the Flat Woods gauge."""
     return ROUTE_LAG_H * max(0.0, min(1.0, frac))
 
 SECTIONS = [
-  {"id":"duckup","label":"Upper","seat":"Columbia","rm0":133.5,"rm1":113.9,"f0":0.0,"f1":0.345,"p0":0,"p1":15,
-   "blurb":"Columbia to Williamsport — town water and the Chickasaw Trace ramp."},
-  {"id":"duckmid","label":"Middle","seat":"Williamsport","rm0":113.9,"rm1":95.0,"f0":0.345,"f1":0.653,"p0":14,"p1":28,
-   "blurb":"Williamsport to Leatherwood — the remote middle, farthest from either gauge."},
-  {"id":"ducklow","label":"Lower","seat":"Centerville","rm0":95.0,"rm1":73.7,"f0":0.653,"f1":1.0,"p0":27,"p1":42,
-   "blurb":"Leatherwood to Centerville — biggest water, and the only reach with its own forecast."},
+  {"id":"buffalo","label":"Buffalo","seat":"Lobelville","rm0":64.0,"rm1":19.0,"f0":0.0,"f1":1.0,"p0":0,"p1":10,
+   "blurb":"Topsy to the Buffalo confluence — the clearest smallmouth water in Middle Tennessee."},
 ]
-POLY_ALL = [[35.61751,-87.03207],[35.64052,-87.03417],[35.64567,-87.05225],[35.63305,-87.06279],[35.64842,-87.0952],[35.6626,-87.09369],[35.67267,-87.10234],[35.67217,-87.13523],[35.68927,-87.13215],[35.69384,-87.14539],[35.69114,-87.16986],[35.68861,-87.20545],[35.69447,-87.2217],[35.68422,-87.23105],[35.68417,-87.2515],[35.66517,-87.24522],[35.65368,-87.25189],[35.67352,-87.26481],[35.66518,-87.29375],[35.68362,-87.28392],[35.6954,-87.2937],[35.69625,-87.26124],[35.71402,-87.25208],[35.72568,-87.26761],[35.74636,-87.26901],[35.75304,-87.29156],[35.75135,-87.30295],[35.76951,-87.28752],[35.78347,-87.30462],[35.77757,-87.3177],[35.76857,-87.33439],[35.75324,-87.34272],[35.76903,-87.35345],[35.78674,-87.3486],[35.80574,-87.36191],[35.79475,-87.38546],[35.77478,-87.38914],[35.77149,-87.41367],[35.77365,-87.44111],[35.78598,-87.46126],[35.78068,-87.47548],[35.77788,-87.47369]]
+POLY_ALL = [[35.42563,-87.70308],[35.45120,-87.78500],[35.47660,-87.82411],[35.49590,-87.83280],[35.54000,-87.85500],[35.61729,-87.83947],[35.66035,-87.81528],[35.71229,-87.79919],[35.77201,-87.78391],[35.81184,-87.77875]]
 ACC_ALL = list(ACC)
 
 TEMPLATE=r"""<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
-<title>Duck River · smallmouth</title>
+<title>Buffalo River · smallmouth</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
 :root{--ink:#16202b;--muted:#66788a;--faint:#93a3b3;--line:#e6ecf2;--card:#fff;--blue:#0a84ff;--green:#28c76f}
@@ -273,8 +269,8 @@ __FLYMATRIX_CSS__
 @media(max-width:680px){.app{padding:22px 14px 60px}h1{font-size:28px}.wx .m{min-width:0}}
 </style></head><body><div class="app">
  __SWITCHER__
- <div class="eyebrow" id="eyebrow"></div>
- <h1 id="h1">Duck River</h1><div class="cap" id="cap"></div>
+ <div class="eyebrow">Smallmouth planner · Buffalo River · free-flowing State Scenic River</div>
+ <h1>Buffalo River</h1><div class="cap" id="cap"></div>
  <div class="card now" id="now"></div>
  <div class="sec">Flow forecast</div><div class="card chartc" id="chartc"></div>
  <div class="sec">Flow timer · scrub obs → forecast</div><div class="card ft" id="flowtimer"></div>
@@ -285,7 +281,7 @@ __FLYMATRIX_CSS__
  <div class="safe" id="safe"></div>
  <div class="sec">Live map · float accesses</div>
  <div class="card" style="padding:8px"><div id="lmap"></div></div>
- <div class="maptip">Real TWRA / public ramps on the OSM channel · Riverside (Columbia) → Centerville, ~60 river mi · tap a pin for details &amp; a Google Maps link
+ <div class="maptip">Public accesses on the OSM channel · Topsy → the Buffalo confluence, ~45 river mi · tap a pin for details &amp; a Google Maps link
  <div class="sec">6-day outlook</div><div class="card wk" id="wk"></div>
  <div class="sec">Weather</div><div class="card wx" id="wx"></div>
  <div class="sec">Moon &amp; feeding</div><div class="card sol" id="sol"></div>
@@ -308,8 +304,6 @@ __LOG_JS__
 __MOONCAL_JS__
 __FLOWTIMER_JS__
 __FLYMATRIX_JS__
-document.getElementById('eyebrow').textContent='Smallmouth planner · '+D.sec.label+' Duck · '+D.sec.blurb.split(' — ')[0];
-document.getElementById('h1').textContent='Duck · '+D.sec.label;
 document.getElementById('cap').innerHTML=D.today+' · '+D.route.src+'<div class="rte">'+D.route.why+'</div>';
 (function(){const c=D.cur;document.getElementById('now').innerHTML=
  '<div class="vg" style="background:'+c.col+'">'+c.cond+'</div>'
@@ -358,7 +352,7 @@ document.getElementById('cap').innerHTML=D.today+' · '+D.route.src+'<div class=
     +'Road shuttle ~'+s.shuttle+' mi between ramps — spot a vehicle first. Sized for your jet; launch at first light for the morning bite.</div>';}
  function renderSecs(){const S=D.sections;
   let h='<div class="fsub" style="padding:8px 0 4px;color:var(--faint)">Float sections at today\'s level'
-   +(D.colflow!=null?' (Columbia '+D.colflow+'k → Centerville '+(D.cur.flow||'?')+'k — upper reaches run skinnier)':'')
+   +(D.colflow!=null?' (Flat Woods '+D.colflow+'k → Lobelville '+(D.cur.flow||'?')+'k — the upper river runs skinnier)':'')
    +' · sized for <b>'+(craft==='jet'?'a jet boat':'a kayak / canoe')+'</b>:</div>';
   S.forEach(x=>{const fb=floatab(x.flow,craft),red=x.haz.indexOf('⚠')===0;
    h+='<div class="frow"><div class="fcond" style="background:'+fb[1]+'">'+fb[0]+'</div>'
@@ -367,7 +361,7 @@ document.getElementById('cap').innerHTML=D.today+' · '+D.route.src+'<div class=
     +'<div class="hazrow"'+(red?' style="color:#b3392f;font-weight:600"':'')+'>'+x.haz+'</div></div>'
     +'<div class="fmi"><b>'+x.mi+' mi</b>~'+x.hrs+' hrs<span style="display:block;color:var(--faint);font-size:11px">shuttle ~'+x.shuttle+' mi</span></div></div>';});
   flEl.innerHTML=h;}
- safe.innerHTML='<div style="font-size:16px">⚠</div><div><b>Float safety.</b> A low-head dam sits in downtown Columbia, between the Iron Bridge ramp and Riverside — launch at Riverside or Chickasaw Trace and float downstream only. Never approach a low-head dam from upstream; the hydraulic at its base drowns paddlers. Wear a PFD, scout blind bends, and expect fresh strainers after rain. Confirm the level before you shuttle.</div>';
+ safe.innerHTML='<div style="font-size:16px">⚠</div><div><b>Float safety.</b> There is no dam anywhere on the Buffalo — it is a free-flowing State Scenic River, so nothing buffers a rain event. It comes up fast and drops fast. Wear a PFD, scout blind bends, and expect fresh strainers after high water. Check the gauge the morning you go, not the night before.</div>';
  document.querySelectorAll('#crafttog a').forEach(a=>a.onclick=()=>{craft=a.dataset.c;
   document.querySelectorAll('#crafttog a').forEach(z=>z.classList.toggle('on',z.dataset.c===craft));renderSug();renderSecs();});
  renderSug();renderSecs();})();
@@ -379,7 +373,7 @@ buildMoonCal('mooncal',35.80,-87.37);
 buildFlowTimer('flowtimer',D.timeline);
 renderChatter('chatter',D.chatter,'chatterSec');
 buildLog('log','riverlog-duck',D.points.map(p=>p.name),null);
-document.getElementById('foot').textContent='Flow & 5-day forecast: NOAA National Water Prediction Service (gauge CNVT1, Duck River at Centerville). Fishability bands & water-temp are estimates — tune from the water. Weather: Open-Meteo. River channel from OpenStreetMap.';
+document.getElementById('foot').textContent='Flow & 5-day forecast: NOAA National Water Prediction Service (gauge LBVT1, Buffalo River near Lobelville). Fishability bands & water-temp are estimates — tune from the water. Weather: Open-Meteo. River channel from OpenStreetMap.';
 buildRiverMap(D,D.cur.col);
 </script></body></html>"""
 
@@ -389,34 +383,34 @@ def build_section(_S):
     COORD={k:v for k,v in COORD_ALL.items() if k in {a[0] for a in ACC}}
     _frac=(_S["f0"]+_S["f1"])/2.0
     _lag=route_lag_h(_frac)
-    # THIS reach's water, not Centerville's. The Duck roughly doubles between Columbia and
-    # Centerville (measured median gain x2.33), so quoting the downstream gauge on the upper
+    # THIS reach's water, not Lobelville's. The Buffalo gains about half again between Flat Woods and
+    # Lobelville (measured median gain x1.46), so quoting the downstream gauge on the upper
     # river overstates it by nearly 2x -- the difference between "prime" and "skinny".
     cur_flow=local_flow(_frac)
     FN,FG,FC_,FNOTE=fish(cur_flow,trend=="rising",trend=="falling")
     clar="stained/rising" if trend=="rising" else "clearing" if trend=="falling" else "steady"
-    # The outlook is the Centerville forecast scaled to this reach by the same channel position.
+    # The outlook is the Lobelville forecast scaled to this reach by the same channel position.
     _oscale=(cur_flow/cen_flow) if (cen_flow and cur_flow) else 1.0
     outlook=[]
     for _o in _OUTLOOK_BASE:
         _f=round(_o["flow"]*_oscale,2)
         _cond,_g,_col,_note=fish(_f,_o["trend"]=="↑",_o["trend"]=="↓")
         outlook.append(dict(_o,flow=_f,cond=_cond,grade=_g,col=_col,note=_note))
-    # Where this reach's forward signal comes from. Centerville is the ONLY NWPS forecast point
-    # on the Duck, so the upper reaches are predicted by routing the Columbia gauge downstream.
+    # Where this reach's forward signal comes from. Lobelville is the ONLY NWPS forecast point
+    # on the Buffalo, so the upper reaches are predicted by routing the Flat Woods gauge downstream.
     ROUTE={"lagH":round(_lag,1),"gain":ROUTE_GAIN,"r":ROUTE_R,"mph":ROUTE_MPH,"n":ROUTE_N,
            "lead":round(ROUTE_LAG_H-_lag,1),
-           "src":("Columbia gauge (USGS 03599500) — this reach's own water" if _S["id"]=="duckup"
-                  else ("routed from Columbia — a rise there lands here about %.0f h later"%_lag) if _S["id"]=="duckmid"
-                  else "NWPS forecast at Centerville (CNVT1) — this reach's own water"),
-           "why":("Columbia sits at the top of this reach, so that gauge is this water. It also runs "
-                  "%d h ahead of Centerville, which makes it the earliest warning on the river."%ROUTE_LAG_H
+           "src":("Flat Woods gauge (USGS 03604000) — this reach's own water" if _S["id"]=="duckup"
+                  else ("routed from Flat Woods — a rise there lands here about %.0f h later"%_lag) if _S["id"]=="duckmid"
+                  else "NWPS forecast at Lobelville (LBVT1) — this reach's own water"),
+           "why":("The Flat Woods gauge sits at the top of this water and runs "
+                  "%d h ahead of Lobelville, which makes it the earliest warning on the river."%ROUTE_LAG_H
                   if _S["id"]=="duckup" else
-                  ("No gauge sits on this reach. Columbia is above it and Centerville below, so the level "
-                   "here is interpolated between the two, and a rise at Columbia reaches this water about "
+                  ("No gauge sits on this reach. Flat Woods is above it and Lobelville below, so the level "
+                   "here is interpolated between the two, and a rise at Flat Woods reaches this water about "
                    "%.0f h later — leaving roughly %.0f h of warning before it arrives."%(_lag,_lag))
                   if _S["id"]=="duckmid" else
-                  "Centerville sits at the bottom of this reach and is the Duck's only NWPS forecast point, "
+                  "Lobelville sits at the bottom of this reach and is the Buffalo's only NWPS forecast point, "
                   "so this is the one section with a genuine published forecast rather than a routed one.")}
     sections=[]
     for i in range(len(ACC)-1):
@@ -452,14 +446,14 @@ def build_section(_S):
     flybox={"season":season,"clar":clar,"now":flies,
       "rig":"Get crawfish & Clousers on the bottom along rock, ledges and current seams (split-shot or a sink-tip), 8–10 lb tippet. Fish topwater on a floating line at first and last light.",
       "sources":[["FlyFishFinder","https://flyfishfinder.com/pages/best-smallmouth-bass-rivers-in-tennessee/"],["River Run Angling","https://riverrunangling.com/blog/bass-fishing-in-tennessee/"],["Wooly Buggin'","https://woolybuggin.com/smallies-on-the-fly-a-guide-for-river-smallmouth-bass/"]]}
-    ACC_TYPES={"Riverside":["paddle"],"Chickasaw Trace":["ramp","paddle"],"Williamsport":["ramp","paddle"],
-               "Leatherwood Bridge":["ramp","paddle"],"Littlelot":["ramp","paddle"],"River Park (Centerville)":["ramp","paddle"]}
-    ACC_INFO={"Riverside":"Riverside Dr, downtown Columbia — below the low-head dam (RM 133.5). Canoe/kayak; Maury Co. lists it 'technically closed' — use Chickasaw Trace as the practical put-in up top.",
-     "Chickasaw Trace":"Maury County motorized boat ramp off Santa Fe Pike (Hwy 7), ~3 mi NW of Columbia (RM 127). Best jet put-in on the upper stretch.",
-     "Williamsport":"TWRA motorized ramp at the TN Hwy 50 bridge, Williamsport (RM 113.9).",
-     "Leatherwood Bridge":"Private motorized ramp on Bratton Rd (2 mi N of Hwy 50), Bratton Bend near Shady Grove (RM 95) — muddy after rain.",
-     "Littlelot":"TWRA motorized ramp at the Hwy 230 bridge, Littlelot (RM 89.5). Top of the popular Littlelot→Centerville float (15.8 mi).",
-     "River Park (Centerville)":"Town of Centerville ramp at River Park by the TN Hwy 100 bridge (RM 73.7). Lower take-out, near the NWS gauge (CNVT1)."}
+    ACC_TYPES={"Topsy Bridge":["paddle"],"Flatwoods":["ramp","paddle"],"Linden (Hwy 100)":["ramp","paddle"],
+           "Beardstown":["paddle"],"Lobelville":["ramp","paddle"],"Buffalo Mouth (Hwy 13)":["ramp","paddle"]}
+    ACC_INFO={"Topsy Bridge":"Upper river, Lawrence Co. Floatable Nov\u2013Aug; too skinny in a dry late summer.",
+ "Flatwoods":"Perry Co. Crystal-clear water, and the USGS gauge here (03604000) is the only Buffalo gauge carrying water temperature.",
+ "Linden (Hwy 100)":"Perry Co seat at the Hwy 100 bridge. Canoe liveries; year-round floatable below this point.",
+ "Beardstown":"Mid-river access between Linden and Lobelville.",
+ "Lobelville":"Main lower-river access with canoe rental. The NWPS forecast point (LBVT1) sits just below.",
+ "Buffalo Mouth (Hwy 13)":"Lowest access before the Buffalo confluence; USGS 03604400 gauges it."}
     SOL=riverlib.solunar(now_ct.date(),(WXT or {}).get("sunrise"),(WXT or {}).get("sunset"),CT)
     # Seasonal forage calendar for river smallmouth (warmwater — dormant in the cold). 0-3 by month.
     HATCH={"rows":[
@@ -472,13 +466,13 @@ def build_section(_S):
      {"name":"Sculpin / streamer","icon":"🐠","pattern":"pre-spawn & fall grabs","m":[1,1,2,3,2,1,1,1,2,3,2,1]},
     ]}
     # flow-timer timeline: scrub obs+forecast. Flow river (whole reach moves together) but with the
-    # Columbia→Centerville gradient, so upstream ramps read skinnier than the Centerville gauge.
+    # Flat Woods→Lobelville gradient, so upstream ramps read skinnier than the Lobelville gauge.
     _ft=series
     _now=next((i for i,p in enumerate(_ft) if not p.get("obs")),len(_ft))-1
     def _dscale(fr):
         if col_flow is None or not cen_flow: return 1.0
         return max(0.25,(col_flow+fr*(cen_flow-col_flow))/cen_flow)
-    _dord=[(a[0].replace(" Bridge","").replace(" (Centerville)",""),a[2]) for a in ACC]
+    _dord=[("Topsy Bridge",0.025),("Chickasaw",0.131),("Williamsport",0.345),("Leatherwood",0.653),("Littlelot",0.742),("Lobelville",1.0)]
     TIMELINE=({"times":[p["t"] for p in _ft],"nowFrame":max(0,_now),"unit":"kcfs","dec":2,"refIdx":len(_dord)-1,"refName":_dord[-1][0],
       "front":False,"frontThresh":0,"srcLabel":_dord[0][0]+" ↑","mouthLabel":_dord[-1][0]+" ↓",
       "bands":[[0.9,"#20b2aa","Low"],[2.5,"#28c76f","Prime"],[4.5,"#f2a832","High"],[10**9,"#8b6cef","Blown"]],
@@ -509,7 +503,7 @@ def build_section(_S):
       "now":{"clarity":_dcl,"light":_dlight,"fly":FLYMATRIX[_dcl][_dlight]},
       "rig":"Crawfish & Clousers on the bottom along rock, ledges & seams (split-shot or a sink-tip), 8–10 lb tippet. Topwater on a floating line at first & last light.",
       "sources":[["FlyFishFinder","https://flyfishfinder.com/pages/best-smallmouth-bass-rivers-in-tennessee/"],["River Run Angling","https://riverrunangling.com/blog/bass-fishing-in-tennessee/"],["Wooly Buggin'","https://woolybuggin.com/smallies-on-the-fly-a-guide-for-river-smallmouth-bass/"]]}
-    DATA={"today":now_ct.strftime("%A, %B %-d · %-I:%M %p"),"flysel":FLYSEL,"colflow":col_flow,"solunar":SOL,"hatch":HATCH,"month":now_ct.month,"chatter":riverlib.load_intel("duck"),"timeline":TIMELINE,
+    DATA={"today":now_ct.strftime("%A, %B %-d · %-I:%M %p"),"flysel":FLYSEL,"colflow":col_flow,"solunar":SOL,"hatch":HATCH,"month":now_ct.month,"chatter":riverlib.load_intel("buffalo"),"timeline":TIMELINE,
           "sections":sections,"suggest":FLOAT,"route":ROUTE,"sec":_S,"craft":CRAFT,"craft0":CRAFT0,
           "cur":{"flow":round(cur_flow,2) if cur_flow is not None else None,"stage":round(cur_stage,1) if cur_stage is not None else None,
                  "trend":trend,"cond":FN,"grade":FG,"col":FC_,"note":FNOTE,"clar":clar,"wtemp":wtemp,
@@ -524,8 +518,8 @@ def build_section(_S):
 
     # ---- HQ day state ----
     # The only non-dam river with a real forward flow forecast: NWPS publishes observed +
-    # forecast stage/flow for CNVT1. Rows are (time, stage_ft, flow_kcfs), so scale to cfs.
-    def _duck_day(off):
+    # forecast stage/flow for LBVT1. Rows are (time, stage_ft, flow_kcfs), so scale to cfs.
+    def _buff_day(off):
         d0, _ = riverlib.day_bounds(CT, off)
         rows = [(t, (v * 1000 if v is not None else None)) for t, s, v in (OBS + FC)]
         cv = riverlib.curve_from_rows(rows, d0)
@@ -534,24 +528,24 @@ def build_section(_S):
             return riverlib.day_state(headline="No NWPS reading for this day")
         med = sorted(vals)[len(vals) // 2]
         # Vessel from the sourced model (riverlib.WATER_MODEL), not from guessed bands.
-        vk, _vlabel, vw, _conf = riverlib.craft_label(_S["id"], med)
+        vk, _vlabel, vw, _conf = riverlib.craft_label("buffalo", med)
         lk = "low" if med < 400 else "prime" if med < 3000 else "high" if med < 8000 else "blown"
         ck = "clear" if med < 1200 else "stained" if med < 4000 else "colored" if med < 8000 else "muddy"
         # Anything past the last observation is forecast; before that it is measured.
         last_obs = OBS[-1][0].timestamp() if OBS else 0
         src = "forecast" if (d0 + 86400) > last_obs else "observed"
         return riverlib.day_state(vessel=vk, vessel_why=vw, vessel_label=_vlabel,
-            clarity=ck, clarity_why="inferred from flow; Duck colours up fast after rain",
+            clarity=ck, clarity_why="inferred from flow; the Buffalo runs clear and colours up fast after rain",
             level=lk, level_detail=format(round(med), ",") + " cfs",
-            curve=cv, curve_unit="cfs", curve_label="Duck at Centerville (NWPS)", curve_src=src,
+            curve=cv, curve_unit="cfs", curve_label="Buffalo near Lobelville (NWPS)", curve_src=src,
             headline=format(round(med), ",") + " cfs \u00b7 " + {"wade":"skinny","both":"prime float","boat":"pushy","":""}.get(vk, ""))
-    DAYS = {"today": _duck_day(0), "tomorrow": _duck_day(1)}
+    DAYS = {"today": _buff_day(0), "tomorrow": _buff_day(1)}
 
     riverlib.emit_status(_S["id"],
         {"grade":FG,"cond":FN,"col":FC_,"note":FNOTE,
          "detail":(("%s cfs"%format(round(cur_flow*1000),",")) if cur_flow is not None else "—"),
          "asof":(OBS[-1][0].astimezone(CT).strftime("%-I:%M %p") if OBS else now_ct.strftime("%-I:%M %p"))},
-        wx, riverlib.GRADE_SCORE.get(FG,1.3), CT, ["Smallmouth","Panfish"], "Warmwater smallmouth", "~50 min · Columbia", days=DAYS)
+        wx, riverlib.GRADE_SCORE.get(FG,1.3), CT, ["Smallmouth","Panfish"], "Warmwater smallmouth", "~95 min · Lobelville", days=DAYS)
     print("wrote out/%s.html | %s %s\u2013%s | flow %s kcfs %s | grade %s | lag %.1fh"%(_S["id"],_S["label"],ACC[0][0],ACC[-1][0],cur_flow,trend,FG,_lag))
 
 

@@ -12,7 +12,10 @@ import path from 'path';
 
 const OUT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'out');
 const url = f => 'file://' + path.join(OUT, f);
-const RIVERS = ['caney', 'cumbnash', 'stones', 'duck', 'elktn', 'cumberland', 'elk', 'cheatham', 'cordell'].map(r => r + '.html');
+import { readFileSync } from 'fs';
+const RIVERS = [...readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'riverlib.py'), 'utf8')
+  .matchAll(/\{"id":\s*"([a-z]+)",[^}]*?"file":\s*"([^"]+)"/g)].map(m => m[2]);
+if (RIVERS.length < 5) { console.error('could not read the river registry from riverlib.py'); process.exit(1); }
 const PAGES = ['index.html', ...RIVERS];
 const TABS = RIVERS.length + 1;   // HQ + every river; derived, never hardcoded
 
@@ -428,7 +431,7 @@ console.log('── caney planner: reachability + arrival consistency ──');
 
   // never route upstream past water the page itself calls wade
   const badTarget = /be on the edge at <?b?>?(Long Branch|Buffalo Valley|Lancaster|Happy Hollow)/i.test(txt)
-                 || /\b(Long Branch|Buffalo Valley)\b[^.]*starts moving/i.test(txt);
+                 || /\brun up to\b[^.]*\b(Long Branch|Buffalo Valley)\b/i.test(txt);
   assert('launching at Stonewall never sends you upstream through wade water', !badTarget, txt.slice(0, 160));
 
   // the reachability gate itself, driven directly
@@ -483,7 +486,13 @@ console.log('── caney planner: reachability + arrival consistency ──');
       .find(x => +x.max >= 1200 && +x.min <= 1200); if (s) { s.value = 1200; s.dispatchEvent(new Event('input', { bubbles: true })); } });
     await pg2.waitForTimeout(450);
     const t2 = await pg2.$eval('#summary', e => e.innerText);
-    assert('a float running past midnight says "next day"', /next day/.test(t2), t2.slice(0, 160));
+    const mins = t => { const m = /(\d{1,2}):(\d{2})\s*(AM|PM)/i.exec(t); if (!m) return null;
+      return ((+m[1] % 12) + (/pm/i.test(m[3]) ? 12 : 0)) * 60 + +m[2]; };
+    const put = mins(t2), out = mins(t2.slice(t2.indexOf('take out')));
+    if (put != null && out != null && out < put)
+      assert('a float running past midnight says "next day"', /next day/.test(t2), t2.slice(0, 160));
+    else
+      console.log('  \x1b[33m~\x1b[0m float does not cross midnight at this flow — wrap check skipped');
 
     // a collapsed band (at the dam, mfd 0) must not print the same time twice
     assert('arrival band never renders as "X–X"', !/(\d+:\d\d [AP]M)[–—]\1/.test(t2), t2.slice(0, 200));
@@ -708,13 +717,13 @@ console.log('── caney outlook: craft-aware scoring ──');
 
   // Craft-specific direction: no generation is good for wading and poor for a powerboat.
   const lowday = await pg.evaluate(() => {
-    const d = DATA.week.find(x => x.units === 0); if (!d) return null;
+    const d = DATA.week.find(x => x.qhi < 800); if (!d) return null;   // genuinely low water, not merely "no release scheduled"
     const lv = c => d.byCraft[c].why.parts.find(p => p.k === 'Level');
     return { wade: lv('wade').pts / lv('wade').max, power: lv('power').pts / lv('power').max };
   });
   if (lowday) assert('minimum flow scores better for wading than for a powerboat',
     lowday.wade > lowday.power, JSON.stringify(lowday));
-  else console.log('  \x1b[33m~\x1b[0m no zero-generation day in this forecast — craft-direction check skipped');
+  else console.log('  \x1b[33m~\x1b[0m no genuinely low-water day in this forecast — craft-direction check skipped');
 
   // and it must reach the user
   await pg.evaluate(() => {

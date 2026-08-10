@@ -28,8 +28,16 @@ RIVERS = [
      "on_bg": "#eef1f6", "on_fg": "#3a5a8c", "species": "Striped bass & smallmouth"},
     {"id": "stones",     "name": "Stones River","emoji": "🪨", "file": "stones.html",
      "on_bg": "#eef0ec", "on_fg": "#5a6b52", "species": "White bass, trout & panfish"},
-    {"id": "duck",       "name": "Duck River",  "emoji": "🐟", "file": "duck.html",
+    # The Duck is 284 miles long and fishes as three different rivers between Columbia and
+    # Centerville, so it is three pages split at the jet-boat ramps rather than one average.
+    {"id": "duckup",     "name": "Duck · Upper (Columbia)", "emoji": "🐟", "file": "duckup.html",
      "on_bg": "#eafaf0", "on_fg": "#1e7a45", "species": "Smallmouth"},
+    {"id": "duckmid",    "name": "Duck · Middle (Williamsport)", "emoji": "🐟", "file": "duckmid.html",
+     "on_bg": "#e6f7ec", "on_fg": "#19693b", "species": "Smallmouth"},
+    {"id": "ducklow",    "name": "Duck · Lower (Centerville)", "emoji": "🐟", "file": "ducklow.html",
+     "on_bg": "#e2f4e9", "on_fg": "#155831", "species": "Smallmouth"},
+    {"id": "buffalo",    "name": "Buffalo River", "emoji": "🦬", "file": "buffalo.html",
+     "on_bg": "#f6f0e6", "on_fg": "#8a6524", "species": "Smallmouth"},
     {"id": "elktn",      "name": "Elk · Tims Ford", "emoji": "🐠", "file": "elktn.html",
      "on_bg": "#e7f3fb", "on_fg": "#1e7ac2", "species": "Tailwater trout (Tims Ford)"},
     {"id": "cumberland", "name": "Cumberland KY","emoji": "🟤", "file": "cumberland.html",
@@ -1376,6 +1384,36 @@ def arrival_window(mfd, stage="first"):
 # suggest wading a river you cannot wade, or a power boat on water you only kayak. The
 # flow thresholds decide WHICH available craft fits today, never whether one exists.
 WATER_MODEL = {
+    # --- Duck, by section ---------------------------------------------------------------
+    # Wade thresholds come from USGS field measurements at 03599500 (Columbia), so they describe
+    # the UPPER reach directly. The Duck's flow roughly doubles between Columbia and Centerville
+    # (measured median gain x2.33, analysis/duck_routing.py), so the same wadeability downstream
+    # takes correspondingly more water. Each section carries the thresholds for its own reach.
+    "duckup": {"craft": ["boat", "wade"],
+        "craft_why": "jet boat, and genuinely wadeable at summer level up top",
+        "wade_ok": 560, "wade_marginal": 915, "no_wade": 1200,
+        "depth_exp": 0.633, "fit_r2": 0.87, "n_meas": 255, "substrate": "gravel & ledge",
+        "src": "USGS field measurements at 03599500 (Columbia, in this reach): waded 95% at 128 cfs, 100% at 209, 96% at 342, 74% at 559, 16% at 915, 0% at 1,495. P(wade) crosses 50% at ~915.",
+        "note": "The skinniest of the three reaches — the gauge here is the river, not an estimate."},
+    "duckmid": {"craft": ["boat"],
+        "craft_why": "boat only — no gauge on this reach and the shoals are unforgiving",
+        "wade_ok": 900, "wade_marginal": 1500, "no_wade": 2000,
+        "depth_exp": 0.633, "fit_r2": 0.87, "n_meas": 255, "substrate": "gravel & ledge",
+        "src": "Scaled from the Columbia measurements (03599500) by the measured Columbia→Centerville gain (x2.33 median, analysis/duck_routing.py); this reach sits about halfway between the two gauges.",
+        "note": "No gauge sits on this water. Everything here is interpolated between Columbia and Centerville — treat it as an estimate, not a reading."},
+    "ducklow": {"craft": ["boat"],
+        "craft_why": "boat only — the biggest, deepest water of the three",
+        "wade_ok": 1300, "wade_marginal": 2100, "no_wade": 2800,
+        "depth_exp": 0.633, "fit_r2": 0.87, "n_meas": 255, "substrate": "gravel & ledge",
+        "src": "Scaled from the Columbia measurements (03599500) by the measured Columbia→Centerville gain (x2.33 median, analysis/duck_routing.py). Gauged directly at 03601990 / NWPS CNVT1.",
+        "note": "The only Duck reach with a published forward forecast (NWPS CNVT1)."},
+    "buffalo": {"craft": ["paddle", "wade"],
+        "craft_why": "canoe/kayak water with wadeable shoals — too skinny for a jet most of the year",
+        "wade_ok": 350, "wade_marginal": 600, "no_wade": 900,
+        "depth_exp": 0.60, "fit_r2": None, "n_meas": 0, "substrate": "gravel & bedrock",
+        "src": "NOT a field-measurement fit — no USGS wading measurements were available for 03604000 at build time. Thresholds are scaled from the Duck's measured curve by drainage size and confirmed only against the qualitative record (TWRA/State Scenic River: floatable Nov–Aug above Flat Woods, year-round below Linden).",
+        "note": "Free-flowing State Scenic River — no dam anywhere on it, so it rises and drops fast. Unverified thresholds: treat the craft call as provisional."},
+
  "caney": {
    "craft": ["wade","float","boat"], "craft_why": "wade, drift/float, or power boat depending on release",
    "wade_ok": 400, "wade_marginal": 600, "no_wade": 1000,
@@ -1405,15 +1443,6 @@ WATER_MODEL = {
           "17% at 395, 0% at 634 (crossover ~246). Consistent with the general "
           "wading-safety guidance that above ~550 cfs current is unsafe to wade.",
    "note": "",
- },
- "duck": {
-   "craft": ["boat"], "craft_why": "boat only — the 60/40 jet",
-   "wade_ok": 560, "wade_marginal": 915, "no_wade": 1200,
-   "depth_exp": 0.633, "fit_r2": 0.87, "n_meas": 255, "substrate": "unspecified",
-   "src": "USGS field measurements at 03599500, the cleanest gradient of any river "
-          "here: waded 95% at 128 cfs, 100% at 209, 96% at 342, 74% at 559, 16% at "
-          "915, 0% at 1,495. P(wade) crosses 50% at ~915.",
-   "note": "Free-flowing: no generation to watch, but it rises fast after rain.",
  },
  "cumberland": {
    "craft": ["boat","wade"], "craft_why": "boat or wade, gated on generation",
@@ -1749,3 +1778,33 @@ def emit_status(river_id, now, wx, base_score, tz, species, kind, drive, per_dat
               "week": build_week(wx, base_score, tz, per_date_note)}
     write_status(river_id, status)
     return status
+
+# The Duck sections and the Buffalo reuse the Duck's shared copy (bands, flies, regs, hazards)
+# and override only what actually differs per reach. Derived rather than duplicated so a fix to
+# the Duck's fly list or regs cannot land on one section and miss the other two.
+def _derive(base, **over):
+    import copy as _copy
+    d = _copy.deepcopy(RIVER_CONFIG[base]); d.update(over); return d
+
+RIVER_CONFIG["duckup"] = _derive("duck", name="Duck · Upper",
+    sub="Columbia to Williamsport — 19.6 mi, the skinniest reach",
+    gauge={"type": "usgs", "site": "03599500", "label": "Duck River at Columbia (USGS 03599500)"},
+    lat=35.66, lon=-87.09)
+RIVER_CONFIG["duckmid"] = _derive("duck", name="Duck · Middle",
+    sub="Williamsport to Leatherwood — 18.9 mi, no gauge of its own",
+    gauge={"type": "derived", "site": "03599500", "label": "interpolated: Columbia ↔ Centerville"},
+    lat=35.70, lon=-87.27)
+RIVER_CONFIG["ducklow"] = _derive("duck", name="Duck · Lower",
+    sub="Leatherwood to Centerville — 21.3 mi, the only forecast reach",
+    gauge={"type": "nwps", "lid": "CNVT1", "label": "Duck River at Centerville (NWS CNVT1)"},
+    lat=35.78, lon=-87.40)
+RIVER_CONFIG["buffalo"] = _derive("duck", name="Buffalo River",
+    sub="Topsy to the Duck confluence — free-flowing State Scenic River",
+    species="Smallmouth", vessel="canoe / kayak",
+    gauge={"type": "nwps", "lid": "LBVT1", "label": "Buffalo River near Lobelville (NWS LBVT1)"},
+    lat=35.66, lon=-87.81,
+    launch={"name": "Linden or Lobelville",
+            "desc": "Canoe liveries at Linden and Lobelville. Year-round floatable below Linden; the upper river above Flat Woods needs winter–spring water."},
+    hazards=["No dam anywhere on the Buffalo — nothing buffers a rain event. It rises fast and drops fast.",
+             "Strainers, logjams and deadfall on the bends, worst after high water.",
+             "Wear a PFD, scout blind bends, and check the gauge the morning you go."])

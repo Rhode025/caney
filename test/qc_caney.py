@@ -328,7 +328,7 @@ for _i,_cal in enumerate(D['calendar']):
     if 'reach the take-out before the rise ever catches you' in _pr:
         chk("float plan that says you'd miss it also gives a put-in: day %d"%_i, bool(_mr), _pr[:140])
 # release times vary across the week, so the recommendation must vary too
-_relspans={ (g.get('span') or 'none') for g in D['gen'] }
+_relspans={ g['span'] for g in D['gen'] if g.get('span') }   # only days that actually generate
 if len(_relspans)>1:
     chk("launch time responds to the release schedule", len(_launches)>1,
         "spans %s -> launches %s"%(sorted(_relspans),sorted(_launches)))

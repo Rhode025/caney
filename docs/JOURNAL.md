@@ -9,6 +9,69 @@ belongs to a commit goes in the commit message. This file is for *state and inte
 
 ---
 
+## 2026-08-10 — Duck split into three sections; Buffalo River added
+
+**Twelve river pages now, up from nine.** `duck` is retired and replaced by `duckup` / `duckmid`
+/ `ducklow`; `buffalo` is new. `duck.py` emits all three Duck pages from ONE run (one fetch, one
+engine) so a fix cannot land on one section and miss the others.
+
+**Why split.** The single Duck page quoted the Centerville gauge for 59 miles of river. Measured
+today, that reach is not one river:
+
+```
+Riverside  0.40 kcfs   Chickasaw 0.44   Williamsport 0.72
+Leatherwood 1.14       Littlelot 1.25   Centerville  1.60
+```
+
+Quoting Centerville on the upper river overstated it by ~4x. Upper now grades Fair (skinny)
+while Lower grades Good — on the same day, from the same data.
+
+**The routing engine (`analysis/duck_routing.py`) — measured, not assumed.** Cross-correlating
+the two gauges over 120 days:
+
+| River | Reach | Lag | r | Gain | n |
+|---|---|---|---|---|---|
+| Duck | Columbia RM133.3 → Centerville RM74.0, 59.3 mi | **14 h** | 0.899 | x2.33 median | 2,868 h |
+| Buffalo | Flat Woods → Lobelville, 28 mi | **22 h** | 0.973 | x1.46 median | 2,869 h |
+
+This matters because **NWPS forecasts Centerville (CNVT1) and nothing upstream**. So the Columbia
+gauge is a 14-hour head start on the lower river, and the only forward signal the upper and
+middle reaches have. Each page says which of the three it is living on:
+
+- **Upper** — Columbia gauge IS this water, and runs 14 h ahead of everything below it
+- **Middle** — no gauge at all; interpolated, and says so
+- **Lower** — the only reach with a published NWPS forecast
+
+**Sections split at JET-BOAT ramps**, not paddler accesses — you cannot end a jet trip at a
+canoe slide. Boundaries: Riverside 133.5 → Williamsport 113.9 → Leatherwood 95.0 → Centerville
+73.7 (19.6 / 18.9 / 21.3 mi). The user asked for ~18/15/7; the real motorized ramps fall where
+they fall, and the ramps won.
+
+**Buffalo River** is the same engine on a free-flowing State Scenic River — no dam anywhere, so
+nothing buffers rain. Flat Woods (03604000) is the only gauge on either river carrying water
+temperature.
+
+**Access data** came from the TWRA/paddler access table (43 points, RM 265.4→11.7, with owner
+and motorized/canoe type per site) — extracted from a PDF, not guessed.
+
+**Known soft spots, all flagged in code:**
+
+- The Buffalo's wade thresholds are NOT a field-measurement fit — no USGS wading measurements
+  were available for 03604000. Scaled from the Duck's curve; `WATER_MODEL["buffalo"]["src"]`
+  says so outright.
+- Buffalo river miles are approximate; TWRA publishes none for that river.
+- The Middle Duck has no gauge. Everything on it is interpolated and the page says so.
+
+**A test that claimed to be derived was hardcoded.** `test/browser.mjs` carried
+`const RIVERS = [...]` with the comment "derived, never hardcoded" on the very next line. It
+broke the moment the registry changed — exactly as `verify.py`'s `RIVER_FILES` did once before.
+It now reads the registry out of `riverlib.py`. Two more Caney checks were data-fragile rather
+than wrong (a float that only crosses midnight at low flow; a craft check keyed on "no release
+scheduled" when the water was still 900 cfs from yesterday's) and now assert the rule instead of
+the day.
+
+---
+
 ## 2026-08-05 — Backtested the timing. The model was right; I was wrong.
 
 I had recorded a "~1–2 h early bias at Stonewall" as the next thing worth backtesting. Backtested

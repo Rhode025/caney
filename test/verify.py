@@ -13,7 +13,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "out")
 STATUS = os.path.join(OUT, "status")
 
-RIVERS = ["caney", "cumbnash", "stones", "duck", "elktn", "cumberland", "elk", "cheatham", "cordell"]
+RIVERS = ["caney", "cumbnash", "stones", "duckup", "duckmid", "ducklow", "buffalo",
+          "elktn", "cumberland", "elk", "cheatham", "cordell"]
 # Derived, never hand-maintained: a hand-written copy of this map silently skipped
 # cheatham.html and cordell.html from every per-file check for one release.
 RIVER_FILES = {r: r + ".html" for r in RIVERS}
@@ -198,7 +199,7 @@ check("spring note names the run",
 
 # craft is user-stated ground truth and must gate every verdict: the board must never
 # suggest a vessel a river does not take, whatever the flow says.
-_CRAFT_SPEC = {"caney": {"wade", "float", "boat"}, "duck": {"boat"}, "cumbnash": {"boat"},
+_CRAFT_SPEC = {"caney": {"wade", "float", "boat"}, "duckup": {"boat", "wade"}, "duckmid": {"boat"}, "ducklow": {"boat"}, "buffalo": {"paddle", "wade"}, "cumbnash": {"boat"},
                "cumberland": {"boat", "wade"}, "elktn": {"kayak", "wade"}, "stones": {"boat"}}
 for _rid, _want in _CRAFT_SPEC.items():
     check("craft set matches the stated spec: " + _rid,
