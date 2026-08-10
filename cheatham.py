@@ -129,6 +129,11 @@ POINTS=[
  {"name":"Cheatham Dam Tailwater","lat":36.320417,"lon":-87.225417,"types":["ramp"],
   "info":"USACE Cheatham Dam tailwater access, below the lock and dam — the striper & smallmouth tailrace. Official USACE location (LRN, ASHT1). Strong current when they generate; stay off the dam.","rm":148},
 ]
+# Attach the state's published record for each site (ramp surface, lanes, hull limit,
+# parking, trailer spaces, facilities) where TWRA maps one within 400 m.
+for _p in POINTS:
+    if "lat" in _p: _p["twra"]=riverlib.twra_for(_p["lat"],_p["lon"],"cumberland river")
+
 # NOTE (RIVER_SPEC §2): this is the ONE access point verified against an authority — USACE
 # CWMS publishes it as an official location with official coordinates. Other ramps on this
 # reach (Lock B, Sycamore, Harpeth mouth, Clarksville) are mapped in OSM as unnamed slipways

@@ -9,6 +9,45 @@ belongs to a commit goes in the commit message. This file is for *state and inte
 
 ---
 
+## 2026-08-10 (5) — TWRA site detail on the access pins
+
+Extended `analysis/twra_access.json` from coordinates to the **full published record** per site:
+ramp surface and lane count, hull-size limit, parking and trailer-space bands, road/parking
+surface, restroom, courtesy dock, fishing pier, accessible parking, lighting, camping, gas, bait,
+fee, sunrise-to-sunset restriction, owner/manager, and TWRA's own driving directions. The source
+uses Access-style booleans (`-1` true / `0` false); those are decoded to real booleans on the way
+in so nothing downstream has to know that.
+
+`riverlib.twra_for(lat, lon, water_key)` attaches the record and `accessPopup` renders it under a
+green **TWRA** rule, visually separate from our own notes — these are the state's record for the
+site, not our read of it. Wired into every generator. **11 of 49 accesses** now carry one; the
+rest are county, private or informal sites TWRA does not map.
+
+**The matching radius was the sharp edge.** At 400 m the I-40 Welcome Center sat 218 m from the
+Betty's Island ramp and claimed its record — one site's ramp and parking shown under another's
+name. Every genuine match is within 61 m, so the radius is now 150 m. Williamsport is still
+claimed by two *pages*, which is correct: it is the shared boundary between the Upper and Middle
+Duck. QC asserts a site is never claimed twice on one page.
+
+**Three inconsistencies the data exposed:**
+
+1. Our Riverside note said "canoe/kayak; Maury Co. lists it technically closed" while TWRA lists a
+   **concrete ramp for 26 ft boats**. Two different places: the Riverside Dam canoe slide and
+   TWRA's Riverside Access Area just below it. The note now distinguishes them and the access
+   carries `ramp`.
+2. Popups printed **"river mile 19"** for Happy Hollow — the retired `rm` basis — while the
+   planner calls the same spot 6.0 mi below the dam. Popups now prefer `mfd`.
+3. `owner` is frequently the literal string "TWRA", which rendered as "TWRA · TWRA"; and TWRA
+   stores parking spaces and trailer spaces as separate fields that often carry the same bucket,
+   which read as two facts. Both collapsed.
+
+Records with nothing but a name are dropped rather than rendering an empty section — TWRA carries
+several canoe accesses (LINDEN) with no ramp, parking or facility data at all.
+
+QC is now **159 checks**.
+
+---
+
 ## 2026-08-10 (4) — Cross-referenced every access against the TWRA access map
 
 Pulled the official TWRA Boating & Fishing Access layer (`tnmap.tn.gov/arcgis/rest/services/

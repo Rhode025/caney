@@ -202,6 +202,36 @@ if os.path.exists(TWRA_PATH):
 else:
     warn("TWRA reference data present", False, "analysis/twra_access.json missing")
 
+# ── TWRA site detail attached to the pins ────────────────────────────────────
+# Ramp surface, lane count, hull limit, parking and facilities come from the state's own record.
+# The matching radius is the sharp edge here: at 400 m the I-40 Welcome Center claimed the
+# Betty's Island ramp 218 m away and would have shown one site's facilities under another's name.
+if os.path.exists(TWRA_PATH):
+    _claims = {}
+    _detail = 0
+    for _f in sorted(glob.glob(os.path.join(ROOT, "out", "*.html"))):
+        _rid = os.path.basename(_f)[:-5]
+        if _rid == "index": continue
+        _d = page_any(_rid)
+        if not _d: continue
+        for _p in (_d.get("points") or []):
+            _T = _p.get("twra")
+            if not _T: continue
+            _detail += 1
+            chk("TWRA record is a close match, not a neighbouring site: %s/%s" % (_rid, _p["name"]),
+                _T.get("m", 999) <= 150, "%s m from %s" % (_T.get("m"), _T.get("name")))
+            chk("TWRA record carries something worth showing: %s/%s" % (_rid, _p["name"]),
+                any(_T.get(k) for k in ("ramp", "launchable", "parking", "trailer_spaces",
+                                        "surface", "restroom", "dock", "pier", "camping", "gas")),
+                json.dumps(_T)[:80])
+            _claims.setdefault(_T["name"], set()).add(_rid + "/" + _p["name"])
+    chk("at least the known TWRA ramps are attached", _detail >= 8, str(_detail))
+    # one TWRA site may appear on two PAGES (a shared section boundary) but never twice on one
+    for _site, _who in _claims.items():
+        _pages = [w.split("/")[0] for w in _who]
+        chk("no TWRA site is claimed twice on one page: " + _site,
+            len(_pages) == len(set(_pages)), str(sorted(_who)))
+
 print("QC — Duck sections + Buffalo")
 print("  passed : %d" % len(OK))
 print("  warned : %d" % len(WARN))

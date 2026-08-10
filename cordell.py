@@ -126,6 +126,11 @@ POINTS=[
  {"name":"Cordell Hull Dam Tailwater","lat":36.285278,"lon":-85.939722,"types":["ramp"],
   "info":"USACE Cordell Hull Dam tailwater access, below the lock and dam at Carthage. Official USACE location (LRN, CORT1). Strong current when they generate; stay off the dam.","rm":313},
 ]
+# Attach the state's published record for each site (ramp surface, lanes, hull limit,
+# parking, trailer spaces, facilities) where TWRA maps one within 400 m.
+for _p in POINTS:
+    if "lat" in _p: _p["twra"]=riverlib.twra_for(_p["lat"],_p["lon"],"cumberland river")
+
 # NOTE (RIVER_SPEC §2): the ONE access point verified against an authority (USACE CWMS
 # official location + coordinates). OSM slipways nearby are unnamed and several sit on
 # Cordell Hull LAKE above the dam rather than the tailwater, so they are omitted rather

@@ -175,6 +175,7 @@ except Exception as e: print("calib warn:",e)
 # "info" is what accessPopup shows when present; without it the popup falls back to the
 # short note, which silently dropped Kirby Road's "wade access only, not a launch" warning.
 points=[{"name":s["name"],"note":s["note"],"info":s.get("info",""),"rm":s["rm"],"mfd":s["mfd"],"types":s["types"],"reach":s["reach"],"d0":s["d0"],
+         "twra":riverlib.twra_for(s["lat"],s["lon"],"caney fork"),
          "lat":s["lat"],"lon":s["lon"],
          "flow":[round(flow_at(s,tod_mid+h*3600) or 0) for h in range(180)]} for s in ACCESS]
 

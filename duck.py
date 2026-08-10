@@ -493,9 +493,9 @@ def build_section(_S):
     flybox={"season":season,"clar":clar,"now":flies,
       "rig":"Get crawfish & Clousers on the bottom along rock, ledges and current seams (split-shot or a sink-tip), 8–10 lb tippet. Fish topwater on a floating line at first and last light.",
       "sources":[["FlyFishFinder","https://flyfishfinder.com/pages/best-smallmouth-bass-rivers-in-tennessee/"],["River Run Angling","https://riverrunangling.com/blog/bass-fishing-in-tennessee/"],["Wooly Buggin'","https://woolybuggin.com/smallies-on-the-fly-a-guide-for-river-smallmouth-bass/"]]}
-    ACC_TYPES={"Riverside":["paddle"],"Chickasaw Trace":["ramp","paddle"],"Williamsport":["ramp","paddle"],
+    ACC_TYPES={"Riverside":["ramp","paddle"],"Chickasaw Trace":["ramp","paddle"],"Williamsport":["ramp","paddle"],
                "Leatherwood Bridge":["ramp","paddle"],"Littlelot":["ramp","paddle"],"River Park (Centerville)":["ramp","paddle"]}
-    ACC_INFO={"Riverside":"Riverside Dr, downtown Columbia — below the low-head dam (RM 133.5). Canoe/kayak; Maury Co. lists it 'technically closed' — use Chickasaw Trace as the practical put-in up top.",
+    ACC_INFO={"Riverside":"TWRA Riverside Access Area, Riverside Dr in downtown Columbia — a TWRA concrete ramp BELOW the low-head dam (RM 133.5). Not to be confused with the Riverside Dam canoe slide just upstream, which Maury Co. lists as technically closed.",
      "Chickasaw Trace":"Maury County motorized boat ramp off Santa Fe Pike (Hwy 7), ~3 mi NW of Columbia (RM 127). Best jet put-in on the upper stretch.",
      "Williamsport":"TWRA motorized ramp at the TN Hwy 50 bridge, Williamsport (RM 113.9).",
      "Leatherwood Bridge":"Private motorized ramp on Bratton Rd (2 mi N of Hwy 50), Bratton Bend near Shady Grove (RM 95) — muddy after rain.",
@@ -556,7 +556,8 @@ def build_section(_S):
                  "trend":trend,"cond":FN,"grade":FG,"col":FC_,"note":FNOTE,"clar":clar,"wtemp":wtemp,
                  "asof":(OBS[-1][0].astimezone(CT).strftime("%-I:%M %p") if OBS else now_ct.strftime("%-I:%M %p"))},
           "outlook":outlook,"series":series,"weather":WXT,"tips":tips,
-          "points":[{"name":k,"lat":COORD[k][0],"lon":COORD[k][1],"types":ACC_TYPES.get(k,[]),"info":ACC_INFO.get(k,"")} for k in COORD],
+          "points":[{"name":k,"lat":COORD[k][0],"lon":COORD[k][1],"types":ACC_TYPES.get(k,[]),"info":ACC_INFO.get(k,""),
+                     "twra":riverlib.twra_for(COORD[k][0],COORD[k][1],"duck river")} for k in COORD],
           "poly":POLY_ALL[_S["p0"]:_S["p1"]]}
 
     html=riverlib.render(TEMPLATE,_S["id"]).replace("__DATA__",json.dumps(DATA))

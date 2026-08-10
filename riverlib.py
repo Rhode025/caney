@@ -369,6 +369,47 @@ BUILDSTAMP_JS = r"""
 """
 
 # ── shared JS: access-point popups with Google Maps links (all rivers) ───────
+
+# ── TWRA Boating & Fishing Access facts ───────────────────────────────────────
+# The state publishes ramp surface, lane count, hull-size limit, parking, trailer spaces and
+# facilities per site (analysis/twra_access.json, pulled from the TWRA ArcGIS layer). Matching is
+# by PROXIMITY, not name: TWRA's naming differs from local usage ("Chickasaw Trace park",
+# "Riverside Access Area", an unnamed city ramp at Centerville), so a name match would miss most
+# of them while a 400 m radius on a river is unambiguous.
+_TWRA_CACHE = None
+def twra_sites():
+    global _TWRA_CACHE
+    if _TWRA_CACHE is None:
+        try:
+            _p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "analysis", "twra_access.json")
+            _TWRA_CACHE = json.load(open(_p))["sites"]
+        except Exception as e:
+            print("twra warn:", e); _TWRA_CACHE = []
+    return _TWRA_CACHE
+
+def twra_for(lat, lon, water_key=None, radius_m=150):
+    """Nearest TWRA access site to these coordinates, or None."""
+    best = None
+    for t in twra_sites():
+        if water_key and water_key not in t["water"].lower(): continue
+        d = math.hypot((t["lat"] - lat) * 111320.0,
+                       (t["lon"] - lon) * 111320.0 * math.cos(math.radians(lat)))
+        if d <= radius_m and (best is None or d < best[0]): best = (d, t)
+    if not best: return None
+    d, t = best
+    out = {k: t[k] for k in ("name", "ramp", "lanes", "launchable", "motorized", "trolling_only",
+                             "parking", "trailer_spaces", "surface", "fee", "restroom", "handicap",
+                             "lighted", "dock", "pier", "sunrise_to_sunset", "camping", "gas",
+                             "bait", "owner", "manager", "directions") if t.get(k) not in (None, "")}
+    out["m"] = round(d)
+    substantive = [k for k in out
+                   if k not in ("name", "owner", "manager", "m", "motorized", "trolling_only",
+                                "fee", "restroom", "handicap", "lighted", "dock", "pier",
+                                "sunrise_to_sunset")]
+    flags = [k for k in ("restroom", "handicap", "lighted", "dock", "pier", "fee") if out.get(k)]
+    if not substantive and not flags: return None
+    return out
+
 # accessPopup(p) builds a rich popup from a point {name, lat, lon, types?, info?, note?, rm?}.
 # gmapsUrl drops a pin at the exact access coordinates. Pages also wire hover-to-open.
 POPUP_JS = r"""
@@ -376,9 +417,44 @@ window.gmapsUrl=function(lat,lon){return 'https://www.google.com/maps/search/?ap
 window.accessPopup=function(p){
  var ic={wade:'\u{1F97E}',paddle:'\u{1F6F6}',ramp:'\u{1F6A4}'};
  var t=(p.types||[]).map(function(k){return ic[k]||'';}).join(' ');
- var info=p.info||[p.note,(p.rm!=null?'river mile '+p.rm:'')].filter(Boolean).join(' · ');
+ var dist=(p.mfd!=null)?(p.mfd+' mi below the dam'):(p.rm!=null?'river mile '+p.rm:'');
+ var info=p.info||[p.note,dist].filter(Boolean).join(' · ');
  var h='<div style="font:650 14px/1.3 -apple-system,BlinkMacSystemFont,sans-serif;color:#16202b">'+(t?t+' ':'')+p.name+'</div>';
  if(info)h+='<div style="font:400 12px/1.45 -apple-system,sans-serif;color:#66788a;margin-top:3px;max-width:214px">'+info+'</div>';
+ var T=p.twra;
+ if(T){
+  // Official TWRA facts. Kept visually distinct from our own notes because these are the
+  // state's published record for the site, not our read of it.
+  var line1=[];
+  if(T.ramp)line1.push(T.ramp.toLowerCase()+' ramp'+(T.lanes&&T.lanes!=='1'?' \u00d7'+T.lanes:''));
+  if(T.launchable)line1.push('launch '+T.launchable.toLowerCase().replace(' ft.','ft'));
+  if(T.motorized===false)line1.push('no motors');
+  else if(T.trolling_only)line1.push('trolling motor only');
+  var line2=[];
+  var pk=(T.parking||'').toLowerCase().replace('less than','<').replace('greater than','>');
+  var tr=(T.trailer_spaces||'').toLowerCase().replace('less than','<').replace('greater than','>');
+  if(pk&&tr&&pk===tr)line2.push('parking '+pk+' (with trailers)');
+  else{ if(pk)line2.push('parking '+pk); if(tr)line2.push(tr+' with trailers'); }
+  if(T.surface)line2.push(T.surface.toLowerCase()+' surface');
+  var amen=[];
+  if(T.restroom)amen.push('restroom');
+  if(T.dock)amen.push('courtesy dock');
+  if(T.pier)amen.push('fishing pier');
+  if(T.handicap)amen.push('accessible');
+  if(T.lighted)amen.push('lit');
+  if(T.camping&&T.camping!=='No')amen.push('camping '+T.camping.toLowerCase());
+  if(T.gas&&T.gas!=='No')amen.push('gas '+T.gas.toLowerCase());
+  if(T.bait&&T.bait!=='No')amen.push('bait '+T.bait.toLowerCase());
+  if(T.fee)amen.push('FEE');
+  if(T.sunrise_to_sunset)amen.push('sunrise\u2013sunset only');
+  h+='<div style="margin-top:7px;padding-top:6px;border-top:1px solid #e6ecf2">'
+    +'<div style="font:700 10.5px -apple-system,sans-serif;color:#1e7a45;letter-spacing:.04em">TWRA'
+    +(T.owner&&T.owner!=='TWRA'?' \u00b7 '+T.owner:'')+'</div>';
+  [line1,line2,amen].forEach(function(L){ if(L.length)
+    h+='<div style="font:400 11.5px/1.45 -apple-system,sans-serif;color:#4a5a6a;max-width:214px">'+L.join(' \u00b7 ')+'</div>'; });
+  if(T.directions)h+='<div style="font:400 11px/1.4 -apple-system,sans-serif;color:#8494a4;margin-top:3px;max-width:214px">'+T.directions+'</div>';
+  h+='</div>';
+ }
  h+='<a href="'+gmapsUrl(p.lat,p.lon)+'" target="_blank" rel="noopener" style="display:inline-block;margin-top:8px;font:600 12px -apple-system,sans-serif;color:#0a84ff;text-decoration:none">\u{1F4CD} Open in Google Maps →</a>';
  return h;};
 window.wireHover=function(mk){mk.on('mouseover',function(){this.openPopup();});return mk;};

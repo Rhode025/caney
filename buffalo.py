@@ -544,7 +544,8 @@ def build_section(_S):
                  "trend":trend,"cond":FN,"grade":FG,"col":FC_,"note":FNOTE,"clar":clar,"wtemp":wtemp,
                  "asof":(OBS[-1][0].astimezone(CT).strftime("%-I:%M %p") if OBS else now_ct.strftime("%-I:%M %p"))},
           "outlook":outlook,"series":series,"weather":WXT,"tips":tips,
-          "points":[{"name":k,"lat":COORD[k][0],"lon":COORD[k][1],"types":ACC_TYPES.get(k,[]),"info":ACC_INFO.get(k,"")} for k in COORD],
+          "points":[{"name":k,"lat":COORD[k][0],"lon":COORD[k][1],"types":ACC_TYPES.get(k,[]),"info":ACC_INFO.get(k,""),
+                     "twra":riverlib.twra_for(COORD[k][0],COORD[k][1],"buffalo river")} for k in COORD],
           "poly":POLY_ALL[_S["p0"]:_S["p1"]]}
 
     html=riverlib.render(TEMPLATE,_S["id"]).replace("__DATA__",json.dumps(DATA))
