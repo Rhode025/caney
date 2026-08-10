@@ -189,24 +189,35 @@ ss_min=mins(WXT["sunset"]) if WXT and WXT.get("sunset") else 20*60
 #
 # Each section gets its own page. `rm0`/`rm1` are mouth-referenced river miles, `f0`/`f1` the
 # matching positions along the shared OSM channel polyline.
-# ---------------------------------------------------------------------------
-# ROUTING — how a rise moves down the Buffalo. MEASURED, not assumed.
-# analysis/duck_routing.py cross-correlates the Flat Woods gauge (RM 133.3) against the
-# Lobelville gauge (RM 19) over 120 days / 2,868 aligned hours:
-#     best lag 14 h (r = 0.899) over 59.3 river miles  ->  4.24 mph
-#     flow gain Lobelville/Flat Woods: median x2.33 (p25 1.82, p75 2.78)
-# This matters because NWPS forecasts Lobelville (LBVT1) and NOTHING upstream. The Flat Woods
-# gauge is therefore a 14-hour HEAD START on the lower river, and the only forward signal the
-# upper and middle reaches have. Re-run the script and these move; nothing here is guessed.
+RIVER_KEY="buffalo"
+ROUTE_FALLBACK=(22, 0.9695, 1.55, 1.27, 4311)
+# ROUTING — how a rise moves down the river. MEASURED, not assumed.
+# analysis/duck_routing.py cross-correlates the two gauges; analysis/backtest_route.py then
+# scores candidate transfer models on HELD-OUT data (fit on the first 70%, scored on the last
+# 30%). The obvious model -- multiply the upstream reading by a constant gain -- turned out to be
+# the WORST of the candidates: NSE 0.22 at the measured lag, a +345 cfs bias, and it loses to
+# plain persistence at every horizon. A power law fitted in log space scores NSE 0.81. The
+# generator therefore reads the WINNING transfer out of the JSON rather than hardcoding a gain.
 try:
-    _RT = json.load(open(os.path.join(HERE, "analysis", "duck_routing.json")))["rivers"]["buffalo"]
+    _RT = json.load(open(os.path.join(HERE, "analysis", "duck_routing.json")))["rivers"][RIVER_KEY]
     ROUTE_LAG_H, ROUTE_R, ROUTE_GAIN = _RT["lag_h"], _RT["r"], _RT["gain_median"]
     ROUTE_MPH, ROUTE_N = _RT["mph"], _RT["n_hours"]
+    ROUTE_TF, ROUTE_MINH = _RT["transfer"], _RT.get("useful_from_h", 12)
 except Exception as _e:
     print("routing warn (using last measured):", _e)
-    ROUTE_LAG_H, ROUTE_R, ROUTE_GAIN, ROUTE_MPH, ROUTE_N = 22, 0.973, 1.46, 1.27, 2869
+    ROUTE_LAG_H, ROUTE_R, ROUTE_GAIN, ROUTE_MPH, ROUTE_N = ROUTE_FALLBACK
+    ROUTE_TF, ROUTE_MINH = {"kind": "const", "gain": ROUTE_GAIN, "test_mae": None, "compared": {}}, 12
+
+def route_predict(q_up):
+    """Upstream reading -> downstream flow, using whichever transfer actually won the backtest."""
+    if q_up is None: return None
+    k = ROUTE_TF.get("kind")
+    if k == "power":  return ROUTE_TF["a"] * (max(q_up, 1.0) ** ROUTE_TF["b"])
+    if k == "linear": return max(0.0, ROUTE_TF["a"] + ROUTE_TF["b"] * q_up)
+    return q_up * ROUTE_TF.get("gain", 1.0)
+
 def route_lag_h(frac):
-    """Hours a rise takes to reach channel position `frac` from the Flat Woods gauge."""
+    """Hours a rise takes to reach channel position `frac` from the upstream gauge."""
     return ROUTE_LAG_H * max(0.0, min(1.0, frac))
 
 SECTIONS = [
@@ -304,7 +315,15 @@ __LOG_JS__
 __MOONCAL_JS__
 __FLOWTIMER_JS__
 __FLYMATRIX_JS__
-document.getElementById('cap').innerHTML=D.today+' · '+D.route.src+'<div class="rte">'+D.route.why+'</div>';
+(function(){const R=D.route;
+ let fwd='';
+ if(R.upNow!=null&&R.pred!=null&&R.predAt>=R.minH){
+   fwd='<div class="rte"><b>Routed forecast.</b> The upstream gauge reads '+R.upNow.toLocaleString()
+     +' cfs now, which puts this river near <b>'+R.pred.toLocaleString()+' cfs</b> at the bottom of the reach in about '
+     +R.predAt+' h. Model: '+R.tf+' transfer, held-out MAE '+(R.tfMae!=null?Math.round(R.tfMae)+' cfs':'n/a')
+     +'. Below ~'+R.minH+' h ahead this is no better than assuming the river stays put, so it is not a short-range forecast.</div>';
+ }
+ document.getElementById('cap').innerHTML=D.today+' · '+R.src+'<div class="rte">'+R.why+'</div>'+fwd;})();
 (function(){const c=D.cur;document.getElementById('now').innerHTML=
  '<div class="vg" style="background:'+c.col+'">'+c.cond+'</div>'
  +'<div><div class="b1">'+(c.flow!=null?c.flow.toLocaleString()+'k cfs':'—')+' · '+(c.stage!=null?c.stage+' ft':'')+' <span style="font-size:14px;color:var(--muted)">'+(c.trend==='rising'?'↑ rising':c.trend==='falling'?'↓ falling & clearing':'→ steady')+'</span></div>'
@@ -398,8 +417,14 @@ def build_section(_S):
         outlook.append(dict(_o,flow=_f,cond=_cond,grade=_g,col=_col,note=_note))
     # Where this reach's forward signal comes from. Lobelville is the ONLY NWPS forecast point
     # on the Buffalo, so the upper reaches are predicted by routing the Flat Woods gauge downstream.
+    _upnow=(col_flow*1000.0) if col_flow is not None else None
+    _pred=route_predict(_upnow)
     ROUTE={"lagH":round(_lag,1),"gain":ROUTE_GAIN,"r":ROUTE_R,"mph":ROUTE_MPH,"n":ROUTE_N,
            "lead":round(ROUTE_LAG_H-_lag,1),
+           "tf":ROUTE_TF.get("kind"),"tfMae":ROUTE_TF.get("test_mae"),"minH":ROUTE_MINH,
+           "upNow":round(_upnow) if _upnow else None,
+           "pred":round(_pred) if _pred else None,
+           "predAt":round(ROUTE_LAG_H,1),
            "src":("Flat Woods gauge (USGS 03604000) — this reach's own water" if _S["id"]=="duckup"
                   else ("routed from Flat Woods — a rise there lands here about %.0f h later"%_lag) if _S["id"]=="duckmid"
                   else "NWPS forecast at Lobelville (LBVT1) — this reach's own water"),

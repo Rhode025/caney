@@ -9,6 +9,70 @@ belongs to a commit goes in the commit message. This file is for *state and inte
 
 ---
 
+## 2026-08-10 (later) — Backtested the routing engine. The model I shipped was the worst one.
+
+Built `analysis/backtest_route.py`: fit on the first 70% of the record, score only on the last
+30%, and compare every candidate against **persistence** (assume the river stays where it is).
+Beating persistence is the whole bar — if a forecast cannot, it is decoration.
+
+**A. TEMPORAL — Duck, Columbia → Centerville, 14 h ahead, held-out:**
+
+```
+model                     MAE    RMSE    bias      NSE
+lag + power law         477.0   861.0  -151.7   0.8121   BEATS persistence
+lag + linear fit        535.5  1003.7   -50.5   0.7446   BEATS persistence
+lag + FIR kernel (30h)  692.1  1161.8  -104.8   0.6653   BEATS persistence
+persistence             561.7  1206.8    -2.3   0.6308
+lag + CONST GAIN        835.0  1754.0  +345.3   0.2201   loses to persistence
+```
+
+**The constant gain is what I shipped**, and it is the worst of five candidates — NSE 0.22, a
++345 cfs bias, and it loses to doing nothing at every horizon. Replaced with the fitted transfer,
+read from `duck_routing.json` rather than hardcoded:
+
+| River | transfer | held-out MAE | vs const gain |
+|---|---|---|---|
+| Duck | power law | 475 cfs | 836 → **43% better** |
+| Buffalo | linear | 169 cfs | 355 → **52% better** |
+
+**Persistence wins below ~12 h.** At h=6 nothing beats it (NSE 0.915). So the routed forecast is
+only offered at the measured lag and the page says outright that it is not a short-range
+forecast. `useful_from_h: 12` is now a published constant.
+
+**B. SPATIAL — held-out test of the ungauged-reach interpolation.** The middle Duck has no gauge,
+so its level is interpolated. Normally untestable — but **Columbia itself sits between two
+gauges** (Milltown RM 179, Centerville RM 74), so it can be hidden and predicted:
+
+```
+method                      MAE   RMSE    bias      NSE
+linear in river mile      333.2  510.2  +210.2   0.7850   <- deployed
+linear in drainage area   193.5  477.7   -13.2   0.8115
+log blend, lag-aware      217.2  459.5  -148.3   0.8256
+```
+
+Distance-based interpolation ran **+210 cfs biased**. Area-based is essentially unbiased.
+
+**A negative result worth recording.** My first instinct was to deploy area-fraction and claim a
+42% win. It would have been a **no-op**: only two gauges bracket Columbia→Centerville, so the
+area curve there is a straight line by construction and area-fraction *equals* distance-fraction.
+The measured improvement came from the wider Milltown→Centerville span where accrual genuinely
+changes (6.4 vs 14.2 mi²/mi). Checked before shipping instead of after.
+
+The fix came from finding **four USGS mainstem points with published drainage areas inside the
+reach** (RM 120.3 = 1,429 mi², 104.9 = 1,696, 101.7 = 1,700, 98.8 = 1,707). Accrual runs 17.0,
+17.3, **1.8**, 13.8 mi²/mi — genuinely non-uniform, so area-fraction ≠ distance-fraction after
+all. Channel positions are now derived from that profile; the real correction is Williamsport,
+0.345 → 0.396. Those sites publish no flow, so this is physically grounded but not directly
+validated in-reach — stated as such in the code.
+
+**QC.** `test/qc_rivers.py` is new — 101 checks. The four new pages shipped with none. It asserts
+the routing constants are sane, that the deployed transfer is the backtested winner (a check that
+fails if anyone reverts to a constant gain), that the winner really has the lowest held-out
+error, that the three Duck sections report *different* water increasing downstream, and that the
+ungauged reach admits it has no gauge. Wired into `test/run.sh`.
+
+---
+
 ## 2026-08-10 — Duck split into three sections; Buffalo River added
 
 **Twelve river pages now, up from nine.** `duck` is retired and replaced by `duckup` / `duckmid`

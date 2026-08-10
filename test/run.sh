@@ -16,6 +16,9 @@ fi
 echo "▶ static checks (verify.py)…"
 python3 test/verify.py
 
+echo "▶ river QC (Duck sections + Buffalo)…"
+python3 test/qc_rivers.py
+
 echo "▶ runtime checks (browser.mjs)…"
 ( cd test && { [ -d node_modules ] || bun install >/dev/null 2>&1; }; node browser.mjs )
 

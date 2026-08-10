@@ -135,8 +135,15 @@ cen_flow=cur_flow
 # REAL Duck River accesses (TWRA / higherpursuits paddler access table), upstream->downstream:
 # (name, river-mile, channel-frac). River miles are mouth-referenced; frac is position along
 # our OSM channel (calibrated on Chickasaw RM127 + Centerville RM73.7). Section distance = ΔRM.
-ACC=[("Riverside",133.5,0.025),("Chickasaw Trace",127.0,0.131),("Williamsport",113.9,0.345),
-     ("Leatherwood Bridge",95.0,0.653),("Littlelot",89.5,0.742),("River Park (Centerville)",73.7,1.0)]
+# Channel position by CONTRIBUTING DRAINAGE AREA, not by distance. Flow scales with area, and
+# area does not accrue evenly down this reach: USGS publishes areas at four mainstem points
+# inside it (RM 120.3 = 1,429 mi2, 104.9 = 1,696, 101.7 = 1,700, 98.8 = 1,707) between the
+# Columbia gauge (1,208) and Centerville (2,048), giving accrual rates of 17.0, 17.3, 1.8 and
+# 13.8 mi2 per river mile. Positioning by distance ignores that. Held-out test at Columbia
+# (analysis/backtest_route.py): linear-in-distance ran +210 cfs biased, linear-in-area -13.
+# (name, river mile, area-fraction between the two gauges)
+ACC=[("Riverside",133.5,0.000),("Chickasaw Trace",127.0,0.130),("Williamsport",113.9,0.396),
+     ("Leatherwood Bridge",95.0,0.654),("Littlelot",89.5,0.744),("River Park (Centerville)",73.7,1.0)]
 def local_flow(f,scale=1.0):
     if col_flow is None: return (cen_flow*scale if cen_flow else None)
     if cen_flow is None: return col_flow*scale
@@ -189,24 +196,35 @@ ss_min=mins(WXT["sunset"]) if WXT and WXT.get("sunset") else 20*60
 #
 # Each section gets its own page. `rm0`/`rm1` are mouth-referenced river miles, `f0`/`f1` the
 # matching positions along the shared OSM channel polyline.
-# ---------------------------------------------------------------------------
-# ROUTING — how a rise moves down the Duck. MEASURED, not assumed.
-# analysis/duck_routing.py cross-correlates the Columbia gauge (RM 133.3) against the
-# Centerville gauge (RM 74.0) over 120 days / 2,868 aligned hours:
-#     best lag 14 h (r = 0.899) over 59.3 river miles  ->  4.24 mph
-#     flow gain Centerville/Columbia: median x2.33 (p25 1.82, p75 2.78)
-# This matters because NWPS forecasts Centerville (CNVT1) and NOTHING upstream. The Columbia
-# gauge is therefore a 14-hour HEAD START on the lower river, and the only forward signal the
-# upper and middle reaches have. Re-run the script and these move; nothing here is guessed.
+RIVER_KEY="duck"
+ROUTE_FALLBACK=(14, 0.9124, 2.13, 4.24, 4290)
+# ROUTING — how a rise moves down the river. MEASURED, not assumed.
+# analysis/duck_routing.py cross-correlates the two gauges; analysis/backtest_route.py then
+# scores candidate transfer models on HELD-OUT data (fit on the first 70%, scored on the last
+# 30%). The obvious model -- multiply the upstream reading by a constant gain -- turned out to be
+# the WORST of the candidates: NSE 0.22 at the measured lag, a +345 cfs bias, and it loses to
+# plain persistence at every horizon. A power law fitted in log space scores NSE 0.81. The
+# generator therefore reads the WINNING transfer out of the JSON rather than hardcoding a gain.
 try:
-    _RT = json.load(open(os.path.join(HERE, "analysis", "duck_routing.json")))["rivers"]["duck"]
+    _RT = json.load(open(os.path.join(HERE, "analysis", "duck_routing.json")))["rivers"][RIVER_KEY]
     ROUTE_LAG_H, ROUTE_R, ROUTE_GAIN = _RT["lag_h"], _RT["r"], _RT["gain_median"]
     ROUTE_MPH, ROUTE_N = _RT["mph"], _RT["n_hours"]
+    ROUTE_TF, ROUTE_MINH = _RT["transfer"], _RT.get("useful_from_h", 12)
 except Exception as _e:
     print("routing warn (using last measured):", _e)
-    ROUTE_LAG_H, ROUTE_R, ROUTE_GAIN, ROUTE_MPH, ROUTE_N = 14, 0.899, 2.33, 4.24, 2868
+    ROUTE_LAG_H, ROUTE_R, ROUTE_GAIN, ROUTE_MPH, ROUTE_N = ROUTE_FALLBACK
+    ROUTE_TF, ROUTE_MINH = {"kind": "const", "gain": ROUTE_GAIN, "test_mae": None, "compared": {}}, 12
+
+def route_predict(q_up):
+    """Upstream reading -> downstream flow, using whichever transfer actually won the backtest."""
+    if q_up is None: return None
+    k = ROUTE_TF.get("kind")
+    if k == "power":  return ROUTE_TF["a"] * (max(q_up, 1.0) ** ROUTE_TF["b"])
+    if k == "linear": return max(0.0, ROUTE_TF["a"] + ROUTE_TF["b"] * q_up)
+    return q_up * ROUTE_TF.get("gain", 1.0)
+
 def route_lag_h(frac):
-    """Hours a rise takes to reach channel position `frac` from the Columbia gauge."""
+    """Hours a rise takes to reach channel position `frac` from the upstream gauge."""
     return ROUTE_LAG_H * max(0.0, min(1.0, frac))
 
 SECTIONS = [
@@ -310,7 +328,15 @@ __FLOWTIMER_JS__
 __FLYMATRIX_JS__
 document.getElementById('eyebrow').textContent='Smallmouth planner · '+D.sec.label+' Duck · '+D.sec.blurb.split(' — ')[0];
 document.getElementById('h1').textContent='Duck · '+D.sec.label;
-document.getElementById('cap').innerHTML=D.today+' · '+D.route.src+'<div class="rte">'+D.route.why+'</div>';
+(function(){const R=D.route;
+ let fwd='';
+ if(R.upNow!=null&&R.pred!=null&&R.predAt>=R.minH){
+   fwd='<div class="rte"><b>Routed forecast.</b> The upstream gauge reads '+R.upNow.toLocaleString()
+     +' cfs now, which puts this river near <b>'+R.pred.toLocaleString()+' cfs</b> at the bottom of the reach in about '
+     +R.predAt+' h. Model: '+R.tf+' transfer, held-out MAE '+(R.tfMae!=null?Math.round(R.tfMae)+' cfs':'n/a')
+     +'. Below ~'+R.minH+' h ahead this is no better than assuming the river stays put, so it is not a short-range forecast.</div>';
+ }
+ document.getElementById('cap').innerHTML=D.today+' · '+R.src+'<div class="rte">'+R.why+'</div>'+fwd;})();
 (function(){const c=D.cur;document.getElementById('now').innerHTML=
  '<div class="vg" style="background:'+c.col+'">'+c.cond+'</div>'
  +'<div><div class="b1">'+(c.flow!=null?c.flow.toLocaleString()+'k cfs':'—')+' · '+(c.stage!=null?c.stage+' ft':'')+' <span style="font-size:14px;color:var(--muted)">'+(c.trend==='rising'?'↑ rising':c.trend==='falling'?'↓ falling & clearing':'→ steady')+'</span></div>'
@@ -404,8 +430,14 @@ def build_section(_S):
         outlook.append(dict(_o,flow=_f,cond=_cond,grade=_g,col=_col,note=_note))
     # Where this reach's forward signal comes from. Centerville is the ONLY NWPS forecast point
     # on the Duck, so the upper reaches are predicted by routing the Columbia gauge downstream.
+    _upnow=(col_flow*1000.0) if col_flow is not None else None
+    _pred=route_predict(_upnow)
     ROUTE={"lagH":round(_lag,1),"gain":ROUTE_GAIN,"r":ROUTE_R,"mph":ROUTE_MPH,"n":ROUTE_N,
            "lead":round(ROUTE_LAG_H-_lag,1),
+           "tf":ROUTE_TF.get("kind"),"tfMae":ROUTE_TF.get("test_mae"),"minH":ROUTE_MINH,
+           "upNow":round(_upnow) if _upnow else None,
+           "pred":round(_pred) if _pred else None,
+           "predAt":round(ROUTE_LAG_H,1),
            "src":("Columbia gauge (USGS 03599500) — this reach's own water" if _S["id"]=="duckup"
                   else ("routed from Columbia — a rise there lands here about %.0f h later"%_lag) if _S["id"]=="duckmid"
                   else "NWPS forecast at Centerville (CNVT1) — this reach's own water"),

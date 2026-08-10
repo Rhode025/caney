@@ -86,6 +86,39 @@ for river, sites in PAIRS:
     pa = [up[k] for k in ks if (k + lag * 3600) in dn]
     pb = [dn[k + lag * 3600] for k in ks if (k + lag * 3600) in dn]
     rat = sorted(y / x for x, y in zip(pa, pb) if x > 50)
+    # TRANSFER FUNCTION. A constant gain multiplier is the obvious choice and it is the WORST of
+    # the candidates: backtested at the measured lag it scores NSE 0.22 on the Duck and loses to
+    # persistence at every horizon, with a +345 cfs bias (analysis/backtest_route.py). A power
+    # law fitted in log space -- the standard hydrologic transfer between two gauges -- scores
+    # NSE 0.81 on held-out data. Fit here so the pages quote a model that was actually tested.
+    _tr = int(len(pa) * 0.7)
+    def _fitpow(xs, ys):
+        pts = [(math.log(x), math.log(y)) for x, y in zip(xs, ys) if x > 1 and y > 1]
+        n2 = len(pts)
+        if n2 < 20: return None
+        sx = sum(q[0] for q in pts); sy = sum(q[1] for q in pts)
+        sxx = sum(q[0] * q[0] for q in pts); sxy = sum(q[0] * q[1] for q in pts)
+        d2 = n2 * sxx - sx * sx
+        if abs(d2) < 1e-9: return None
+        b2 = (n2 * sxy - sx * sy) / d2
+        return round(math.exp((sy - b2 * sx) / n2), 5), round(b2, 5)
+    def _fitlin(xs, ys):
+        n2 = len(xs); sx = sum(xs); sy = sum(ys)
+        sxx = sum(x * x for x in xs); sxy = sum(x * y for x, y in zip(xs, ys))
+        d2 = n2 * sxx - sx * sx
+        if abs(d2) < 1e-9: return None
+        b2 = (n2 * sxy - sx * sy) / d2
+        return round((sy - b2 * sx) / n2, 3), round(b2, 5)
+    _pw = _fitpow(pa[:_tr], pb[:_tr]); _ln = _fitlin(pa[:_tr], pb[:_tr])
+    def _mae(f):
+        v = [abs(f(x) - y) for x, y in zip(pa[_tr:], pb[_tr:])]
+        return round(sum(v) / len(v), 1) if v else None
+    _cand = {}
+    if _pw: _cand["power"] = (_mae(lambda x: _pw[0] * (x ** _pw[1])), {"a": _pw[0], "b": _pw[1]})
+    if _ln: _cand["linear"] = (_mae(lambda x: max(0.0, _ln[0] + _ln[1] * x)), {"a": _ln[0], "b": _ln[1]})
+    _gm = rat[len(rat) // 2]
+    _cand["const"] = (_mae(lambda x: x * _gm), {"gain": round(_gm, 3)})
+    _best = min(_cand.items(), key=lambda kv: kv[1][0] if kv[1][0] is not None else 9e9)
     miles = urm - drm
     rec = {
         "up": {"id": uid, "site": usite, "rm": urm, "label": ulab},
@@ -97,11 +130,19 @@ for river, sites in PAIRS:
         "gain_p25": round(rat[len(rat) // 4], 3),
         "gain_p75": round(rat[3 * len(rat) // 4], 3),
         "n_hours": len(pa), "curve": curve,
+        "transfer": {"kind": _best[0], **_best[1][1], "test_mae": _best[1][0],
+                     "compared": {k: v[0] for k, v in _cand.items()}},
+        # Below this horizon persistence (assume the river stays put) beats routing, so the page
+        # must not claim a head start inside it. Measured in analysis/backtest_route.py.
+        "useful_from_h": 12,
     }
     out["rivers"][river] = rec
     print("  BEST LAG %d h (r=%.4f) · %.1f mi -> %.2f mph" % (lag, r, miles, rec["mph"] or 0))
     print("  gain: mean x%.2f · median x%.2f (p25 %.2f, p75 %.2f)"
           % (rec["gain_mean"], rec["gain_median"], rec["gain_p25"], rec["gain_p75"]))
+    print("  transfer: %s  test MAE %s   (candidates: %s)"
+          % (rec["transfer"]["kind"], rec["transfer"]["test_mae"],
+             ", ".join("%s %s" % (k, v) for k, v in rec["transfer"]["compared"].items())))
 
 p = os.path.join(HERE, "duck_routing.json")
 json.dump(out, open(p, "w"), indent=1)
