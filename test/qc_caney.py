@@ -335,6 +335,59 @@ if len(_relspans)>1:
     chk("float put-in responds to the release schedule", len(_putins)>1,
         "spans %s -> put-ins %s"%(sorted(_relspans),sorted(_putins)))
 
+# ---- Smith Fork: the thing that actually decides clarity ----
+# From a guide who fishes it: the river runs clear until the Smith Fork confluence, and turns
+# brown below it when the creek is up -- "sometimes the Smith Fork flows with more force than the
+# Caney Fork, and when that happens the fishing is going to be tough." Both halves are tested:
+# WHERE the line is, and that the model only calls it brown when the creek is both loaded AND
+# undiluted by the release.
+_S = D.get('smith') or {}
+chk("Smith Fork gauge is wired in", _S.get('site') == '03424730', str(_S.get('site')))
+chk("Smith Fork has a live reading", _S.get('now') is not None)
+chk("confluence sits between Betty's Island and Stonewall",
+    9.0 < (_S.get('confMfd') or 0) < 15.0, str(_S.get('confMfd')))
+chk("the reach above the confluence is always clear", _S.get('above') == 'clear', str(_S.get('above')))
+_conf = _S.get('confMfd') or 11.08
+for _p in D['points']:
+    chk("access is on the right side of the confluence: " + _p['name'],
+        _p.get('belowSmith') == (_p['mfd'] > _conf),
+        "mfd %s belowSmith=%s" % (_p['mfd'], _p.get('belowSmith')))
+chk("the upper wade reach is above the confluence",
+    all(not _p.get('belowSmith') for _p in D['points']
+        if 'wade' in (_p.get('types') or []) and _p['mfd'] <= 9.0))
+chk("Stonewall is correctly flagged as wadeable BUT below the confluence",
+    any(_p.get('belowSmith') and 'wade' in (_p.get('types') or []) for _p in D['points']))
+chk("the page does not claim the whole wade reach stays clear",
+    'whole wade reach' not in open('/Users/stevenrhodes/caney/out/caney.html').read())
+chk("every trout hole is above the confluence",
+    all(o['mfd'] < _conf for o in (D.get('holes') or [])),
+    str([o['mfd'] for o in (D.get('holes') or []) if o['mfd'] >= _conf]))
+
+# the curve itself, probed directly
+import math as _m
+_CL, _MD = 50.0, 1200.0
+def _mud(sm, cy):
+    sed = max(0.0, min(1.0, (_m.log(max(sm, 1.0)) - _m.log(_CL)) / (_m.log(_MD) - _m.log(_CL))))
+    fr = sm / (sm + max(cy, 1.0))
+    return sed * max(0.0, min(1.0, fr / 0.5))
+chk("a creek at its baseline leaves the river clear", _mud(24.5, 470) < 0.12, "%.3f" % _mud(24.5, 470))
+chk("the guide's day reads chocolate milk", _mud(1300, 470) >= 0.60, "%.3f" % _mud(1300, 470))
+_seq = [_mud(q, 470) for q in (25, 100, 300, 700, 1300, 3000)]
+chk("muddiness rises monotonically with the creek",
+    all(_seq[i] <= _seq[i + 1] for i in range(len(_seq) - 1)), str([round(x, 3) for x in _seq]))
+# dilution: the release is what makes the same creek invisible
+chk("generation dilutes the creek", _mud(700, 4000) < _mud(700, 470),
+    "%.3f under generation vs %.3f at minimum flow" % (_mud(700, 4000), _mud(700, 470)))
+chk("a big release can clear water a small one cannot", _mud(400, 6000) < 0.12,
+    "%.3f" % _mud(400, 6000))
+chk("muddiness stays in range",
+    all(0.0 <= _mud(q, c) <= 1.0 for q in (10, 100, 1000, 6000) for c in (200, 1000, 8000)))
+
+# and the page has to SAY which side is which, or the number is useless
+_html = open('/Users/stevenrhodes/caney/out/caney.html').read()
+chk("the page explains the confluence split", 'confluence' in _html.lower())
+chk("the page links the Smith Fork gauge", '03424730' in _html)
+
 print("QC LAYER A — DATA integrity")
 print("  passed : %d"%len(OK))
 print("  warned : %d"%len(WARN))

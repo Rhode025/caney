@@ -25,6 +25,11 @@ CALIB_BASEFLOW=205.0; DAM_RM,STONE_RM=26.6,10.0   # zero-release intercept; 90-d
 # corrects the speed: the detectable rise at Stonewall (15 mi) has median AND modal lag 6 h (49 of 80
 # events) → ~2.5 mph, size-independent. So `mfd` drives routing and arrival = (miles-from-dam)/2.5 h.
 WATER_MPH=2.5; MFD_STONE=15.0
+# Smith Fork joins at an exact shared node in the OSM channel geometry (36.13968,-85.86988),
+# which lands at 11.08 miles below the dam -- between Betty's Island (9.0) and Stonewall (15.0).
+# Everything above it is fed by the bottom-release dam and stays clear; everything below takes
+# whatever the creek is carrying. See the SMITH FORK block below.
+SMITH_CONF_MFD=11.08
 _g=sum(CALIB_KERNEL); KERNEL=[w/_g for w in CALIB_KERNEL]; CENTROID=sum(i*w for i,w in enumerate(KERNEL))
 # Kirby Road's d0 is INTERPOLATED between its neighbours, which puts it on the same
 # unverified footing as the rest — see the note below rather than trusting the figure.
@@ -175,6 +180,7 @@ except Exception as e: print("calib warn:",e)
 # "info" is what accessPopup shows when present; without it the popup falls back to the
 # short note, which silently dropped Kirby Road's "wade access only, not a launch" warning.
 points=[{"name":s["name"],"note":s["note"],"info":s.get("info",""),"rm":s["rm"],"mfd":s["mfd"],"types":s["types"],"reach":s["reach"],"d0":s["d0"],
+         "belowSmith":s["mfd"]>SMITH_CONF_MFD,
          "twra":riverlib.twra_for(s["lat"],s["lon"],"caney fork"),
          "lat":s["lat"],"lon":s["lon"],
          "flow":[round(flow_at(s,tod_mid+h*3600) or 0) for h in range(180)]} for s in ACCESS]
@@ -257,6 +263,74 @@ def wx_pack(day):
             "gust":gust,"rain":round(g("precipitation_sum") or 0,2) if di is not None else 0,"rain3":round(rain3,2)}
 WXDAYS=[wx_pack(now_ct.date()+datetime.timedelta(days=di)) for di in range(7)]
 WX=WXDAYS[1]
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SMITH FORK — what actually decides clarity on this river.
+#
+# From a guide who fishes it: "none of the river was brown, until the confluence with Smith Fork
+# Creek. That's typically the way it is. Most of the creeks and tributaries above that area are
+# not large enough to change the color of the entire river. Sometimes the Smith Fork flows with
+# more force than the Caney Fork! When that happens the fishing is going to be tough."
+#
+# That is a far better model than inferring clarity from rainfall, and it is measurable: Smith
+# Fork has its own live USGS gauge. Two facts make it work.
+#
+#   WHERE. The confluence is an exact shared node in the OSM channel geometry at
+#   36.13968,-85.86988 -> mfd 11.08, between Betty's Island (9.0) and Stonewall (15.0). SEVEN of
+#   the ten accesses, every trout hole and the entire wade reach sit ABOVE it and stay clear no
+#   matter what Smith Fork does. Only Stonewall and below take the colour.
+#
+#   HOW MUCH. Two things have to be true for the river to go brown: the creek must be in spate
+#   (carrying sediment), and it must not be diluted by the release. 365 days of gauge record:
+#       p10 24.5 cfs · p50 65.9 · p75 163 · p90 318 · p95 543 · p99 1550 · max 5910
+#   The guide's clear-water reading was "24 cfs" and his chocolate-milk day was "over 1300" --
+#   the p10 baseline and a p95-p99 event. Those two anchor the curve below.
+SMITH_SITE = "03424730"          # Smith Fork at Temperance Hall
+SMITH_CLEAR = 50.0               # at or under this the creek runs clear (p10 = 24.5, p25 = 33)
+SMITH_MUD = 1200.0               # at or over this it is chocolate milk (guide: "over 1300")
+
+SMITH_CONF = {"name": "Smith Fork confluence", "mfd": SMITH_CONF_MFD,
+              "kernel": compressed_kernel(frac(SMITH_CONF_MFD)), "baseflow": CALIB_BASEFLOW}
+
+smith_now = smith_series = None
+try:
+    _sj = get("https://waterservices.usgs.gov/nwis/iv/?format=json&sites=%s&period=P3D&parameterCd=00060" % SMITH_SITE)
+    _sv = [(p["dateTime"], float(p["value"])) for p in _sj["value"]["timeSeries"][0]["values"][0]["value"]
+           if float(p["value"]) >= 0]
+    if _sv:
+        smith_now = _sv[-1][1]
+        smith_series = _sv
+except Exception as e:
+    print("smith fork warn:", e)
+
+def smith_trend():
+    """rising / falling / steady over the last ~6 h — a rising creek is the dangerous one."""
+    if not smith_series or len(smith_series) < 8: return "steady"
+    a = smith_series[max(0, len(smith_series) - 24)][1]; b = smith_series[-1][1]
+    if b > a * 1.35 and b - a > 15: return "rising"
+    if b < a * 0.75: return "falling"
+    return "steady"
+
+def smith_mud(smith_cfs, caney_cfs):
+    """How brown is the river BELOW the confluence? -> (0..1, word, why)
+
+    Both conditions must hold. `sed` is how loaded the creek itself is, on a log scale between
+    its clear baseline and the guide's chocolate-milk reading. `frac` is how much of the mixed
+    flow it contributes -- the release dilutes it, which is why the same 300 cfs of creek is
+    invisible under two units and obvious at minimum flow.
+    """
+    if smith_cfs is None: return None, "unknown", "no Smith Fork reading"
+    caney_cfs = max(caney_cfs or 0.0, 1.0)
+    sed = (math.log(max(smith_cfs, 1.0)) - math.log(SMITH_CLEAR)) / (math.log(SMITH_MUD) - math.log(SMITH_CLEAR))
+    sed = max(0.0, min(1.0, sed))
+    frac = smith_cfs / (smith_cfs + caney_cfs)
+    mud = sed * max(0.0, min(1.0, frac / 0.5))          # full effect once the creek is half the mix
+    w = ("clear" if mud < 0.12 else "some color" if mud < 0.35 else "stained" if mud < 0.60 else "chocolate milk")
+    why = "%.0f%% of the flow past the confluence" % (100 * frac)
+    if sed <= 0.02: why += ", and running clear at its baseline"
+    elif sed >= 0.98: why += ", and loaded with sediment"
+    return mud, w, why
+
 def _sc_clarity(r3):
     """Clarity from antecedent rain -> (0..1, word, why).
 
@@ -273,7 +347,27 @@ def _sc_clarity(r3):
     if r3<2.00: return 0.35,"stained",'%.2f" of recent rain \u2014 the tributaries are pushing colour in'%r3
     return 0.15,"stained",'%.2f" of recent rain \u2014 muddy, hard to get a fish to see a fly'%r3
 
-CLAR_F,clar_word,CLAR_WHY=_sc_clarity((WXDAYS[0] or {}).get("rain3") or 0)
+# Clarity is the Smith Fork's doing, not the sky's. The reach ABOVE the confluence is fed by a
+# bottom-release dam and stays clear whatever the weather; the reach below takes whatever the
+# creek is carrying. Publish both, and let clar_word carry the BELOW read so the page never
+# under-warns a boater running to Stonewall — the split is stated explicitly on the page.
+_smith_caney_now = flow_at(SMITH_CONF, hr_key(now.timestamp())) or CALIB_BASEFLOW
+SMITH_MUD_F, clar_word, SMITH_WHY = smith_mud(smith_now, _smith_caney_now)
+if SMITH_MUD_F is None:
+    CLAR_F, clar_word, CLAR_WHY = _sc_clarity((WXDAYS[0] or {}).get("rain3") or 0)
+    SMITH_WHY = "no Smith Fork reading — fell back to rainfall"
+else:
+    CLAR_F = 1.0 - SMITH_MUD_F
+    CLAR_WHY = SMITH_WHY
+SMITH = {"site": SMITH_SITE, "now": round(smith_now) if smith_now is not None else None,
+         "trend": smith_trend(), "confMfd": SMITH_CONF_MFD,
+         "caneyAtConf": round(_smith_caney_now),
+         "mud": round(SMITH_MUD_F, 3) if SMITH_MUD_F is not None else None,
+         "below": clar_word, "above": "clear", "why": SMITH_WHY,
+         "base": SMITH_CLEAR,
+         "url": "https://waterdata.usgs.gov/monitoring-location/USGS-%s/" % SMITH_SITE}
+print("smith fork: %s cfs (%s) | Caney at confluence %s | below the confluence: %s"
+      % (SMITH["now"], SMITH["trend"], SMITH["caneyAtConf"], clar_word))
 
 # ---- live "right now": current release + Stonewall gauge vs model ----
 now_hr=hr_key(now.timestamp()); stw=next(x for x in ACCESS if x["name"]=="Stonewall")
@@ -792,7 +886,11 @@ def score_day(di,d):
     # Modelled Stonewall flow across the day -- the actual water, not a unit count.
     qs=[q for q in (flow_at(stw,d0+h*3600) for h in range(24)) if q is not None]
     q_lo=min(qs) if qs else CALIB_BASEFLOW; q_hi=max(qs) if qs else CALIB_BASEFLOW
-    clar_f,clar_w,clar_why=_sc_clarity(wxd.get("rain3") or 0)
+    if di==0 and SMITH_MUD_F is not None:
+        clar_f,clar_w,clar_why=1.0-SMITH_MUD_F,clar_word,SMITH_WHY
+    else:
+        clar_f,clar_w,clar_why=_sc_clarity(wxd.get("rain3") or 0)
+        clar_why+=" (no Smith Fork forecast exists — inferred from rain)"
     moon_why="feeding rating %d/5 — %s"%(mr,"peak solunar period" if mr>=4 else "moderate" if mr==3 else "weak, between the major phases")
     by={}
     for c in CRAFTS:
@@ -944,7 +1042,7 @@ ARRIVAL = {"id":"caney", "mph":WATER_MPH, "validated":True,
            "rel":[[int(a), int(b), round(pk)] for a,b,pk in GW if b >= _arr_cut]}
 DATA={"arrival":ARRIVAL,"holes":HOLES,
       "todayLabel":now_ct.strftime("%A, %B %-d · %-I:%M %p"),"dateLabel":tom.strftime("%A, %B %-d"),"hatch":HATCH,"month":now_ct.month,"chatter":riverlib.load_intel("caney"),"flysel":FLYSEL,
-      "damCap":dam_cap,"clarity":clar_word,"points":points,"riseCurve":RISE_CURVE,"weather":WX,"tips":tips,
+      "damCap":dam_cap,"clarity":clar_word,"smith":SMITH,"points":points,"riseCurve":RISE_CURVE,"weather":WX,"tips":tips,
       "calendar":cal,"now":NOW,"solunar":SOL,"best":BEST,"dayscores":DAYSCORES,
       "wxDays":WXDAYS,"solDays":SOLDAYS,"gen":GEN,"week":_scores,"weekSynth":WEEK_SYNTH,"bestBy":BEST_BY,
       "driftC":list(DRIFT_C),"upMph":UP_MPH,"craftOrder":CRAFTS,"craftName":CRAFT_NAME,"craftIco":CRAFT_ICO,"scoreW":SCORE_W,"wxv":WXV,"riverPoly":RIVER_POLY,
@@ -1269,6 +1367,30 @@ document.getElementById('cap').innerHTML=DATA.todayLabel+' &nbsp;·&nbsp; Center
  const stale=n.stale?' <span style="color:#c0392b;font-weight:600">⚠ cached schedule, '+staleAge+' (USACE API down)</span>':'';
  const tr=n.trend==='rising'?' ↑ rising':n.trend==='falling'?' ↓ falling':'';
  document.getElementById('nowstrip').innerHTML='<span class="dotlg" style="background:'+g+'"></span><b>Right now</b> · Center Hill '+(n.gen?(n.units+'-unit generating'):'minimum flow')+' ~'+(n.cfs||'–').toLocaleString()+' cfs'+tr+' · Stonewall'+chk+' · water '+n.clarity+stale+' <span class="asof">as of '+n.asof+'</span>';})();
+// ── Smith Fork ────────────────────────────────────────────────────────────────
+// The single best predictor of clarity on this river, and it is only true BELOW the confluence.
+// A guide's account: "none of the river was brown until the confluence with Smith Fork Creek.
+// Sometimes the Smith Fork flows with more force than the Caney Fork -- when that happens the
+// fishing is going to be tough." Shown whatever the state, because "the creek is fine" is worth
+// knowing before you drive, and a spike is worth knowing before you launch.
+(function(){const S=DATA.smith; if(!S||S.now==null)return;
+ const el=document.getElementById('nowstrip'); if(!el)return;
+ const bad=(S.mud||0)>=0.35, warn=(S.mud||0)>=0.12;
+ const col=bad?'#b42318':warn?'#a35b00':'#1e7a45';
+ const bg =bad?'#fef3f2':warn?'#fff7ed':'#f0faf3';
+ const bd =bad?'#fecdca':warn?'#fed7aa':'#c9ead6';
+ const box=document.createElement('div');
+ box.style.cssText='margin:8px 0 0;padding:9px 12px;border-radius:11px;background:'+bg
+   +';border:1px solid '+bd+';font-size:12.5px;line-height:1.5;color:#16202b';
+ const trend=S.trend==='rising'?' and <b>rising</b>':S.trend==='falling'?' and falling':'';
+ box.innerHTML='<b style="color:'+col+'">Smith Fork '+S.now.toLocaleString()+' cfs</b>'+trend
+   +' · '+S.why
+   +'<div style="margin-top:3px;color:#566270">Above the confluence ('+S.confMfd
+   +' mi below the dam) the river stays <b>clear</b> — Long Branch down to <b>Betty\'s Island</b>, '
+   +'and every trout hole. From there down, including the wading at <b>Stonewall</b>, expect <b>'+S.below+'</b>.'
+   +(bad?' The colour starts at the confluence and does not clear until well downstream — fish above it, or pick another day.':'')
+   +' <a href="'+S.url+'" target="_blank" rel="noopener" style="color:#0a84ff;text-decoration:none">gauge →</a></div>';
+ el.parentNode.insertBefore(box, el.nextSibling);})();
 const GCOL={Prime:'#28c76f',Good:'#0a84ff',Fair:'#f2a832',Tough:'#94a3b1',Great:'#28c76f','—':'#94a3b1'};
 const CRAFT_ORDER=DATA.craftOrder,CRAFT_NAME=DATA.craftName,CRAFT_ICO=DATA.craftIco;
 // One craft selection for the whole page. The planner buttons and the outlook toggle are two

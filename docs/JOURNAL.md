@@ -9,6 +9,52 @@ belongs to a commit goes in the commit message. This file is for *state and inte
 
 ---
 
+## 2026-08-12 — Clarity is the Smith Fork's doing, not the sky's
+
+A guide's account of a bad day supplied a better clarity model than the one shipped:
+
+> "None of the river was brown until the confluence with Smith Fork Creek. That's typically the
+> way it is. Most of the creeks and tributaries above that area are not large enough to change
+> the colour of the entire river. Sometimes the Smith Fork flows with more force than the Caney
+> Fork! When that happens the fishing is going to be tough."
+
+The page was inferring clarity from **rainfall**. Smith Fork has its own live USGS gauge
+(03424730), so this is measurable rather than inferred. Two facts make it work.
+
+**WHERE.** The confluence is an exact shared node in the OSM channel geometry at
+36.13968,-85.86988 → **mfd 11.08**, between Betty's Island (9.0) and Stonewall (15.0). Seven of
+the ten accesses and *every* trout hole sit above it and stay clear whatever the creek does.
+
+**HOW MUCH.** 365 days of gauge record: p10 24.5 · p50 65.9 · p75 163 · p90 318 · p95 543 ·
+p99 1550 · max 5910. The guide's clear-water figure was "24 cfs" and his chocolate-milk day was
+"over 1300" — **the p10 baseline and a p95–p99 event.** Those two anchor the curve.
+
+Two conditions must both hold, which is the part rainfall could never capture:
+
+```
+sed  = log-scaled load between 50 cfs (clear) and 1200 cfs (chocolate milk)
+frac = smith / (smith + caney_at_confluence)        <- the release DILUTES it
+mud  = sed * clamp(frac / 0.5)
+```
+
+Backtested over the year: **63.4% clear · 16.9% some colour · 9.0% stained · 10.7% chocolate
+milk** — brown about one day in nine, which fits a guide being caught out by it. And the dilution
+term reproduces his insight directly: 26 Feb at 1,630 cfs reads chocolate milk at minimum flow
+but only *stained* under two units.
+
+Surfaced as a banner that shows in **every** state, because "the creek is fine" is worth knowing
+before you drive. Access popups say which side of the confluence each ramp is on. Day scoring
+uses the live creek for today and falls back to rainfall for later days — there is no Smith Fork
+forecast, and the breakdown says so rather than implying a measurement.
+
+**A test caught me overstating it.** The banner claimed the confluence split leaves "the whole
+wade reach" clear. It does not: **Stonewall is a wade access and it is below the confluence.** The
+copy now names the clear water precisely (Long Branch → Betty's Island, and every trout hole) and
+explicitly includes the wading at Stonewall in the coloured reach. There is now a check that the
+page never makes the broader claim again.
+
+---
+
 ## 2026-08-10 (5) — TWRA site detail on the access pins
 
 Extended `analysis/twra_access.json` from coordinates to the **full published record** per site:

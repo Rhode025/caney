@@ -419,6 +419,8 @@ window.accessPopup=function(p){
  var t=(p.types||[]).map(function(k){return ic[k]||'';}).join(' ');
  var dist=(p.mfd!=null)?(p.mfd+' mi below the dam'):(p.rm!=null?'river mile '+p.rm:'');
  var info=p.info||[p.note,dist].filter(Boolean).join(' · ');
+ if(p.belowSmith===true)info+=(info?' · ':'')+'below the Smith Fork confluence — takes its colour';
+ else if(p.belowSmith===false)info+=(info?' · ':'')+'above the Smith Fork confluence — stays clear';
  var h='<div style="font:650 14px/1.3 -apple-system,BlinkMacSystemFont,sans-serif;color:#16202b">'+(t?t+' ':'')+p.name+'</div>';
  if(info)h+='<div style="font:400 12px/1.45 -apple-system,sans-serif;color:#66788a;margin-top:3px;max-width:214px">'+info+'</div>';
  var T=p.twra;
