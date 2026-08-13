@@ -9,6 +9,29 @@ belongs to a commit goes in the commit message. This file is for *state and inte
 
 ---
 
+## 2026-08-13 (later) — Favicon
+
+🌊 as an inline SVG data URI, injected by `render()` so every page gets it — no extra request, no
+binary asset in the repo, renders from the OS font so it looks native everywhere. Plus
+`apple-touch-icon` (this thing gets added to a phone home screen) and a `theme-color`.
+
+**Picked by rendering the candidates at actual favicon size**, which changed the answer. 🏞️ is
+the obvious "river" emoji and it is the wrong choice: it is a *framed photo*, so at 16 px the
+white border dominates and the river detail disappears. 🎣 is thin-lined and goes muddy. 🌊 holds
+its shape and colour at 16 px, which is the only size that matters.
+
+One mark for the whole site rather than the per-river switcher emoji. Those repeat anyway — all
+three Duck sections are 🐟, all three Cumberland tailraces 🌉 — so they would not have told tabs
+apart, and a single mark makes the app recognisable among everything else open.
+
+**A vocabulary bug surfaced on the way.** HQ showed the Caney's Sunday as **Slow** where the page
+said **Tough** — same meaning, different word, on the same day. `build_week()` was round-tripping
+the river's grade through a score and re-deriving it in HQ's *own* band names. A per-day base may
+now carry the grade STRING, which is used verbatim; only the colour is looked up. Caught by the
+HQ-agreement check added two sessions ago, which is what it was for.
+
+---
+
 ## 2026-08-13 — Harpeth River added (13 rivers)
 
 Hwy 100 down to the Cumberland confluence — a Tennessee State Scenic River, no dam anywhere on

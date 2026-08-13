@@ -295,6 +295,23 @@ SWITCH_CSS = (
 # Injected into every page's <head> by render() — one real typeface for display/headings, so the UI
 # stops leaning on the system stack (the design-review "gave up on typography" flag). Body/data stays
 # on the fast native stack by intent.
+
+# ── favicon ───────────────────────────────────────────────────────────────────
+# An emoji drawn into an inline SVG data URI: no extra request, no binary asset in the repo, and
+# it renders from the OS font so it looks native everywhere. One mark for the whole site rather
+# than the per-river switcher emoji -- those repeat anyway (all three Duck sections are 🐟, all
+# three Cumberland tailraces 🌉), so they would not tell tabs apart, and a single mark makes the
+# app recognisable at a glance among everything else open.
+SITE_EMOJI = "\U0001F30A"             # 🌊 — the one that still reads at 16px (see note above)
+
+def favicon(emoji):
+    svg = ("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'>"
+           "<text x='32' y='46' font-size='52' text-anchor='middle'>" + emoji + "</text></svg>")
+    uri = "data:image/svg+xml," + urllib.parse.quote(svg, safe="")
+    return ('<link rel="icon" href="%s">'
+            '<link rel="apple-touch-icon" href="%s">'
+            '<meta name="theme-color" content="#0a84ff">' % (uri, uri))
+
 BASE_HEAD = (
     '<link rel="preconnect" href="https://fonts.googleapis.com">'
     '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
@@ -1142,7 +1159,7 @@ def render(html, river_id):
               + BUILDSTAMP_JS.replace("__BUILT_EPOCH__", str(int(time.time())))
               + "</script>")
     return (html
-            .replace("<head>", "<head>" + BASE_HEAD + _stamp, 1)
+            .replace("<head>", "<head>" + BASE_HEAD + favicon(SITE_EMOJI) + _stamp, 1)
             .replace("__SWITCH_CSS__", SWITCH_CSS)
             .replace("__SWITCHER__", switcher(river_id))
             .replace("__CREDIT__", CREDIT)
@@ -1369,14 +1386,21 @@ def build_week(wx, base, tz, per_date_note=None):
         else:
             b = base
         if isinstance(base, (list, tuple)) and base:
-            score = b                            # the river's own per-day verdict, shown as-is
             moon_adj = rain_adj = 0.0
+            if isinstance(b, str):               # the river's own word for this day
+                grade_override = b
+                score = GRADE_SCORE.get(b, 1.3)
+            else:
+                grade_override = None
+                score = b                        # the river's own per-day verdict, shown as-is
         else:
             moon_adj = 0.15 * (rating - 3)       # rating 1..5 -> -0.30 .. +0.30, zero-mean
             rain_adj = -(1.0 if pop >= 70 else 0.5 if pop >= 50 else 0.0)
             score = b + moon_adj + rain_adj
+            grade_override = None
         score = max(0.0, min(3.0, score))
         grade, col = _grade_from_score(score)
+        if grade_override: grade = grade_override
         feed = "strong" if rating >= 4 else "fair" if rating >= 3 else "slow"
         note = "%d°/%d° · %d%% rain · %s feed" % (hi, lo, pop, feed)
         if per_date_note and ds in per_date_note:

@@ -1865,7 +1865,7 @@ riverlib.emit_status("caney",
     {"grade":_cg,"cond":_ccond,"col":_ccol,
      "note":("sight-fish the minimum-flow flats" if not NOW["gen"] else "ride the rise downstream from the boat"),
      "detail":(("%s cfs"%format(NOW["cfs"],",")) if NOW["cfs"] else "water off"),"asof":NOW["asof"]},
-    wx, [riverlib.GRADE_SCORE.get(d["byCraft"]["power"]["grade"], _cbase) for d in _scores] or _cbase,
+    wx, [d["byCraft"]["power"]["grade"] for d in _scores] or _cbase,
     CT, ["Trout"], "Trout tailwater", "~70 min · east of Nashville", days=DAYS)
 print("wrote",os.path.join(OUT,"caney.html"),"| tomorrow:",DATA["dateLabel"])
 print("dam:",dam_cap,"| clarity:",clar_word,"| tips:",len(tips),"| flies now:",len(flybox["now"]),"season:",flybox["season"])

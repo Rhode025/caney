@@ -582,7 +582,7 @@ def build_section(_S):
         {"grade":FG,"cond":FN,"col":FC_,"note":FNOTE,
          "detail":(("%s cfs"%format(round(cur_flow*1000),",")) if cur_flow is not None else "—"),
          "asof":(OBS[-1][0].astimezone(CT).strftime("%-I:%M %p") if OBS else now_ct.strftime("%-I:%M %p"))},
-        wx, [riverlib.GRADE_SCORE.get(o["grade"], 1.3) for o in outlook] or riverlib.GRADE_SCORE.get(FG,1.3), CT, ["Smallmouth","Panfish"], "Warmwater smallmouth", "~95 min · Lobelville", days=DAYS)
+        wx, [o["grade"] for o in outlook] or riverlib.GRADE_SCORE.get(FG,1.3), CT, ["Smallmouth","Panfish"], "Warmwater smallmouth", "~95 min · Lobelville", days=DAYS)
     print("wrote out/%s.html | %s %s\u2013%s | flow %s kcfs %s | grade %s | lag %.1fh"%(_S["id"],_S["label"],ACC[0][0],ACC[-1][0],cur_flow,trend,FG,_lag))
 
 
