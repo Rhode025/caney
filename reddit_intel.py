@@ -35,6 +35,7 @@ RIVERS = {
     "caney":      {"name": "Caney Fork",   "q": '"Caney Fork" OR "Center Hill Dam"'},
     "duck":       {"name": "Duck River",   "q": '"Duck River" (smallmouth OR fishing OR float OR fish)'},
     "buffalo":    {"name": "Buffalo River", "q": '"Buffalo River" Tennessee (smallmouth OR fishing OR float OR canoe)'},
+    "harpeth":    {"name": "Harpeth River", "q": '"Harpeth River" (smallmouth OR fishing OR float OR canoe OR Narrows)'},
     "cumberland": {"name": "Cumberland KY", "q": '"Wolf Creek Dam" OR ("Cumberland River" (trout OR tailwater OR generation))'},
     "elk":        {"name": "Elk River",    "q": '"Elk River" (smallmouth OR Wheeler OR Alabama OR Prospect OR fishing OR jet)'},
     "elktn":      {"name": "Elk · Tims Ford", "q": '"Tims Ford" OR ("Elk River" Tennessee (trout OR tailwater OR fishing))'},

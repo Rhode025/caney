@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Buffalo River (Flat Woods -> Lobelville) — smallmouth planner.
-A DIFFERENT model from the Caney: the Buffalo isn't dam-generation-driven, so this is
-flow-forecast based — current level + trend (NWS NWPS gauge LBVT1 near Lobelville) drives
+Harpeth River (Hwy 100 -> the Cumberland confluence) — smallmouth planner.
+A DIFFERENT model from the Caney: the Harpeth isn't dam-generation-driven, so this is
+observation-based — current level + trend (USGS 03434500 near Kingston Springs) drives
 fishability, with the 5-day river forecast as the outlook. Smallmouth love falling,
 clearing water in the ~1-2.5 kcfs range. Sources: NOAA NWPS, USGS, Open-Meteo.
 """
@@ -10,24 +10,33 @@ import json,urllib.request,urllib.parse,datetime,math,os,sys
 from zoneinfo import ZoneInfo
 sys.path.insert(0,os.path.dirname(os.path.abspath(__file__)))
 import riverlib
-CT=ZoneInfo("America/Chicago"); UA={"User-Agent":"buffalo/1.0"}
+CT=ZoneInfo("America/Chicago"); UA={"User-Agent":"harpeth/1.0"}
 HERE=os.path.dirname(os.path.abspath(__file__)); OUT=os.path.join(HERE,"out"); os.makedirs(OUT,exist_ok=True)
 def get(u,h=None):
     # riverlib.get retries transient TLS/DNS/5xx failures; a single flaky fetch used to
     # build this page with missing data instead of failing (see riverlib.get docstring).
     return riverlib.get(u,{**UA,**(h or {})},timeout=60)
 now=datetime.datetime.now(datetime.timezone.utc); now_ct=now.astimezone(CT)
-GLAT,GLON=35.66,-87.81   # Buffalo corridor, Perry/Lewis Co
+GLAT,GLON=36.12,-87.05   # Harpeth corridor, Cheatham/Davidson Co
 
 # ---- NWS NWPS gauge: observed + forecast stage(ft)/flow(kcfs) ----
-OBS=[]; FC=[]
+KING_SITE="03434500"      # Harpeth near Kingston Springs — the lowest gauge before the Cumberland
+OBS=[]; FC=[]             # FC stays EMPTY: NWPS has no forecast point anywhere on the Harpeth
 try:
-    sf=get("https://api.water.noaa.gov/nwps/v1/gauges/%s/stageflow"%"LBVT1")
-    for p in sf.get("observed",{}).get("data",[]):
-        OBS.append((datetime.datetime.fromisoformat(p["validTime"].replace("Z","+00:00")),p["primary"],p["secondary"]))
-    for p in sf.get("forecast",{}).get("data",[]):
-        FC.append((datetime.datetime.fromisoformat(p["validTime"].replace("Z","+00:00")),p["primary"],p["secondary"]))
-except Exception as e: print("nwps warn:",e)
+    _ts=get("https://waterservices.usgs.gov/nwis/iv/?format=json&sites=%s&period=P5D&parameterCd=00060,00065"%KING_SITE)["value"]["timeSeries"]
+    _q={}; _st={}
+    for _s in _ts:
+        _code=_s["variable"]["variableCode"][0]["value"]
+        for _p in _s["values"][0]["value"]:
+            try: _v=float(_p["value"])
+            except Exception: continue
+            if _v<0: continue
+            _t=datetime.datetime.fromisoformat(_p["dateTime"])
+            (_q if _code=="00060" else _st)[_t]=_v
+    for _t in sorted(_q):
+        # (time, stage ft, flow kcfs) — the shape the rest of this generator expects
+        OBS.append((_t,_st.get(_t),_q[_t]/1000.0))
+except Exception as e: print("usgs warn:",e)
 OBS.sort(); FC.sort()
 cur_stage=OBS[-1][1] if OBS else (FC[0][1] if FC else None)
 cur_flow=OBS[-1][2] if OBS else (FC[0][2] if FC else None)   # kcfs
@@ -121,22 +130,23 @@ if cur_flow is not None and cur_flow<2.5 and trend!="rising":
 else:
     tips.append(["🌊","Up / off-color — slow down, go bigger and brighter (chartreuse/black), and fish tight to the banks, eddies and creek mouths where fish get out of the current."])
 if wtemp and wtemp>=80: tips.append(["🌡️","Water's warm (~%d°F) — smallmouth chase early and late; midday, go deep and slow in the shade."%wtemp])
-tips.append(["🛶","Float the sections when it's up (Flat Woods→Linden, Linden→Lobelville); wade the shoals when it drops in. Match the reach to the level."])
+tips.append(["🛶","Float the sections when it's up (Hidden Lake→Kingston Springs, or the Narrows loop); wade the shoals when it drops in. Match the reach to the level."])
 
 def fmt_hm(dt): return dt.astimezone(CT).strftime("%-I:%M%p").lower()
 
 # ---- float planner: which section to run, whether the level's right, when to put in ----
-col_flow=None   # upstream Flat Woods gauge (kcfs) — the river runs skinnier up top
+col_flow=None   # upstream Bellevue gauge (kcfs) — the river runs skinnier up top
 try:
-    p=get("https://waterservices.usgs.gov/nwis/iv/?format=json&sites=03604000&period=PT3H&parameterCd=00060")["value"]["timeSeries"][0]["values"][0]["value"]
+    p=get("https://waterservices.usgs.gov/nwis/iv/?format=json&sites=03433500&period=PT3H&parameterCd=00060")["value"]["timeSeries"][0]["values"][0]["value"]
     col_flow=round(float(p[-1]["value"])/1000.0,2)
-except Exception as e: print("columbia warn:",e)
+except Exception as e: print("bellevue warn:",e)
 cen_flow=cur_flow
-# REAL Buffalo River accesses (TWRA / higherpursuits paddler access table), upstream->downstream:
+# REAL Harpeth River accesses (TWRA / higherpursuits paddler access table), upstream->downstream:
 # (name, river-mile, channel-frac). River miles are mouth-referenced; frac is position along
-# our OSM channel (approximate: TWRA publishes no river miles for the Buffalo). Section distance = ΔRM.
-ACC=[("Flatwoods",47.0,0.0),("Linden (Hwy 100)",38.0,0.321),
-     ("Beardstown",30.0,0.607),("Lobelville",22.0,0.893),("Buffalo Mouth (Hwy 13)",19.0,1.0)]
+# our OSM channel (approximate: TWRA publishes no river miles for the Harpeth). Section distance = ΔRM.
+ACC=[("Hwy 100 Access",55.2,0.0),("Harpeth River Park",51.5,0.067),("Newsom Station",46.7,0.154),
+     ("Hidden Lake",43.7,0.208),("Kingston Springs",28.1,0.491),("Gossett Tract",26.5,0.520),
+     ("Narrows of the Harpeth",24.4,0.558),("Harpeth River Bridge",0.0,1.0)]
 def local_flow(f,scale=1.0):
     if col_flow is None: return (cen_flow*scale if cen_flow else None)
     if cen_flow is None: return col_flow*scale
@@ -161,24 +171,21 @@ def floatab(fl,craft="jet"):
     if fl<=c["push"]:  return ("Floatable","#28c76f",c["okN"])
     if fl<=c["blown"]: return ("Pushy","#f2a832",c["puN"])
     return ("Blown","#8b6cef",c["blN"])
-CRAFT0="paddle"  # the Buffalo is canoe/kayak water (WATER_MODEL: too skinny for a jet)
+CRAFT0="paddle"  # the Harpeth is canoe/kayak water (WATER_MODEL: too skinny for a jet)
 # real access coordinates, placed on the OSM channel at each ramp's river mile
-# (town/bridge coordinates along the corridor; the Buffalo has no published ramp table)
+# (town/bridge coordinates along the corridor; the Harpeth has no published ramp table)
 # Coordinates are the ACTUAL road-over-river crossings, found by intersecting OSM highway
-# geometry with the OSM Buffalo River centreline (analysis: 19 bridges cross the river; these
+# geometry with the OSM Harpeth River centreline (analysis: 19 bridges cross the river; these
 # six match the named accesses). The first cut of this page geocoded TOWN CENTRES, which put
-# Lobelville 1,236 m and Topsy Bridge 1,099 m from the water -- a Google Maps pin in the middle
+# Kingston Springs 1,236 m and Hwy 100 Access 1,099 m from the water -- a Google Maps pin in the middle
 # of town rather than at the launch. Bridge crossings are where the public access actually is on
-# this river: TWRA publishes no ramp coordinates for the Buffalo.
-COORD_ALL={"Flatwoods":(35.48816,-87.83493),                 # State Highway 13, by the USGS gauge
-       "Linden (Hwy 100)":(35.61410,-87.83050),          # TWRA "LINDEN" access (their coordinate)
-       "Beardstown":(35.70833,-87.79681),                # SR 438 bridge
-       "Lobelville":(35.76214,-87.77534),                # East 8th Avenue bridge, in town
-       "Buffalo Mouth (Hwy 13)":(35.81215,-87.77875)}    # State Highway 13 bridge
-# hazards — real, not guessed. Confirmed: a low-head dam sits in downtown Flat Woods, between the
-# Buffalo: no dams at all, so the hazards are strainers and flashy rises, not impoundments.
-DAM_WARN=("No dam anywhere on the Buffalo \u2014 it is a free-flowing State Scenic River. Nothing buffers "
-          "a rain event here: it comes up fast and drops fast, so check the gauge the morning you go.")
+# this river: TWRA publishes no ramp coordinates for the Harpeth.
+COORD_ALL={"Hwy 100 Access":(36.05410,-86.92900),"Harpeth River Park":(36.07839,-86.95945),
+       "Newsom Station":(36.07987,-86.99644),"Hidden Lake":(36.09175,-87.02992),
+       "Kingston Springs":(36.12204,-87.09889),"Gossett Tract":(36.13648,-87.10484),
+       "Narrows of the Harpeth":(36.14800,-87.11853),"Harpeth River Bridge":(36.28450,-87.14528)}
+# hazards — no dams anywhere on the Harpeth; the risks are strainers, low water and a flashy rise.
+DAM_WARN=("No dam on the Harpeth \u2014 it is a Tennessee State Scenic River. Nothing buffers a rain\n          event, and the gradient is low, so it comes up fast and drops slowly.")
 GEN_HAZ="Watch for strainers, logjams & deadfall on the outside of bends — worst right after high water."
 def hazard_for(i): return DAM_WARN if i==0 else GEN_HAZ
 def mins(hm):
@@ -190,15 +197,15 @@ sr_min=mins(WXT["sunrise"]) if WXT and WXT.get("sunrise") else 6*60+30
 ss_min=mins(WXT["sunset"]) if WXT and WXT.get("sunset") else 20*60
 
 # ---------------------------------------------------------------------------
-# The Buffalo runs 125 miles as one continuous free-flowing river, so unlike the Buffalo it is a
+# The Harpeth runs as one continuous free-flowing river, so it is a
 # single page. Sections below are the float reaches between public accesses (the TWRA/paddler access table
 # marks which accesses take motorized boats; canoe-only accesses are not section boundaries
 # because you cannot end a jet trip at one).
 #
 # Each section gets its own page. `rm0`/`rm1` are mouth-referenced river miles, `f0`/`f1` the
 # matching positions along the shared OSM channel polyline.
-RIVER_KEY="buffalo"
-ROUTE_FALLBACK=(22, 0.9695, 1.55, 1.27, 4311)
+RIVER_KEY="harpeth"
+ROUTE_FALLBACK=(5, 0.8784, 1.48, 5.42, 4303)
 # ROUTING — how a rise moves down the river. MEASURED, not assumed.
 # analysis/duck_routing.py cross-correlates the two gauges; analysis/backtest_route.py then
 # scores candidate transfer models on HELD-OUT data (fit on the first 70%, scored on the last
@@ -229,17 +236,19 @@ def route_lag_h(frac):
     return ROUTE_LAG_H * max(0.0, min(1.0, frac))
 
 SECTIONS = [
-  {"id":"buffalo","label":"Buffalo","seat":"Lobelville","rm0":47.0,"rm1":19.0,"f0":0.0,"f1":1.0,"p0":0,"p1":142,
-   "blurb":"Topsy to the Buffalo confluence — the clearest smallmouth water in Middle Tennessee."},
+  {"id":"harpeth","label":"Harpeth","seat":"Kingston Springs","rm0":55.2,"rm1":0.0,"f0":0.0,"f1":1.0,"p0":0,"p1":135,
+   "blurb":"Hwy 100 to the Cumberland confluence — a State Scenic River through Harpeth River State Park."},
 ]
-# Buffalo River centreline traced from OSM waterway=river geometry (nearest-neighbour chained
-# from Topsy downstream, simplified to ~700 m spacing). The first cut drew this line through
+# Harpeth River centreline traced from OSM waterway=river geometry (nearest-neighbour chained
+# from the Hwy 100 access downstream, simplified to ~600 m spacing). Traced from
 # TOWN CENTRES, so the mapped channel did not follow the river.
-POLY_ALL = [[35.45398,-87.77254],[35.45776,-87.77567],[35.45833,-87.78226],[35.46076,-87.78809],[35.46484,-87.79131],[35.46724,-87.79636],[35.46323,-87.79885],[35.45840,-87.80161],[35.45480,-87.80551],[35.45944,-87.80687],[35.46471,-87.80663],[35.46802,-87.81070],[35.46411,-87.81497],[35.46018,-87.81815],[35.46128,-87.82353],[35.46626,-87.82304],[35.46989,-87.81962],[35.47309,-87.81493],[35.47688,-87.81798],[35.47495,-87.82421],[35.46975,-87.82739],[35.46632,-87.83127],[35.46082,-87.83241],[35.45648,-87.83459],[35.45132,-87.83270],[35.45104,-87.83857],[35.45584,-87.84167],[35.45961,-87.84503],[35.46460,-87.84688],[35.46977,-87.84574],[35.47378,-87.84311],[35.47762,-87.84642],[35.47647,-87.85207],[35.47834,-87.85723],[35.48273,-87.85475],[35.48298,-87.84839],[35.48355,-87.84291],[35.48564,-87.83758],[35.48951,-87.83425],[35.49403,-87.83307],[35.49890,-87.83513],[35.50062,-87.82925],[35.50651,-87.82712],[35.51124,-87.82531],[35.51273,-87.83084],[35.51150,-87.83682],[35.51421,-87.84188],[35.52014,-87.84361],[35.52422,-87.84125],[35.52758,-87.83755],[35.53139,-87.83368],[35.53588,-87.83167],[35.53783,-87.83695],[35.54205,-87.83440],[35.54535,-87.82939],[35.54342,-87.82133],[35.54216,-87.81593],[35.54408,-87.81026],[35.55157,-87.81120],[35.55557,-87.81379],[35.55936,-87.81801],[35.55886,-87.82434],[35.55801,-87.83036],[35.56054,-87.83506],[35.56538,-87.83290],[35.56710,-87.82699],[35.56762,-87.82112],[35.57045,-87.81511],[35.57513,-87.81525],[35.57891,-87.82282],[35.58163,-87.82738],[35.58331,-87.83322],[35.58291,-87.83893],[35.58731,-87.83769],[35.59126,-87.83408],[35.59482,-87.83940],[35.59516,-87.84499],[35.59969,-87.84650],[35.60421,-87.84562],[35.60410,-87.83987],[35.60251,-87.83418],[35.60647,-87.83097],[35.61216,-87.82998],[35.61623,-87.83247],[35.62085,-87.83100],[35.62578,-87.83034],[35.63047,-87.82958],[35.63073,-87.82133],[35.63563,-87.82148],[35.64022,-87.82240],[35.64378,-87.81876],[35.64851,-87.81798],[35.65298,-87.81544],[35.65668,-87.81119],[35.66049,-87.81428],[35.66487,-87.81606],[35.67013,-87.80962],[35.67499,-87.80435],[35.67719,-87.79937],[35.68249,-87.79630],[35.68597,-87.80012],[35.68981,-87.80312],[35.69345,-87.79902],[35.69462,-87.79181],[35.69958,-87.78724],[35.70457,-87.78742],[35.70424,-87.79314],[35.70869,-87.79707],[35.71328,-87.79629],[35.71630,-87.79165],[35.71943,-87.78764],[35.72429,-87.78765],[35.72816,-87.79309],[35.73314,-87.79582],[35.73805,-87.79653],[35.74244,-87.79985],[35.74742,-87.80206],[35.75225,-87.80102],[35.75054,-87.79544],[35.74924,-87.79002],[35.75096,-87.78405],[35.75443,-87.78020],[35.76015,-87.77873],[35.76203,-87.77260],[35.76529,-87.76765],[35.76417,-87.76208],[35.76650,-87.75716],[35.77055,-87.76072],[35.77513,-87.76288],[35.77837,-87.76678],[35.78073,-87.77165],[35.78463,-87.77471],[35.78857,-87.77773],[35.79384,-87.77879],[35.79860,-87.77971],[35.80235,-87.78307],[35.80580,-87.77824],[35.80712,-87.77294],[35.81038,-87.76898],[35.81352,-87.77307],[35.81221,-87.77839],[35.81210,-87.77908]]
+# Harpeth centreline: shortest path along the OSM river graph from the Hwy 100 access to the
+# Harpeth River Bridge at the Cumberland confluence. 135 points, 55.2 river miles.
+POLY_ALL = [[36.05421, -86.92855], [36.05471, -86.93543], [36.05085, -86.94086], [36.04942, -86.94917], [36.05376, -86.94517], [36.05895, -86.94316], [36.06193, -86.94881], [36.06599, -86.95452], [36.07223, -86.95428], [36.07754, -86.95812], [36.07547, -86.96435], [36.0692, -86.96455], [36.06455, -86.96954], [36.06736, -86.97554], [36.06492, -86.98241], [36.06139, -86.9875], [36.06694, -86.98858], [36.07287, -86.98742], [36.07563, -86.98152], [36.08116, -86.98355], [36.08189, -86.99084], [36.08089, -86.99765], [36.08661, -86.99979], [36.09325, -86.99958], [36.09446, -87.00736], [36.09051, -87.01495], [36.08548, -87.01905], [36.0867, -87.02568], [36.09172, -87.02868], [36.09535, -87.03405], [36.09018, -87.03608], [36.08332, -87.03546], [36.08361, -87.04243], [36.08819, -87.04657], [36.09271, -87.05191], [36.09592, -87.05854], [36.09329, -87.06442], [36.08714, -87.06231], [36.08221, -87.05925], [36.08231, -87.06621], [36.08608, -87.07128], [36.08508, -87.07812], [36.08163, -87.08404], [36.08493, -87.08999], [36.08994, -87.08624], [36.09454, -87.08126], [36.09936, -87.07645], [36.10514, -87.073], [36.11157, -87.07685], [36.11413, -87.08356], [36.11039, -87.08995], [36.10799, -87.09608], [36.10316, -87.10006], [36.09497, -87.10187], [36.09174, -87.10744], [36.09836, -87.10877], [36.10367, -87.1053], [36.10815, -87.10926], [36.10717, -87.1174], [36.10387, -87.12424], [36.10438, -87.1311], [36.11062, -87.12902], [36.11449, -87.12373], [36.11637, -87.11371], [36.1194, -87.10641], [36.12091, -87.09997], [36.12637, -87.0995], [36.13101, -87.1051], [36.13531, -87.10988], [36.13811, -87.10393], [36.13755, -87.09626], [36.14274, -87.09821], [36.14022, -87.10422], [36.14288, -87.11077], [36.14798, -87.11563], [36.14541, -87.12172], [36.14003, -87.12111], [36.13492, -87.12591], [36.13048, -87.13117], [36.13083, -87.13981], [36.13117, -87.14673], [36.13549, -87.15174], [36.14128, -87.15002], [36.14351, -87.14388], [36.14453, -87.13712], [36.14666, -87.12932], [36.14814, -87.12265], [36.1529, -87.1193], [36.1582, -87.11717], [36.16217, -87.1121], [36.16764, -87.11109], [36.17016, -87.11802], [36.16834, -87.12457], [36.16489, -87.13204], [36.16374, -87.13898], [36.16128, -87.14506], [36.15944, -87.15184], [36.15917, -87.15872], [36.15639, -87.16449], [36.15855, -87.17089], [36.16482, -87.17129], [36.16978, -87.167], [36.17229, -87.16025], [36.1745, -87.15331], [36.18085, -87.15137], [36.18609, -87.15494], [36.19097, -87.15866], [36.19252, -87.16639], [36.19568, -87.17196], [36.20167, -87.17026], [36.20638, -87.17368], [36.2105, -87.17946], [36.21006, -87.18634], [36.21543, -87.18726], [36.22207, -87.18427], [36.2267, -87.18073], [36.22614, -87.17348], [36.22931, -87.16673], [36.23501, -87.16506], [36.24036, -87.16716], [36.24532, -87.17033], [36.24709, -87.17731], [36.24439, -87.18352], [36.24359, -87.19014], [36.24912, -87.19316], [36.25394, -87.18836], [36.25762, -87.18265], [36.26144, -87.17742], [36.26453, -87.17185], [36.26678, -87.1657], [36.26987, -87.15827], [36.27546, -87.15523], [36.28059, -87.15842], [36.28461, -87.15362], [36.28498, -87.14506]]
 ACC_ALL = list(ACC)
 
 TEMPLATE=r"""<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
-<title>Buffalo River · smallmouth</title>
+<title>Harpeth River · smallmouth</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
 :root{--ink:#16202b;--muted:#66788a;--faint:#93a3b3;--line:#e6ecf2;--card:#fff;--blue:#0a84ff;--green:#28c76f}
@@ -291,8 +300,8 @@ __FLYMATRIX_CSS__
 @media(max-width:680px){.app{padding:22px 14px 60px}h1{font-size:28px}.wx .m{min-width:0}}
 </style></head><body><div class="app">
  __SWITCHER__
- <div class="eyebrow">Smallmouth planner · Buffalo River · free-flowing State Scenic River</div>
- <h1>Buffalo River</h1><div class="cap" id="cap"></div>
+ <div class="eyebrow">Smallmouth planner · Harpeth River · free-flowing State Scenic River</div>
+ <h1>Harpeth River</h1><div class="cap" id="cap"></div>
  <div class="card now" id="now"></div>
  <div class="sec">Flow forecast</div><div class="card chartc" id="chartc"></div>
  <div class="sec">Flow timer · scrub obs → forecast</div><div class="card ft" id="flowtimer"></div>
@@ -303,7 +312,7 @@ __FLYMATRIX_CSS__
  <div class="safe" id="safe"></div>
  <div class="sec">Live map · float accesses</div>
  <div class="card" style="padding:8px"><div id="lmap"></div></div>
- <div class="maptip">Public accesses on the OSM channel · Topsy → the Buffalo confluence, ~45 river mi · tap a pin for details &amp; a Google Maps link
+ <div class="maptip">Harpeth River State Park accesses on the OSM channel · Hwy 100 → the Cumberland confluence, 55 river mi · tap a pin for details &amp; a Google Maps link
  <div class="sec">6-day outlook</div><div class="card wk" id="wk"></div>
  <div class="sec">Weather</div><div class="card wx" id="wx"></div>
  <div class="sec">Moon &amp; feeding</div><div class="card sol" id="sol"></div>
@@ -358,7 +367,7 @@ __FLYMATRIX_JS__
   +'<text x="'+nowx+'" y="16" font-size="10" fill="#16202b" text-anchor="middle">now</text>'
   +'<path d="'+obsPath+'" fill="none" stroke="#3a7bb8" stroke-width="2.5"/>'
   +'<path d="'+fcPath+'" fill="none" stroke="#0a84ff" stroke-width="2.5" stroke-dasharray="5 4"/>'+ax+'</svg>'
-  +'<div class="lgd"><span><i style="background:rgba(40,199,111,.6)"></i>prime .9–2.5k</span><span><i style="background:rgba(242,168,50,.6)"></i>high</span><span><i style="background:rgba(139,108,239,.5)"></i>blown</span><span>— obs · - - forecast</span></div>';})();
+  +'<div class="lgd"><span><i style="background:rgba(40,199,111,.6)"></i>prime .9–2.5k</span><span><i style="background:rgba(242,168,50,.6)"></i>high</span><span><i style="background:rgba(139,108,239,.5)"></i>blown</span><span>— observed (no forecast published for this river)</span></div>';})();
 // outlook
 (function(){let h='';D.outlook.forEach(d=>{const wx=d.wx?(' · '+d.wx.hi+'°/'+d.wx.lo+'°'+(d.wx.pop?' · '+d.wx.pop+'%':'')):'';
  h+='<div class="wr"><div class="wg" style="background:'+d.col+'">'+d.grade+'</div><div class="wd"><b>'+d.label+'</b><span>'+d.date+'</span></div>'
@@ -382,7 +391,7 @@ __FLYMATRIX_JS__
     +'Road shuttle ~'+s.shuttle+' mi between ramps — spot a vehicle first. Sized for your jet; launch at first light for the morning bite.</div>';}
  function renderSecs(){const S=D.sections;
   let h='<div class="fsub" style="padding:8px 0 4px;color:var(--faint)">Float sections at today\'s level'
-   +(D.colflow!=null?' (Flat Woods '+D.colflow+'k → Lobelville '+(D.cur.flow||'?')+'k — the upper river runs skinnier)':'')
+   +(D.colflow!=null?' (Bellevue '+D.colflow+'k → Kingston Springs '+(D.cur.flow||'?')+'k — the upper river runs skinnier)':'')
    +' · sized for <b>'+(craft==='jet'?'a jet boat':'a kayak / canoe')+'</b>:</div>';
   S.forEach(x=>{const fb=floatab(x.flow,craft),red=x.haz.indexOf('⚠')===0;
    h+='<div class="frow"><div class="fcond" style="background:'+fb[1]+'">'+fb[0]+'</div>'
@@ -391,7 +400,7 @@ __FLYMATRIX_JS__
     +'<div class="hazrow"'+(red?' style="color:#b3392f;font-weight:600"':'')+'>'+x.haz+'</div></div>'
     +'<div class="fmi"><b>'+x.mi+' mi</b>~'+x.hrs+' hrs<span style="display:block;color:var(--faint);font-size:11px">shuttle ~'+x.shuttle+' mi</span></div></div>';});
   flEl.innerHTML=h;}
- safe.innerHTML='<div style="font-size:16px">⚠</div><div><b>Float safety.</b> There is no dam anywhere on the Buffalo — it is a free-flowing State Scenic River, so nothing buffers a rain event. It comes up fast and drops fast. Wear a PFD, scout blind bends, and expect fresh strainers after high water. Check the gauge the morning you go, not the night before.</div>';
+ safe.innerHTML='<div style="font-size:16px">⚠</div><div><b>Float safety.</b> There is no dam anywhere on the Harpeth — it is a free-flowing State Scenic River, so nothing buffers a rain event. It comes up fast and drops fast. Wear a PFD, scout blind bends, and expect fresh strainers after high water. Check the gauge the morning you go, not the night before.</div>';
  document.querySelectorAll('#crafttog a').forEach(a=>a.onclick=()=>{craft=a.dataset.c;
   document.querySelectorAll('#crafttog a').forEach(z=>z.classList.toggle('on',z.dataset.c===craft));renderSug();renderSecs();});
  renderSug();renderSecs();})();
@@ -403,7 +412,7 @@ buildMoonCal('mooncal',35.80,-87.37);
 buildFlowTimer('flowtimer',D.timeline);
 renderChatter('chatter',D.chatter,'chatterSec');
 buildLog('log','riverlog-duck',D.points.map(p=>p.name),null);
-document.getElementById('foot').textContent='Flow & 5-day forecast: NOAA National Water Prediction Service (gauge LBVT1, Buffalo River near Lobelville). Fishability bands & water-temp are estimates — tune from the water. Weather: Open-Meteo. River channel from OpenStreetMap.';
+document.getElementById('foot').textContent='Flow: USGS real-time gauges (no NWPS forecast exists for the Harpeth) (USGS 03434500, Harpeth near Kingston Springs). Fishability bands & water-temp are estimates — tune from the water. Weather: Open-Meteo. River channel from OpenStreetMap.';
 buildRiverMap(D,D.cur.col);
 </script></body></html>"""
 
@@ -413,21 +422,21 @@ def build_section(_S):
     COORD={k:v for k,v in COORD_ALL.items() if k in {a[0] for a in ACC}}
     _frac=(_S["f0"]+_S["f1"])/2.0
     _lag=route_lag_h(_frac)
-    # THIS reach's water, not Lobelville's. The Buffalo gains about half again between Flat Woods and
-    # Lobelville (measured median gain x1.46), so quoting the downstream gauge on the upper
+    # THIS reach's water, not Kingston Springs's. The Harpeth gains about half again between Bellevue and
+    # Kingston Springs (measured median gain x1.46), so quoting the downstream gauge on the upper
     # river overstates it by nearly 2x -- the difference between "prime" and "skinny".
     cur_flow=local_flow(_frac)
     FN,FG,FC_,FNOTE=fish(cur_flow,trend=="rising",trend=="falling")
     clar="stained/rising" if trend=="rising" else "clearing" if trend=="falling" else "steady"
-    # The outlook is the Lobelville forecast scaled to this reach by the same channel position.
+    # The outlook is the Kingston Springs forecast scaled to this reach by the same channel position.
     _oscale=(cur_flow/cen_flow) if (cen_flow and cur_flow) else 1.0
     outlook=[]
     for _o in _OUTLOOK_BASE:
         _f=round(_o["flow"]*_oscale,2)
         _cond,_g,_col,_note=fish(_f,_o["trend"]=="↑",_o["trend"]=="↓")
         outlook.append(dict(_o,flow=_f,cond=_cond,grade=_g,col=_col,note=_note))
-    # Where this reach's forward signal comes from. Lobelville is the ONLY NWPS forecast point
-    # on the Buffalo, so the upper reaches are predicted by routing the Flat Woods gauge downstream.
+    # Where this reach's forward signal comes from. Kingston Springs is the ONLY NWPS forecast point
+    # on the Harpeth, so the upper reaches are predicted by routing the Bellevue gauge downstream.
     _upnow=(col_flow*1000.0) if col_flow is not None else None
     _pred=route_predict(_upnow)
     ROUTE={"lagH":round(_lag,1),"gain":ROUTE_GAIN,"r":ROUTE_R,"mph":ROUTE_MPH,"n":ROUTE_N,
@@ -436,18 +445,18 @@ def build_section(_S):
            "upNow":round(_upnow) if _upnow else None,
            "pred":round(_pred) if _pred else None,
            "predAt":round(ROUTE_LAG_H,1),
-           "src":("Flat Woods gauge (USGS 03604000) — this reach's own water" if _S["id"]=="duckup"
-                  else ("routed from Flat Woods — a rise there lands here about %.0f h later"%_lag) if _S["id"]=="duckmid"
-                  else "NWPS forecast at Lobelville (LBVT1) — this reach's own water"),
-           "why":("The Flat Woods gauge sits at the top of this water and runs "
-                  "%d h ahead of Lobelville, which makes it the earliest warning on the river."%ROUTE_LAG_H
+           "src":("Bellevue gauge (USGS 03433500) — this reach's own water" if _S["id"]=="duckup"
+                  else ("routed from Bellevue — a rise there lands here about %.0f h later"%_lag) if _S["id"]=="duckmid"
+                  else "USGS gauge at Kingston Springs (03434500) — observed, not forecast"),
+           "why":("The Bellevue gauge sits at the top of this water and runs "
+                  "%d h ahead of Kingston Springs, which makes it the earliest warning on the river."%ROUTE_LAG_H
                   if _S["id"]=="duckup" else
-                  ("No gauge sits on this reach. Flat Woods is above it and Lobelville below, so the level "
-                   "here is interpolated between the two, and a rise at Flat Woods reaches this water about "
+                  ("No gauge sits on this reach. Bellevue is above it and Kingston Springs below, so the level "
+                   "here is interpolated between the two, and a rise at Bellevue reaches this water about "
                    "%.0f h later — leaving roughly %.0f h of warning before it arrives."%(_lag,_lag))
                   if _S["id"]=="duckmid" else
-                  "Lobelville sits at the bottom of this reach and is the Buffalo's only NWPS forecast point, "
-                  "so this is the one section with a genuine published forecast rather than a routed one.")}
+                  "Kingston Springs is the last gauge before the Cumberland. NWPS publishes no forecast anywhere "
+                  "on the Harpeth, so everything ahead of now is routed from the Bellevue gauge, not forecast.")}
     sections=[]
     for i in range(len(ACC)-1):
         a,rma,fa=ACC[i]; b,rmb,fb=ACC[i+1]; mi=round(rma-rmb,1); fl=local_flow((fa+fb)/2)
@@ -482,13 +491,16 @@ def build_section(_S):
     flybox={"season":season,"clar":clar,"now":flies,
       "rig":"Get crawfish & Clousers on the bottom along rock, ledges and current seams (split-shot or a sink-tip), 8–10 lb tippet. Fish topwater on a floating line at first and last light.",
       "sources":[["FlyFishFinder","https://flyfishfinder.com/pages/best-smallmouth-bass-rivers-in-tennessee/"],["River Run Angling","https://riverrunangling.com/blog/bass-fishing-in-tennessee/"],["Wooly Buggin'","https://woolybuggin.com/smallies-on-the-fly-a-guide-for-river-smallmouth-bass/"]]}
-    ACC_TYPES={"Flatwoods":["ramp","paddle"],"Linden (Hwy 100)":["ramp","paddle"],
-           "Beardstown":["paddle"],"Lobelville":["ramp","paddle"],"Buffalo Mouth (Hwy 13)":["ramp","paddle"]}
-    ACC_INFO={"Flatwoods":"Top of the mapped reach, Perry Co. Crystal-clear water and the USGS gauge (03604000) \u2014 the only Buffalo gauge carrying water temperature. The river ABOVE here floats only Nov\u2013Aug and is too skinny in a dry late summer.",
- "Linden (Hwy 100)":"Perry Co seat at the Hwy 100 bridge. Canoe liveries; year-round floatable below this point.",
- "Beardstown":"Mid-river access between Linden and Lobelville.",
- "Lobelville":"Main lower-river access with canoe rental. The NWPS forecast point (LBVT1) sits just below.",
- "Buffalo Mouth (Hwy 13)":"Lowest access before the Buffalo confluence; USGS 03604400 gauges it."}
+    ACC_TYPES={"Hwy 100 Access":["ramp","paddle"],"Harpeth River Park":["ramp","paddle"],
+           "Newsom Station":["paddle"],"Kingston Springs":["ramp","paddle"],"Harpeth River Bridge":["ramp","paddle"]}
+    ACC_INFO={"Hwy 100 Access":"Harpeth River State Park at Hwy 100. Top of the mapped reach \u2014 the USGS Bellevue gauge (03433500) sits here, which makes it the earliest reading on the river and a %d h head start on Kingston Springs."%ROUTE_LAG_H,
+ "Harpeth River Park":"Bellevue city park river access.",
+ "Newsom Station":"Harpeth River State Park unit at Newsom Mill \u2014 the 1862 mill ruin stands on the bank.",
+ "Hidden Lake":"Harpeth River State Park. The lake is a flooded quarry; the access is on the river.",
+ "Kingston Springs":"USGS gauge 03434500 (683 sq mi) \u2014 the last gauge before the Cumberland, and what the lower river is read from.",
+ "Gossett Tract":"Harpeth River State Park canoe access, just upstream of the Narrows.",
+ "Narrows of the Harpeth":"The landmark. The river loops about five miles and comes back within a few hundred feet of itself; Montgomery Bell cut a tunnel through the neck in 1819. The standard Narrows float puts in and takes out here.",
+ "Harpeth River Bridge":"Bridge access at the Cumberland confluence \u2014 the bottom of the river."}
     SOL=riverlib.solunar(now_ct.date(),(WXT or {}).get("sunrise"),(WXT or {}).get("sunset"),CT)
     # Seasonal forage calendar for river smallmouth (warmwater — dormant in the cold). 0-3 by month.
     HATCH={"rows":[
@@ -501,13 +513,13 @@ def build_section(_S):
      {"name":"Sculpin / streamer","icon":"🐠","pattern":"pre-spawn & fall grabs","m":[1,1,2,3,2,1,1,1,2,3,2,1]},
     ]}
     # flow-timer timeline: scrub obs+forecast. Flow river (whole reach moves together) but with the
-    # Flat Woods→Lobelville gradient, so upstream ramps read skinnier than the Lobelville gauge.
+    # Bellevue→Kingston Springs gradient, so upstream ramps read skinnier than the Kingston Springs gauge.
     _ft=series
     _now=next((i for i,p in enumerate(_ft) if not p.get("obs")),len(_ft))-1
     def _dscale(fr):
         if col_flow is None or not cen_flow: return 1.0
         return max(0.25,(col_flow+fr*(cen_flow-col_flow))/cen_flow)
-    _dord=[(a[0].replace(" (Hwy 100)","").replace(" (Hwy 13)",""),a[2]) for a in ACC]
+    _dord=[(a[0].replace(" Access","").replace("Harpeth River ",""),a[2]) for a in ACC]
     TIMELINE=({"times":[p["t"] for p in _ft],"nowFrame":max(0,_now),"unit":"kcfs","dec":2,"refIdx":len(_dord)-1,"refName":_dord[-1][0],
       "front":False,"frontThresh":0,"srcLabel":_dord[0][0]+" ↑","mouthLabel":_dord[-1][0]+" ↓",
       "bands":[[0.9,"#20b2aa","Low"],[2.5,"#28c76f","Prime"],[4.5,"#f2a832","High"],[10**9,"#8b6cef","Blown"]],
@@ -538,7 +550,7 @@ def build_section(_S):
       "now":{"clarity":_dcl,"light":_dlight,"fly":FLYMATRIX[_dcl][_dlight]},
       "rig":"Crawfish & Clousers on the bottom along rock, ledges & seams (split-shot or a sink-tip), 8–10 lb tippet. Topwater on a floating line at first & last light.",
       "sources":[["FlyFishFinder","https://flyfishfinder.com/pages/best-smallmouth-bass-rivers-in-tennessee/"],["River Run Angling","https://riverrunangling.com/blog/bass-fishing-in-tennessee/"],["Wooly Buggin'","https://woolybuggin.com/smallies-on-the-fly-a-guide-for-river-smallmouth-bass/"]]}
-    DATA={"today":now_ct.strftime("%A, %B %-d · %-I:%M %p"),"flysel":FLYSEL,"colflow":col_flow,"solunar":SOL,"hatch":HATCH,"month":now_ct.month,"chatter":riverlib.load_intel("buffalo"),"timeline":TIMELINE,
+    DATA={"today":now_ct.strftime("%A, %B %-d · %-I:%M %p"),"flysel":FLYSEL,"colflow":col_flow,"solunar":SOL,"hatch":HATCH,"month":now_ct.month,"chatter":riverlib.load_intel("harpeth"),"timeline":TIMELINE,
           "sections":sections,"suggest":FLOAT,"route":ROUTE,"sec":_S,"craft":CRAFT,"craft0":CRAFT0,
           "cur":{"flow":round(cur_flow,2) if cur_flow is not None else None,"stage":round(cur_stage,1) if cur_stage is not None else None,
                  "trend":trend,"cond":FN,"grade":FG,"col":FC_,"note":FNOTE,"clar":clar,"wtemp":wtemp,
@@ -554,8 +566,8 @@ def build_section(_S):
 
     # ---- HQ day state ----
     # The only non-dam river with a real forward flow forecast: NWPS publishes observed +
-    # forecast stage/flow for LBVT1. Rows are (time, stage_ft, flow_kcfs), so scale to cfs.
-    _CURVE_LABEL=("Buffalo \u00b7 %s reach"%_S["label"]) if _oscale!=1.0 else "Buffalo near Lobelville (NWPS)"
+    # observed stage/flow from USGS. Rows are (time, stage_ft, flow_kcfs), so scale to cfs.
+    _CURVE_LABEL="Harpeth near Kingston Springs (USGS 03434500)"
     def _buff_day(off):
         d0, _ = riverlib.day_bounds(CT, off)
         rows = [(t, (v * 1000 * _oscale if v is not None else None)) for t, s, v in (OBS + FC)]
@@ -565,14 +577,14 @@ def build_section(_S):
             return riverlib.day_state(headline="No NWPS reading for this day")
         med = sorted(vals)[len(vals) // 2]
         # Vessel from the sourced model (riverlib.WATER_MODEL), not from guessed bands.
-        vk, _vlabel, vw, _conf = riverlib.craft_label("buffalo", med)
+        vk, _vlabel, vw, _conf = riverlib.craft_label("harpeth", med)
         lk = "low" if med < 400 else "prime" if med < 3000 else "high" if med < 8000 else "blown"
         ck = "clear" if med < 1200 else "stained" if med < 4000 else "colored" if med < 8000 else "muddy"
         # Anything past the last observation is forecast; before that it is measured.
         last_obs = OBS[-1][0].timestamp() if OBS else 0
         src = "forecast" if (d0 + 86400) > last_obs else "observed"
         return riverlib.day_state(vessel=vk, vessel_why=vw, vessel_label=_vlabel,
-            clarity=ck, clarity_why="inferred from flow; the Buffalo runs clear and colours up fast after rain",
+            clarity=ck, clarity_why="inferred from flow; the Harpeth runs clear and colours up fast after rain",
             level=lk, level_detail=format(round(med), ",") + " cfs",
             curve=cv, curve_unit="cfs", curve_label=_CURVE_LABEL, curve_src=src,
             headline=format(round(med), ",") + " cfs \u00b7 " + {"wade":"skinny","both":"prime float","boat":"pushy","":""}.get(vk, ""))
@@ -582,7 +594,7 @@ def build_section(_S):
         {"grade":FG,"cond":FN,"col":FC_,"note":FNOTE,
          "detail":(("%s cfs"%format(round(cur_flow*1000),",")) if cur_flow is not None else "—"),
          "asof":(OBS[-1][0].astimezone(CT).strftime("%-I:%M %p") if OBS else now_ct.strftime("%-I:%M %p"))},
-        wx, [riverlib.GRADE_SCORE.get(o["grade"], 1.3) for o in outlook] or riverlib.GRADE_SCORE.get(FG,1.3), CT, ["Smallmouth","Panfish"], "Warmwater smallmouth", "~95 min · Lobelville", days=DAYS)
+        wx, [riverlib.GRADE_SCORE.get(o["grade"], 1.3) for o in outlook] or riverlib.GRADE_SCORE.get(FG,1.3), CT, ["Smallmouth","Panfish"], "Warmwater smallmouth", "~95 min · Kingston Springs", days=DAYS)
     print("wrote out/%s.html | %s %s\u2013%s | flow %s kcfs %s | grade %s | lag %.1fh"%(_S["id"],_S["label"],ACC[0][0],ACC[-1][0],cur_flow,trend,FG,_lag))
 
 

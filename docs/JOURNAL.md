@@ -9,6 +9,53 @@ belongs to a commit goes in the commit message. This file is for *state and inte
 
 ---
 
+## 2026-08-13 — Harpeth River added (13 rivers)
+
+Hwy 100 down to the Cumberland confluence — a Tennessee State Scenic River, no dam anywhere on
+it, canoe/kayak water through Harpeth River State Park. Built on the same routing engine as the
+Duck and Buffalo.
+
+**Channel and accesses.** 55.2 river miles traced as the shortest path along the OSM river graph
+from the Hwy 100 access to the Harpeth River Bridge at the mouth (135 points). TWRA maps **no**
+Harpeth accesses at all, so the access list is the Harpeth River State Park units placed off that
+centreline: Hwy 100 · Harpeth River Park · Newsom Station · Hidden Lake · Kingston Springs ·
+Gossett Tract · **Narrows of the Harpeth** · Harpeth River Bridge.
+
+**Routing measured** (`analysis/duck_routing.py`, 180 days, 4,303 aligned hours): Bellevue
+(03433500, 409 mi²) → Kingston Springs (03434500, 683 mi²), **5 h lag, r = 0.878, gain ×1.48**,
+27.1 river miles → 5.4 mph. Bellevue sits at the top of the reach, so it is the earliest reading
+on the river.
+
+**Two honest limits, both surfaced rather than hidden:**
+
+1. **NWPS publishes no forecast anywhere on the Harpeth** — none of its seven gauges has a
+   forecast point. The page runs on USGS observations and says "observed, not forecast".
+2. **The 5 h lag is inside the horizon where persistence wins** (routing only beats "assume the
+   river stays put" beyond ~12 h). So the routed forecast is *suppressed entirely* on this river.
+   The guard was already there; this is the first river to exercise it.
+
+Its transfer function also only beats a constant gain by **3%** (against the Duck's 43%), so the
+QC check that demanded a 20% margin became a warning — that margin was a Duck/Buffalo
+observation, not a law, and 3% is the honest finding that the model choice barely matters here.
+
+**The new page immediately exposed a bug in an existing one.** A check that no page may mention
+another river's place names caught the **Buffalo** shipping Duck ramps — Chickasaw, Williamsport,
+Leatherwood, Littlelot — in its flow timer, because that list had never been re-derived when the
+Buffalo was cloned from the Duck. Both rivers also defaulted to **jet boat** while their own
+`WATER_MODEL` says "too skinny for a jet". Fixed both, and there are now checks for foreign place
+names, for claiming an NWPS forecast that does not exist, and that the default craft is one the
+river's water model actually allows.
+
+**A QC check that was wrong.** `qc_caney.mjs` asserted the wade/boat call rises monotonically
+with flow **across different accesses at one hour**. That is not an invariant: `condp` uses a
+per-access reference depth, so Stonewall (15 mi down, wide) at 522 cfs genuinely can be too deep
+to wade while Betty's Island (9 mi) at 596 cfs is fine. Rewritten as the true invariant — per
+place, more water must never read as more wadeable.
+
+QC: 256 river + 411 Caney.
+
+---
+
 ## 2026-08-12 — Clarity is the Smith Fork's doing, not the sky's
 
 A guide's account of a bad day supplied a better clarity model than the one shipped:

@@ -33,6 +33,8 @@ PAIRS = [
               ("centerville", "03601990", 74.0, "Duck at Hwy 100, Centerville")]),
     ("buffalo", [("flatwoods", "03604000", 47.0, "Buffalo near Flat Woods"),
                  ("lobelville", "03604400", 19.0, "Buffalo below Lobelville")]),
+    ("harpeth", [("bellevue", "03433500", 60.0, "Harpeth at Bellevue"),
+                 ("kingston", "03434500", 32.9, "Harpeth near Kingston Springs")]),
 ]
 
 

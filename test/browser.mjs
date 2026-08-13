@@ -820,6 +820,23 @@ console.log('── caney timed plan: craft-aware ──');
   await pg.close();
 }
 
+console.log('── routed forecast: shown only where it beats persistence ──');
+{
+  // The Harpeth's gauges are 5 h apart and routing only beats persistence beyond ~12 h, so its
+  // page must show NO routed forecast at all, while the Duck (14 h) must show one. This checks
+  // what actually renders, not the presence of the string in the script.
+  for (const [rid, expect] of [['harpeth', false], ['duckmid', true], ['buffalo', true]]) {
+    const pg = await browser.newPage();
+    await pg.goto(url(rid + '.html'), { timeout: 20000 });
+    await pg.waitForTimeout(1200);
+    const cap = await pg.$eval('#cap', e => e.innerText).catch(() => '');
+    const shown = /routed forecast/i.test(cap);
+    assert(`${rid}: routed forecast ${expect ? 'shown' : 'suppressed'}`,
+      shown === expect, `rendered=${shown} expected=${expect}`);
+    await pg.close();
+  }
+}
+
 await browser.close();
 console.log('');
 if (fails) { console.log(`\x1b[31mFAILED ${fails} check(s)\x1b[0m`); process.exit(1); }

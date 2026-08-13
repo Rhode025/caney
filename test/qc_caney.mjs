@@ -281,11 +281,16 @@ for (const d of res.days) {
     warns.push(`day ${d.label}: no generation but itinerary is boat-only — "${d.itin}"`);
 }
 const rank = { wade: 0, boat: 1, high: 2 };
-for (const [h, rows] of Object.entries(res.classAt)) {
-  const sorted = [...rows].sort((a, b) => a.f - b.f);
-  for (let i = 1; i < sorted.length; i++)
-    if (rank[sorted[i].c] < rank[sorted[i - 1].c])
-      fails.push(`hour ${h}: ${sorted[i].n} at ${sorted[i].f} cfs is "${sorted[i].c}" but ${sorted[i-1].n} at ${sorted[i-1].f} cfs is "${sorted[i-1].c}"`);
+{
+  const byPlace = {};
+  for (const [h, rows] of Object.entries(res.classAt))
+    for (const r of rows) (byPlace[r.n] = byPlace[r.n] || []).push({ h, f: r.f, c: r.c });
+  for (const [name, obs] of Object.entries(byPlace)) {
+    const sorted = [...obs].sort((a, b) => a.f - b.f);
+    for (let i = 1; i < sorted.length; i++)
+      if (rank[sorted[i].c] < rank[sorted[i - 1].c])
+        fails.push(`${name}: ${sorted[i].f} cfs is "${sorted[i].c}" but the lower ${sorted[i-1].f} cfs is "${sorted[i-1].c}"`);
+  }
 }
 for (const d of res.days) {
   if (d.relStart != null && (d.relStart < 0 || d.relStart >= 1440))

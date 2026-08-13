@@ -8,7 +8,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 # duck.py emits THREE pages (duckup/duckmid/ducklow) from one run — one fetch, one engine.
-GENERATORS=(briefing cumberland duck buffalo elk elktn cumbnash stones cheatham cordell)
+GENERATORS=(briefing cumberland duck buffalo harpeth elk elktn cumbnash stones cheatham cordell)
 
 for s in "${GENERATORS[@]}"; do
   echo "  ▸ $s"
