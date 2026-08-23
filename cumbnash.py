@@ -176,7 +176,7 @@ FN,FG,FCOL,FNOTE=_SR["cond"],_SR["grade"],_SR["col"],_SR["note"]
 BASE=riverlib.GRADE_SCORE.get(FG,1.5)
 
 clar="rising / gen on" if trend=="rising" else "falling" if trend=="falling" else "steady"
-DATA={"today":now_ct.strftime("%A, %B %-d · %-I:%M %p"),"solunar":SOL,"hatch":HATCH,"month":now_ct.month,
+DATA={"todayIso":now_ct.date().isoformat(),"today":now_ct.strftime("%A, %B %-d"),"solunar":SOL,"hatch":HATCH,"month":now_ct.month,
       "chatter":riverlib.load_intel("cumbnash"),"flysel":FLYSEL,"tips":tips,"weather":WXT,"series":series,"usace":USACE_URL,
       "cur":{"flow":round(cur_flow) if cur_flow is not None else None,"stage":round(cur_stage,1) if cur_stage is not None else None,
              "trend":trend,"cond":FN,"grade":FG,"col":FCOL,"note":FNOTE,"clar":clar,"asof":asof},

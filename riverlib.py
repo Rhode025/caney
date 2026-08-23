@@ -376,14 +376,108 @@ BUILDSTAMP_JS = r"""
     }
     var lvl = age>12*3600000 ? 2 : age>3*3600000 ? 1 : 0;
     el.className='bstamp l'+lvl;
+    var a=ago(age);
     el.innerHTML = lvl===0
-      ? '<span class="bsdot"></span>Data built '+fmt(d)+' · '+ago(age)+' ago'
+      ? '<span class="bsdot"></span>Data built '+fmt(d)+' · '+(a==='just now'?a:a+' ago')
       : '<strong>Data is '+ago(age)+' old</strong> · built '+fmt(d)
         +(lvl===2?' · flows and generation may have changed':'');
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',paint);
   else paint();
   setInterval(paint,60000);
+})();
+"""
+
+# ── DAY IDENTITY (R2) — no build-time relative time, ever ────────────────────
+# The 2026-08-23 failure: GitHub Actions stopped running on 2026-08-21 (billing), the site
+# froze, and every page went on calling Friday's data "Today" for two days. A reader saw a
+# 2-unit generation day that TVA said was 1 unit. The data was right; the LABEL was wrong.
+#
+# Root cause: day rows carried a label but no identity — {"label": "Today" if i==0, "date":
+# "8/21"} — no ISO date, no year. Nothing on the client could recover which day a row was,
+# so a stale page could not self-correct even in principle. It could only apologise in the
+# build stamp while lying in the body.
+#
+# The rule (RIVER_SPEC §0): PYTHON EMITS ABSOLUTE INSTANTS, THE CLIENT RENDERS RELATIVE TIME.
+# Nothing baked at build time may say Today / Tomorrow / Yesterday / tonight. Every day row
+# carries iso="YYYY-MM-DD"; this stamps the label from the READER's clock at page load.
+#
+# Applied by construction: render() wraps each page's DATA blob in __rlRelabel(), so the walk
+# runs synchronously at `const DATA=...` — before any render code can read a label. Every
+# page inherits it with no TEMPLATE edit, and any FUTURE day row that carries an iso is
+# corrected for free. That is the parity rule holding without anyone having to remember it.
+#
+# Dates resolve in the river's timezone, not the device's, so a reader in another zone still
+# sees the day the river is having.
+SITE_TZ = "America/Chicago"
+
+DAYLABEL_JS = r"""
+(function(){
+  var TZ='__SITE_TZ__';
+  function pad(n){return (n<10?'0':'')+n;}
+  // The reader's current calendar date, in the RIVER's timezone. en-CA formats as YYYY-MM-DD.
+  function todayISO(){
+    try{
+      var p=new Intl.DateTimeFormat('en-CA',{timeZone:TZ,year:'numeric',month:'2-digit',day:'2-digit'})
+              .formatToParts(new Date()), o={};
+      p.forEach(function(x){o[x.type]=x.value;});
+      if(o.year&&o.month&&o.day) return o.year+'-'+o.month+'-'+o.day;
+    }catch(e){}
+    var d=new Date();
+    return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
+  }
+  // Compare at UTC noon so DST transitions can never shift a whole-day difference.
+  function utcNoon(iso){var p=iso.split('-');return Date.UTC(+p[0],+p[1]-1,+p[2],12,0,0);}
+  function delta(iso){return Math.round((utcNoon(iso)-utcNoon(todayISO()))/86400000);}
+  function wd(iso){
+    try{return new Date(utcNoon(iso)).toLocaleDateString('en-US',{weekday:'short',timeZone:'UTC'});}
+    catch(e){return iso.slice(5);}
+  }
+  function md(iso){var p=iso.split('-');return (+p[1])+'/'+(+p[2]);}
+  function label(iso){
+    var n=delta(iso);
+    if(n===0)return'Today';
+    if(n===1)return'Tomorrow';
+    if(n===-1)return'Yesterday';
+    return n<0 ? wd(iso)+' · '+(-n)+'d ago' : wd(iso);
+  }
+  function longDate(iso){
+    try{return new Date(utcNoon(iso)).toLocaleDateString('en-US',
+      {weekday:'long',month:'long',day:'numeric',timeZone:'UTC'});}
+    catch(e){return iso;}
+  }
+  var ISO=/^\d{4}-\d{2}-\d{2}$/;
+  function stamp(o){
+    if(!o||typeof o.iso!=='string'||!ISO.test(o.iso))return o;
+    o.dayDelta=delta(o.iso); o.isToday=(o.dayDelta===0);
+    o.label=label(o.iso); o.date=md(o.iso);
+    return o;
+  }
+  // Walk the whole DATA graph and stamp anything carrying an iso. Cycle-safe; depth-capped
+  // so a pathological blob can never hang page load ahead of the render.
+  function walk(o,seen,depth){
+    if(!o||typeof o!=='object'||depth>24)return;
+    if(seen.indexOf(o)>=0)return; seen.push(o);
+    if(Array.isArray(o)){for(var i=0;i<o.length;i++)walk(o[i],seen,depth+1);return;}
+    stamp(o);
+    for(var k in o){if(Object.prototype.hasOwnProperty.call(o,k))walk(o[k],seen,depth+1);}
+  }
+  window.__rlDay={today:todayISO,delta:delta,label:label,date:md,longDate:longDate,stamp:stamp};
+  window.__rlRelabel=function(D){
+    try{
+      walk(D,[],0);
+      // The page headline. Python ships todayIso (the BUILD day); the reader's own day wins,
+      // so a stale page never puts a wrong weekday at the top of the screen.
+      if(D&&typeof D.todayIso==='string'&&ISO.test(D.todayIso)){
+        D.dayShift=-delta(D.todayIso);            // 0 fresh; 2 = built two days ago
+        var t=longDate(todayISO());
+        if('today' in D)      D.today=t;
+        if('todayLabel' in D) D.todayLabel=t;
+        if('dateLabel' in D && typeof D.tomorrowIso==='string') D.dateLabel=longDate(D.tomorrowIso);
+      }
+    }catch(e){ if(window.console&&console.warn)console.warn('relabel',e); }
+    return D;
+  };
 })();
 """
 
@@ -600,7 +694,9 @@ window.buildGenSchedule=function(cid,days,hint,legend,opts){
  var maxU=3; days.forEach(function(g){(g.spark||[]).forEach(function(u){if(u>maxU)maxU=u;});});
  var nd=new Date(),nowHr=nd.getHours()+nd.getMinutes()/60;
  var h='<div class="ghint">'+(hint||'')+'</div>';
- days.forEach(function(g,di){var today=di===0,bars='';
+ // isToday comes from the row's own date (stamped by __rlRelabel), NOT from di===0 — on a
+ // stale build row 0 is not today, and the "now" cursor below must not be drawn on it.
+ days.forEach(function(g,di){var today=!!g.isToday,bars='';
   for(var hr=0;hr<24;hr++){var u=g.spark[hr]||0,ht=u?4+Math.round(u/maxU*28):3;bars+='<i style="height:'+ht+'px;background:'+ucol(u)+'" title="'+((hr%12)||12)+(hr<12?'am':'pm')+' · '+(u?u+'U':'off')+'"></i>';}
   var now=today?'<span class="gnow" style="left:'+(nowHr/24*100).toFixed(1)+'%"></span>':'';
   var wins=(g.windows&&g.windows.length)?g.windows.map(function(w){return '<span class="gwin gw'+Math.min(3,w.units)+'">'+w.units+'U '+w.span+'</span>';}).join(''):'<span class="gmin">'+(opts.minLabel||'minimum flow')+'</span>';
@@ -1157,9 +1253,14 @@ def render(html, river_id):
     # render() gets it — no page can forget to display how old its data is.
     _stamp = ("<style>" + BUILDSTAMP_CSS + "</style><script>"
               + BUILDSTAMP_JS.replace("__BUILT_EPOCH__", str(int(time.time())))
+              + DAYLABEL_JS.replace("__SITE_TZ__", SITE_TZ)
               + "</script>")
     return (html
             .replace("<head>", "<head>" + BASE_HEAD + favicon(SITE_EMOJI) + _stamp, 1)
+            # Day identity, by construction: wrap the page's DATA blob so the relabel walk runs
+            # synchronously at `const DATA=…`, ahead of every render call. render() runs BEFORE
+            # the generator substitutes __DATA__, so the inner token is still there to fill.
+            .replace("__DATA__", "window.__rlRelabel(__DATA__)")
             .replace("__SWITCH_CSS__", SWITCH_CSS)
             .replace("__SWITCHER__", switcher(river_id))
             .replace("__CREDIT__", CREDIT)
@@ -1316,6 +1417,9 @@ def gen_days(rel, tz, unit_cfs, days=6, arrivals=None, start_date=None):
         spark = [max(0, round((release_at(rel, d0 + h * 3600) or 0) / unit_cfs)) for h in range(24)]
         rst = blk[0][0] if blk else None
         out.append({
+            # iso is the row's IDENTITY; label/date are build-time fallbacks that
+            # __rlRelabel() overwrites from the reader's clock. See DAYLABEL_JS.
+            "iso": d.isoformat(),
             "label": "Today" if i == 0 else d.strftime("%a"),
             "date": d.strftime("%-m/%-d"),
             "windows": [{"units": b[2], "span": ap(b[0]) + "–" + ap(b[1]),
@@ -1408,7 +1512,8 @@ def build_week(wx, base, tz, per_date_note=None):
         cc = hcloud[hidx[ds + "T13:00"]] if (ds + "T13:00") in hidx else None
         ico = ("🌧️" if pop >= 45 else "☀️" if (cc is not None and cc < 25)
                else "☁️" if (cc is not None and cc >= 65) else "⛅")
-        out.append({"date": d.strftime("%-m/%-d"),
+        out.append({"iso": ds,          # identity; label/date are relabelled client-side
+                    "date": d.strftime("%-m/%-d"),
                     "label": ("Today" if i == 0 else d.strftime("%a")),
                     "grade": grade, "col": col, "note": note, "ico": ico,
                     "pop": pop, "hi": hi, "lo": lo, "rating": rating})

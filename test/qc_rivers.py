@@ -22,7 +22,7 @@ def warn(name, cond, detail=""):
 
 def data(rid):
     h = open(os.path.join(ROOT, "out", rid + ".html")).read()
-    m = re.search(r"\bconst D=\{", h)
+    m = re.search(r"\bconst D=(?:window\.__rlRelabel\()?\{", h)
     j = h.index("{", m.start()); d = 0
     for k in range(j, len(h)):
         if h[k] == "{": d += 1
@@ -165,7 +165,7 @@ for rid in RIVERS:
 import glob
 def page_any(rid):
     h = open(os.path.join(ROOT, "out", rid + ".html")).read()
-    for pat in (r"\bDATA=\{", r"\bconst D=\{"):
+    for pat in (r"\bDATA=(?:window\.__rlRelabel\()?\{", r"\bconst D=(?:window\.__rlRelabel\()?\{"):
         m = re.search(pat, h)
         if m:
             j = h.index("{", m.start()); d = 0

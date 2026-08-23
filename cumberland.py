@@ -99,7 +99,7 @@ for i in range(6):
     wxd=None
     if wx and d.strftime("%Y-%m-%d") in wx["daily"]["time"]:
         j=wx["daily"]["time"].index(d.strftime("%Y-%m-%d")); wxd={"hi":round(wx["daily"]["temperature_2m_max"][j]),"lo":round(wx["daily"]["temperature_2m_min"][j]),"pop":wx["daily"]["precipitation_probability_max"][j]}
-    outlook.append({"label":("Today" if i==0 else d.strftime("%a")),"date":d.strftime("%-m/%-d"),"cond":cond,"grade":g,"col":col,
+    outlook.append({"iso":d.isoformat(),"label":("Today" if i==0 else d.strftime("%a")),"date":d.strftime("%-m/%-d"),"cond":cond,"grade":g,"col":col,
         "verdict":verdict,"wade":("wade %s–%s"%(hlab(ws),hlab(we)) if ws is not None else "no wade window"),"gen":genl,"wx":wxd})
 
 # release series for the chart (next ~5 days hourly)
@@ -210,7 +210,7 @@ for _i in range(6):
     _spark=[units(rel_at(_d0+h*3600)) for h in range(24)]
     _rst=_blk[0][0] if _blk else None
     _arr=[[nm,fmt_ap(_rst+lag*3600)] for nm,lag in [("Kendall",0),("Helm's",1),("Winfrey's",4)]] if _rst else None
-    CGEN.append({"label":("Today" if _i==0 else _d.strftime("%a")),"date":_d.strftime("%-m/%-d"),
+    CGEN.append({"iso":_d.isoformat(),"label":("Today" if _i==0 else _d.strftime("%a")),"date":_d.strftime("%-m/%-d"),
                  "windows":_wins,"spark":_spark,"peak":max([b[2] for b in _blk],default=0),"arr":_arr})
 GENHINT=("Wolf Creek generation, midnight→midnight (bar height = units). The release rises at the dam the "
          "moment they start and travels downstream — be off the wade shoals before it. Downstream arrival is "
@@ -273,7 +273,7 @@ for _n,_l in _clag:
                   "gauged":_gauged,
                   "verdict":_v,"col":_c,"note":_note})
 DATA={"depth":DEPTH,"depthRef":"Depth rise measured at the Burkesville gauge (USGS 03414100, 100k paired points). Upstream ramps show the jet read off the release — no stage gauge exists there, so no depth is claimed.",
-      "today":now_ct.strftime("%A, %B %-d · %-I:%M %p"),"flysel":FLYSEL,"solunar":SOL,"hatch":HATCH,"month":now_ct.month,"chatter":riverlib.load_intel("cumberland"),"timeline":TIMELINE,
+      "todayIso":now_ct.date().isoformat(),"today":now_ct.strftime("%A, %B %-d"),"flysel":FLYSEL,"solunar":SOL,"hatch":HATCH,"month":now_ct.month,"chatter":riverlib.load_intel("cumberland"),"timeline":TIMELINE,
       "gen":CGEN,"genHint":GENHINT,"genLegend":GENLEGEND,"genOpts":{"minLabel":"water off — wade all day","arrLabel":"release reaches"},
       "now":{"cfs":round(cur) if cur is not None else None,"gen":bool(gen_now),"units":units(cur) if gen_now else 0,
              "bk":bk,"state":("Generating" if gen_now else "Wadeable — water off"),

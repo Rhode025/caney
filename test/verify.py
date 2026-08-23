@@ -241,6 +241,89 @@ for c in cards.values():
 check("HQ grade-map covers all emitted grades", emitted <= gw_keys,
       "unhandled " + ",".join(emitted - gw_keys))
 
+print("── day identity: no build-time relative time (RIVER_SPEC §0) ──")
+# The 2026-08-23 regression: deploys stopped for two days and every page kept calling
+# Friday's data "Today", because day rows carried a label but no date identity. These
+# checks keep that impossible: every row must ship an `iso`, and the reader's clock —
+# not the build's — must decide what the label says.
+_MD = re.compile(r"^\d{1,2}/\d{1,2}$")
+_ISO = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+def data_blob(html):
+    """The page's DATA object, parsed. Brace-matched rather than regexed — day rows nest
+    (wx, byCraft), so a flat [^{}] pattern silently matches nothing and passes vacuously."""
+    m = re.search(r"const (?:DATA|D)=window\.__rlRelabel\(", html)
+    if not m: return None
+    i, depth = m.end(), 0
+    for j in range(i, len(html)):
+        if html[j] == "{": depth += 1
+        elif html[j] == "}":
+            depth -= 1
+            if depth == 0:
+                try: return json.loads(html[i:j + 1])
+                except Exception: return None
+    return None
+
+def day_rows(o, acc=None):
+    """Every object that looks like a day row: has a label and an 'M/D' date."""
+    acc = [] if acc is None else acc
+    if isinstance(o, list):
+        for v in o: day_rows(v, acc)
+    elif isinstance(o, dict):
+        if "label" in o and _MD.match(str(o.get("date", ""))): acc.append(o)
+        for v in o.values(): day_rows(v, acc)
+    return acc
+
+_rowtotal = 0
+for f in ALL_HTML:
+    p = os.path.join(OUT, f)
+    if not os.path.exists(p): continue
+    html = read(f)
+    check("DATA goes through __rlRelabel: " + f,
+          bool(re.search(r"const (?:DATA|D)=window\.__rlRelabel\(", html)),
+          "render() must wrap the DATA blob so labels are stamped before any render call")
+    check("day-identity runtime present: " + f, "window.__rlRelabel=" in html)
+
+    D = data_blob(html)
+    check("DATA parses: " + f, D is not None)
+    if D is None: continue
+    # Every day ROW must carry an iso. Without one __rlRelabel cannot reach it and its label
+    # stays frozen at build time — which is exactly how Friday's data came to say "Today".
+    rows = day_rows(D); _rowtotal += len(rows)
+    bad = [r for r in rows if not _ISO.match(str(r.get("iso", "")))]
+    check("every day row carries an iso: %s (%d rows)" % (f, len(rows)), not bad,
+          "%d without iso, e.g. label=%r date=%r" %
+          (len(bad), bad[0].get("label"), bad[0].get("date")) if bad else "")
+    if "todayIso" in D or "today" in D or "todayLabel" in D:
+        check("page headline carries todayIso: " + f, _ISO.match(str(D.get("todayIso", ""))),
+              "needed so the headline date follows the reader's clock, not the build's")
+
+# A guard on the guard: if the walk stops finding rows (a refactor renames date/label), the
+# checks above would pass vacuously — as an earlier regex version of this check did.
+check("day-row scan found rows to check", _rowtotal >= 50, "only %d rows seen" % _rowtotal)
+
+# Relative words must not be BAKED into prose Python emits — DAYLABEL_JS can rewrite day
+# rows, but it cannot reach a sentence. Day rows themselves are exempt: their build-time
+# label is a documented no-JS fallback that __rlRelabel overwrites.
+_REL = re.compile(r'"[^"]*\b(?:Today|Tomorrow|Yesterday)\b[^"]*"')
+for src in ["riverlib.py", "briefing.py", "cumberland.py", "duck.py", "buffalo.py",
+            "harpeth.py", "hq.py"]:
+    txt = open(os.path.join(ROOT, src), encoding="utf-8").read()
+    hits = []
+    for ln, line in enumerate(txt.splitlines(), 1):
+        s = line.strip()
+        if s.startswith("#") or '"Today" if' in line or "'Today'" in line:
+            continue          # comments, and the documented row-label fallback
+        for m in _REL.finditer(line):
+            g = m.group(0)
+            # Markup is exempt: a static control like <button data-v="today">Today</button>
+            # is a VIEW label the client repaints against its own clock, not baked data.
+            if "<" in g or ">" in g:
+                continue
+            if len(g) > 12:               # a bare "Today" key/label is fine; prose is not
+                hits.append("%s:%d" % (src, ln))
+    check("no relative time baked into prose: " + src, not hits, ", ".join(hits[:3]))
+
 print()
 if _fail:
     print("\033[31mFAILED %d check(s):\033[0m %s" % (len(_fail), "; ".join(_fail)))

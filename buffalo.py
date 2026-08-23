@@ -80,7 +80,7 @@ for i in range(6):
         ds=d.strftime("%Y-%m-%d")
         if ds in wx["daily"]["time"]:
             j=wx["daily"]["time"].index(ds); wxd={"hi":round(wx["daily"]["temperature_2m_max"][j]),"lo":round(wx["daily"]["temperature_2m_min"][j]),"pop":wx["daily"]["precipitation_probability_max"][j]}
-    _OUTLOOK_BASE.append({"label":("Today" if i==0 else d.strftime("%a")),"date":d.strftime("%-m/%-d"),
+    _OUTLOOK_BASE.append({"iso":d.isoformat(),"label":("Today" if i==0 else d.strftime("%a")),"date":d.strftime("%-m/%-d"),
         "flow":round(f,2),"stage":round(stage_for(d) or 0,1),"trend":tr,"cond":nm,"grade":g,"col":col,"note":note,"wx":wxd})
 
 # forecast series for the chart (kcfs over time), obs + forecast
@@ -377,7 +377,7 @@ __FLYMATRIX_JS__
  const sug=document.getElementById('sug'),flEl=document.getElementById('fl'),safe=document.getElementById('safe');
  function renderSug(){const s=D.suggest;if(!s){sug.style.display='none';return;}
   sug.innerHTML='<div class="h">Best float this week</div>'
-   +'<div class="b1">'+s.day+' '+s.date+' — put in at <b>'+s.frm+'</b> ~'+s.putin+', take out <b>'+s.to+'</b> ~'+s.takeout+'</div>'
+   +'<div class="b1">'+s.label+' '+s.date+' — put in at <b>'+s.frm+'</b> ~'+s.putin+', take out <b>'+s.to+'</b> ~'+s.takeout+'</div>'
    +'<div class="b2">'+s.mi+' mi · ~'+s.hrs+' hrs on the water · ~'+s.flow+'k cfs ('+s.grade+'). '
     +'Road shuttle ~'+s.shuttle+' mi between ramps — spot a vehicle first. Sized for your jet; launch at first light for the morning bite.</div>';}
  function renderSecs(){const S=D.sections;
@@ -466,7 +466,7 @@ def build_section(_S):
     FLOAT=None
     if best_sec and best_day:
         fl_bs=sec_at(best_sec,scale)[0]
-        FLOAT={"day":best_day["label"],"date":best_day["date"],"grade":best_day["grade"],"dayflow":best_day["flow"],
+        FLOAT={"iso":best_day["iso"],"label":best_day["label"],"date":best_day["date"],"grade":best_day["grade"],"dayflow":best_day["flow"],
                "frm":best_sec["from"],"to":best_sec["to"],"mi":best_sec["mi"],"hrs":best_sec["hrs"],
                "putin":tlab(sr_min+30),"takeout":tlab(sr_min+30+best_sec["hrs"]*60),"flow":fl_bs,
                "shuttle":best_sec["shuttle"],"haz":best_sec["haz"]}
@@ -538,7 +538,7 @@ def build_section(_S):
       "now":{"clarity":_dcl,"light":_dlight,"fly":FLYMATRIX[_dcl][_dlight]},
       "rig":"Crawfish & Clousers on the bottom along rock, ledges & seams (split-shot or a sink-tip), 8–10 lb tippet. Topwater on a floating line at first & last light.",
       "sources":[["FlyFishFinder","https://flyfishfinder.com/pages/best-smallmouth-bass-rivers-in-tennessee/"],["River Run Angling","https://riverrunangling.com/blog/bass-fishing-in-tennessee/"],["Wooly Buggin'","https://woolybuggin.com/smallies-on-the-fly-a-guide-for-river-smallmouth-bass/"]]}
-    DATA={"today":now_ct.strftime("%A, %B %-d · %-I:%M %p"),"flysel":FLYSEL,"colflow":col_flow,"solunar":SOL,"hatch":HATCH,"month":now_ct.month,"chatter":riverlib.load_intel("buffalo"),"timeline":TIMELINE,
+    DATA={"todayIso":now_ct.date().isoformat(),"today":now_ct.strftime("%A, %B %-d"),"flysel":FLYSEL,"colflow":col_flow,"solunar":SOL,"hatch":HATCH,"month":now_ct.month,"chatter":riverlib.load_intel("buffalo"),"timeline":TIMELINE,
           "sections":sections,"suggest":FLOAT,"route":ROUTE,"sec":_S,"craft":CRAFT,"craft0":CRAFT0,
           "cur":{"flow":round(cur_flow,2) if cur_flow is not None else None,"stage":round(cur_stage,1) if cur_stage is not None else None,
                  "trend":trend,"cond":FN,"grade":FG,"col":FC_,"note":FNOTE,"clar":clar,"wtemp":wtemp,

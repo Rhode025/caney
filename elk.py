@@ -219,7 +219,7 @@ TIMELINE=({"times":[t.astimezone(CT).strftime("%-m/%-d %-I%p").lower() for t,v i
   "bands":[[300,"#20b2aa","Very low"],[700,"#37b3a1","Low & clear"],[1800,"#28c76f","Prime"],[3500,"#f2a832","High & stained"],[10**9,"#8b6cef","Blown out"]],
   "points":[{"name":n,"series":_series} for n in _order]} if _fr else None)
 
-DATA={"today":now_ct.strftime("%A, %B %-d · %-I:%M %p"),"month":now_ct.month,"zoneSegs":zoneSegs,"timeline":TIMELINE,
+DATA={"todayIso":now_ct.date().isoformat(),"today":now_ct.strftime("%A, %B %-d"),"month":now_ct.month,"zoneSegs":zoneSegs,"timeline":TIMELINE,
       "cur":{"cfs":int(cur_cfs) if cur_cfs is not None else None,"band":BLABEL,"bk":BK,"col":BCOL,"trend":trend,
              "fish":BFISH,"do":BDO,"asof":(OBS[-1][0].astimezone(CT).strftime("%-I:%M %p") if OBS else now_ct.strftime("%-I:%M %p"))},
       "plan":{"key":PLAN["key"],"turn":PLAN["turn"],"water":PLAN["water"],"how":PLAN["how"],"reason":plan_reason,

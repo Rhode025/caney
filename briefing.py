@@ -465,7 +465,9 @@ for di in range(7):
     if WX and d.strftime("%Y-%m-%d") in wx["daily"]["time"]:
         j=wx["daily"]["time"].index(d.strftime("%Y-%m-%d"))
         dd={"hi":round(wx["daily"]["temperature_2m_max"][j]),"lo":round(wx["daily"]["temperature_2m_min"][j]),"pop":wx["daily"]["precipitation_probability_max"][j]}
-    cal.append({"label":("Today" if di==0 else d.strftime("%a")),"date":d.strftime("%-m/%-d"),"states":states,"plan":itinerary(d,True),"wx":dd})
+    # iso is the row's identity; label/date are build-time fallbacks that __rlRelabel()
+    # rewrites from the READER's clock, so a stale build never calls an old day "Today".
+    cal.append({"iso":d.isoformat(),"label":("Today" if di==0 else d.strftime("%a")),"date":d.strftime("%-m/%-d"),"states":states,"plan":itinerary(d,True),"wx":dd})
 
 # ---- event-driven timed itinerary, for ANY day (reads the actual flow curve) ----
 def _pin(c,x):
@@ -938,7 +940,7 @@ def score_day(di,d):
         else: vd=act
         by[c]={"score":sc,"grade":gr,"why":why,"verdict":vd,"window":wn_why}
     dflt=by["power"]
-    return {"i":di,"label":cal[di]["label"],"date":cal[di]["date"],
+    return {"i":di,"iso":cal[di]["iso"],"label":cal[di]["label"],"date":cal[di]["date"],
             "score":dflt["score"],"grade":dflt["grade"],"why":dflt["why"],
             "verdict":dflt["verdict"],"window":dflt["window"],"byCraft":by,
             "units":peak_u,"moon":mr,"ico":ico,"hi":hi,"pop":pop,
@@ -952,8 +954,12 @@ WEEK_SYNTH={}; BEST_BY={}
 for _c in CRAFTS:
     _rank=sorted(_scores,key=lambda x:-x["byCraft"][_c]["score"])
     _t2=_rank[:2]
+    # Weekday names, never "Today": this string is baked into the page, so a relative word
+    # here would go stale the moment the build does (the one thing DAYLABEL_JS cannot reach,
+    # since prose is not a day row). Absolute names stay true at any age.
     WEEK_SYNTH[_c]=("Best %s days: "%CRAFT_NAME[_c].lower()
-        +", ".join("%s (%s)"%(t["label"],t["byCraft"][_c]["grade"]) for t in _t2)
+        +", ".join("%s (%s)"%(datetime.date.fromisoformat(t["iso"]).strftime("%a"),
+                              t["byCraft"][_c]["grade"]) for t in _t2)
         +" — "+_t2[0]["byCraft"][_c]["verdict"].lower()+".")
     BEST_BY[_c]=_rank[0]["i"]
 BEST=max(_scores,key=lambda x:x["byCraft"]["power"]["score"]); DAYSCORES=[s["score"] for s in _scores]
@@ -970,7 +976,7 @@ for di in range(7):
     # when the bump reaches the key ramps — the backtested ~2.5-mph leading edge (mfd/2.5 after release start)
     _arr=[[s["name"].replace("Happy Hollow","Happy Hollow").replace("Betty's Island","Betty's"),
            fmt_ap(_rst+s["mfd"]/WATER_MPH*3600)] for s in (HH,BI,SW)] if _rst else None
-    GEN.append({"label":cal[di]["label"],"date":cal[di]["date"],"windows":wins,"spark":spark,"peak":max(spark),
+    GEN.append({"iso":cal[di]["iso"],"label":cal[di]["label"],"date":cal[di]["date"],"windows":wins,"spark":spark,"peak":max(spark),
                 "span":(fmt_ap(_rst) +"–"+ fmt_ap(max(b[1] for b in _rb))) if wins else None,
                 "relStart":int((_rst-d0)//60) if _rst else None,
                 "arr":_arr,
@@ -1041,7 +1047,10 @@ ARRIVAL = {"id":"caney", "mph":WATER_MPH, "validated":True,
                      +[{"name":s["name"], "mfd":s["mfd"]} for s in (HH,BI,SW)]),
            "rel":[[int(a), int(b), round(pk)] for a,b,pk in GW if b >= _arr_cut]}
 DATA={"arrival":ARRIVAL,"holes":HOLES,
-      "todayLabel":now_ct.strftime("%A, %B %-d · %-I:%M %p"),"dateLabel":tom.strftime("%A, %B %-d"),"hatch":HATCH,"month":now_ct.month,"chatter":riverlib.load_intel("caney"),"flysel":FLYSEL,
+      # todayIso/tomorrowIso are the identities; todayLabel/dateLabel are no-JS fallbacks that
+      # __rlRelabel() rewrites from the reader's clock. Build TIME lives in the build stamp.
+      "todayIso":now_ct.date().isoformat(),"tomorrowIso":tom.isoformat(),
+      "todayLabel":now_ct.strftime("%A, %B %-d"),"dateLabel":tom.strftime("%A, %B %-d"),"hatch":HATCH,"month":now_ct.month,"chatter":riverlib.load_intel("caney"),"flysel":FLYSEL,
       "damCap":dam_cap,"clarity":clar_word,"smith":SMITH,"points":points,"riseCurve":RISE_CURVE,"weather":WX,"tips":tips,
       "calendar":cal,"now":NOW,"solunar":SOL,"best":BEST,"dayscores":DAYSCORES,
       "wxDays":WXDAYS,"solDays":SOLDAYS,"gen":GEN,"week":_scores,"weekSynth":WEEK_SYNTH,"bestBy":BEST_BY,
@@ -1329,7 +1338,12 @@ const COND={wade:{c:'#28c76f',t:'wadeable'},boat:{c:'#0a84ff',t:'prime boat'},hi
 // cached, so a baked-in default goes stale the moment the build ages. Same rule the HQ
 // board uses: before noon you are deciding about today, after noon you are planning the
 // next trip.
-const _openDay=(new Date().getHours()<12)?0:Math.min(1,(DATA.calendar||[]).length-1);
+// Open on the READER's today (or tomorrow after noon), located by date rather than assumed
+// to be index 0 — on a stale build index 0 is a day that has already happened. -1 means the
+// build predates today entirely; markDay() then labels the open day "already passed".
+const _todayIdx=(DATA.calendar||[]).findIndex(d=>d.isToday);
+const _dayBase=_todayIdx>=0?_todayIdx:0;
+const _openDay=(new Date().getHours()<12)?_dayBase:Math.min(_dayBase+1,(DATA.calendar||[]).length-1);
 const _idxOf=n=>Math.max(0,DATA.points.findIndex(p=>p.name===n));
 // Defaults keyed by NAME, not index: adding an access used to silently shift the
 // take-out to whatever happened to land on position 6.
@@ -1406,13 +1420,14 @@ function setCraft(c){
   if(window.renderPlan)renderPlan();
   if(window.updateControls){updateControls();syncSegs();render();}
 }
-window.renderBest=function(){const t=DATA.week[0],b=(t.byCraft||{})[craft]||t,el=document.getElementById('best');
+window.renderBest=function(){const t=DATA.week.find(x=>x.isToday)||DATA.week[0],b=(t.byCraft||{})[craft]||t,el=document.getElementById('best');
  const move=craft==='wade'?'Wade the flats — light tippet, dawn &amp; dusk'
    :(t.units?'Work the rise from the boat as it comes up':'Slow water — pick your shoals');
  el.innerHTML='<div class="tg" style="background:'+GCOL[b.grade]+'">'+b.grade+'</div>'
-   +'<div class="bmid"><div class="bt">Today, '+t.date+' — '+b.verdict+'</div>'
+   +'<div class="bmid"><div class="bt">'+t.label+', '+t.date+' — '+b.verdict+'</div>'
    +'<div class="bb">'+move+' · <b>'+b.window+'</b></div></div><div class="go">plan →</div>';
- el.onclick=()=>{dsel=0;daybase=0;document.querySelectorAll('#dates button').forEach((x,j)=>x.classList.toggle('on',j===0));renderDay();render();markDay();document.getElementById('daybar').scrollIntoView({behavior:'smooth',block:'start'});};};
+ const ti=Math.max(0,DATA.week.indexOf(t));
+ el.onclick=()=>{dsel=ti;daybase=ti*1440;document.querySelectorAll('#dates button').forEach((x,j)=>x.classList.toggle('on',j===ti));renderDay();render();markDay();document.getElementById('daybar').scrollIntoView({behavior:'smooth',block:'start'});};};
 renderBest();
 function renderFeed(di){const s=DATA.solDays[di],el=document.getElementById('feed');if(!s){el.innerHTML='<div class="fh">Feeding times</div><div class="fx">unavailable</div>';return;}
  const stars=s.rating!=null?'★'.repeat(Math.max(1,Math.min(5,Math.round(s.rating))))+'☆'.repeat(5-Math.max(1,Math.min(5,Math.round(s.rating)))):'';
@@ -1750,8 +1765,10 @@ document.querySelectorAll('.viewtog button').forEach(b=>b.onclick=()=>{const sat
 // Say which day is in view, and say it loudly when it is not today — everything below the
 // bar changes with this control, so a stale mental model here mis-reads the whole page.
 function markDay(){const d=DATA.calendar[dsel],el=document.getElementById('dayWhen');if(!el)return;
- const today=(dsel===0);
- el.textContent=d.label+' '+d.date+(today?'':' \u2014 not today');
+ // "today" is the row's own date vs the reader's clock, never dsel===0 \u2014 if the build is
+ // stale, calendar[0] is a PAST day and saying "Today" over it is the whole bug this fixes.
+ const today=!!d.isToday, past=(d.dayDelta||0)<0;
+ el.textContent=d.label+' '+d.date+(today?'':(past?' \u2014 already passed':' \u2014 not today'));
  el.className='dl-when'+(today?'':' notoday');}
 markDay();
 // Two stacked sticky controls: the day bar pins at 0, the time slider pins directly under

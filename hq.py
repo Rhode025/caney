@@ -239,12 +239,14 @@ function render(){
     h+='<div class="wk">';(c.week||[]).forEach((w,i)=>{
      const nt=(w.label+' '+w.date+' — '+w.grade+': '+(w.note||'')).replace(/"/g,'&quot;');
      h+='<div class="wd'+(i===bi?' best':'')+'" style="background:'+w.col+'" title="'+nt+'" data-note="'+nt+'">'
-      +'<span class="dl">'+(w.label==='Today'?'Today':w.label)+'</span><span class="dd">'+w.date+'</span><span class="dg">'+w.grade+'</span></div>';});
+      +'<span class="dl">'+w.label+'</span><span class="dd">'+w.date+'</span><span class="dg">'+w.grade+'</span></div>';});
     h+='</div><div class="wknote" hidden></div>';
     h+='<div class="rc-ft">now: '+(n.detail||'—')+(n.asof?' · as of '+n.asof:'')+' → open for the live read</div>';
   } else {
     h+=dayCard(c);
-    const wi=(view==='tomorrow')?1:0, w=(c.week||[])[wi];
+    // Find the day by its own date, not by index: on a stale build week[0] is not today.
+    const want=(view==='tomorrow')?1:0;
+    const w=(c.week||[]).find(x=>x.dayDelta===want) || (c.week||[])[want];
     if(w) h+='<div class="rc-ft">weather: '+(w.ico||'')+' '+w.hi+'°/'+w.lo+'° · '+(w.pop||0)+'% rain → open for the full read</div>';
   }
   if((c.species||[]).length){h+='<div class="tags">';c.species.forEach(s=>h+='<span>'+s+'</span>');h+='</div>';}

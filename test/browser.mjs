@@ -142,7 +142,8 @@ console.log('── build stamp: staleness + clock skew ──');
   const at = age => built + age - Date.now();   // offset that makes the page appear `age` old
   const fresh = await stampState(at(0));
   assert('stamp fresh: quiet state + build time',
-    fresh.cls.includes('l0') && /Data built .* ago/.test(fresh.txt), fresh.txt);
+    // "· just now" or "· 12 min ago" — a zero-age build reads "just now", not "just now ago".
+    fresh.cls.includes('l0') && /Data built .* · (just now|.+ ago)$/.test(fresh.txt), fresh.txt);
   const aging = await stampState(at(5 * H));
   assert('stamp aging at +5 h: amber + explicit age',
     aging.cls.includes('l1') && /Data is 5 h old/.test(aging.txt), aging.txt);

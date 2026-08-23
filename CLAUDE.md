@@ -78,3 +78,7 @@ never fire. Do not remove it.
   quotes the old number. `2c2bc2c` is the worked example: one constant, nine call sites of prose.
 - **Never hardcode a calibrated number in the page JS** — pass it through `DATA` so Python stays
   the single source. (`DATA.mph` exists because a hardcoded `3` got missed once.)
+- **No build-time relative time** (`RIVER_SPEC.md` §0) — every day row ships `iso`, every page
+  ships `todayIso`, and `Today`/`Tomorrow` are stamped client-side from the reader's clock by
+  `riverlib.DAYLABEL_JS`. Never select a day by index (`week[0]`, `di===0`); select by `isToday`.
+  A stale build must degrade to "Fri · 2d ago", never claim an old day is today.

@@ -37,6 +37,26 @@ channel segment, a pin, a marker) — text guidance and the map must agree. Exam
 channel by zone (`buildRiverMap(D,color,zoneSegs)`), draws today's target zones bold, adds a
 legend, and the Plan card points at them ("→ the bold amber & red water on the map — Zones C & D").
 
+**No build-time relative time. Python emits absolute instants; the client renders relative
+time.** Nothing baked at build time may say *Today / Tomorrow / Yesterday / tonight*. Every day
+row carries `iso: "YYYY-MM-DD"`; every page carries `todayIso`. `riverlib.DAYLABEL_JS` stamps
+`label` / `date` / `isToday` / `dayDelta` from the **reader's** clock (in the river's timezone),
+and `render()` wraps each page's DATA in `window.__rlRelabel(…)` so the walk runs synchronously
+at `const DATA=…`, ahead of every render call. Any row carrying an `iso` — including ones added
+later — is corrected for free; that is the parity rule holding by construction.
+
+Two corollaries, both of which were real bugs:
+- **Never use an array index to mean "today"** (`di===0`, `week[0]`, `label==='Today'`). Select
+  by `isToday`. On a stale build, row 0 is a day that has already happened.
+- **Relative words in prose are unreachable** by the relabeler — a sentence is not a day row. Use
+  weekday names in anything Python formats into a string (see `WEEK_SYNTH` in `briefing.py`).
+
+*Why this is a rule:* on 2026-08-23 GitHub Actions stopped running (billing), the site froze for
+55 h, and every page went on calling Friday's data "Today" — showing a 2-unit generation day when
+TVA said 1. The unit maths was right; the label was wrong, and the day rows carried no date
+identity, so the page could not self-correct even in principle. `test/verify.py` now gates all of
+the above.
+
 ## 1. How we avoid repeating ourselves
 
 Each generator builds one big `TEMPLATE` string and does
