@@ -285,7 +285,7 @@ document.getElementById('board').addEventListener('click',function(e){
   if(note.dataset.for===wd.dataset.note){note.hidden=true;note.dataset.for='';}   // tap again to dismiss
   else{note.textContent=wd.dataset.note;note.hidden=false;note.dataset.for=wd.dataset.note;}
 });
-document.getElementById('foot').textContent='Aggregated from each river\'s live status card · public data only (USGS · USACE · NOAA/NWS · Open-Meteo · OpenStreetMap) · projections are estimates, tune from the water · built for personal use.';
+document.getElementById('foot').innerHTML='Aggregated from each river\'s live status card · public data only (USGS · USACE · NOAA/NWS · Open-Meteo · OpenStreetMap) · projections are estimates, tune from the water · built for personal use. · <a href="roadmap.html" style="color:var(--accent,#0a5ec2)">Audit &amp; roadmap →</a>';
 </script></body></html>"""
 html=riverlib.render(TEMPLATE,"hq").replace("__DATA__",json.dumps(DATA))
 open(os.path.join(OUT,"index.html"),"w").write(html)

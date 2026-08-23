@@ -1,0 +1,770 @@
+{
+ "generated": "2026-08-23",
+ "source": "QC & UX audit of the live build, 2026-08-23",
+ "tickets": [
+  {
+   "sprint": 1,
+   "key": "FRESH-01",
+   "epic": "Freshness",
+   "priority": "P0",
+   "effort": "M",
+   "lane": "now",
+   "title": "Fail closed when the build day is not the reader\u2019s day",
+   "evidence": "The day-identity fix makes a stale page honestly <em>labelled</em>, but its clock-keyed surfaces still render: the now-strip, the fly-matrix current cell, the solunar today card. Those have no valid value on an old build \u2014 they are the last surfaces that can still mislead.",
+   "done": [
+    "<code>__rlRelabel</code> already computes <code>DATA.dayShift</code>; when it is non-zero, blank every clock-keyed surface and replace it with \u201cNo current reading \u2014 this page has not rebuilt since &lt;build&gt;\u201d.",
+    "Date-keyed surfaces (generation schedule, outlook, hatch) keep rendering \u2014 their data is still true about the day it names.",
+    "If the build holds no row for the reader\u2019s today, say so rather than falling back to row 0.",
+    "Build stamp gains a fourth level for day-shift, visually distinct from the >12h amber."
+   ],
+   "issue": 1,
+   "issue_url": "https://github.com/Rhode025/caney/issues/1"
+  },
+  {
+   "sprint": 2,
+   "key": "FRESH-02",
+   "epic": "Freshness",
+   "priority": "P0",
+   "effort": "M",
+   "lane": "now",
+   "title": "Deploy watchdog that does not live inside GitHub Actions",
+   "evidence": "Forty-plus consecutive scheduled runs failed in 2\u20135s and nothing alerted. Any monitor running in Actions shares the failure domain with the thing it is monitoring \u2014 that is why two days passed unnoticed.",
+   "done": [
+    "Cloudflare Worker on a cron trigger fetches <code>/status/caney.json</code> and reads the build epoch.",
+    "Alerts when age exceeds 3h; alert path must not touch GitHub.",
+    "Worker cron triggers are free \u2014 no new spend.",
+    "Test by pausing the deploy and confirming the alert fires."
+   ],
+   "issue": 2,
+   "issue_url": "https://github.com/Rhode025/caney/issues/2"
+  },
+  {
+   "sprint": 3,
+   "key": "FRESH-03",
+   "epic": "Freshness",
+   "priority": "P1",
+   "effort": "M",
+   "lane": "next",
+   "title": "Second publisher on a different failure domain",
+   "evidence": "One publisher, one billing relationship, one point of failure. A <code>launchd</code> job on the Mac publishes the same artifact through a path GitHub cannot break.",
+   "done": [
+    "<code>./build.sh &amp;&amp; wrangler pages deploy out/</code> on a launchd interval.",
+    "Writes a heartbeat file the FRESH-02 watchdog can read, so a sleeping Mac is distinguishable from a broken script.",
+    "Never publishes a build that fails <code>verify.py</code> \u2014 same gate as CI."
+   ],
+   "issue": 3,
+   "issue_url": "https://github.com/Rhode025/caney/issues/3"
+  },
+  {
+   "sprint": 4,
+   "key": "FRESH-04",
+   "epic": "Freshness",
+   "priority": "P1",
+   "effort": "M",
+   "lane": "next",
+   "title": "Last-good data cache for all thirteen rivers",
+   "evidence": "Only <code>briefing.py</code> keeps a cache (<code>cache_dam.json</code>). The other twelve rivers build with missing data during an upstream outage and publish it without complaint.",
+   "done": [
+    "Promote the cache-and-fallback pattern into a riverlib helper.",
+    "Every generator caches its last good upstream payload and falls back on failure.",
+    "The page says it is running on cache, with the age \u2014 the Caney pattern.",
+    "CI persists all caches, not just the Caney\u2019s."
+   ],
+   "issue": 4,
+   "issue_url": "https://github.com/Rhode025/caney/issues/4"
+  },
+  {
+   "sprint": 5,
+   "key": "FRESH-05",
+   "epic": "Freshness",
+   "priority": "P1",
+   "effort": "S",
+   "lane": "next",
+   "title": "Freshness probe that tests the live site, not the build",
+   "evidence": "<code>verify.py</code> gates the build. During the outage the build never ran, so the gate never had an opinion. Nothing checks the artifact that is actually being served.",
+   "done": [
+    "<code>test/freshness.py</code> fetches the live URL and asserts build age, day-identity plumbing, and that today\u2019s row exists.",
+    "Run by the watchdog on a schedule, never by CI.",
+    "Exit code drives the alert."
+   ],
+   "issue": 5,
+   "issue_url": "https://github.com/Rhode025/caney/issues/5"
+  },
+  {
+   "sprint": 6,
+   "key": "FRESH-06",
+   "epic": "Freshness",
+   "priority": "P2",
+   "effort": "S",
+   "lane": "later",
+   "title": "Guard against the 60-day scheduled-workflow auto-disable",
+   "evidence": "The repo went public on 23 Aug to fix the cost problem. GitHub disables scheduled workflows in public repos after 60 days without repository activity \u2014 the same silent-staleness failure, arriving by a different door.",
+   "done": [
+    "Watchdog additionally asserts a scheduled run happened in the last 24h.",
+    "Document the 60-day rule in <code>CLAUDE.md</code> next to the deploy notes.",
+    "Consider a dated no-op commit as a backstop only if the watchdog proves insufficient."
+   ],
+   "issue": 6,
+   "issue_url": "https://github.com/Rhode025/caney/issues/6"
+  },
+  {
+   "sprint": 7,
+   "key": "OFFLINE-01",
+   "epic": "Offline",
+   "priority": "P0",
+   "effort": "L",
+   "lane": "next",
+   "title": "Service worker so the tool works where it is used",
+   "evidence": "No service worker and no manifest. The Caney tailwater has essentially no coverage \u2014 the moment you need the arrival times is the moment the page cannot load. Everything is already baked into one self-contained HTML file, so this is unusually cheap.",
+   "done": [
+    "Precache each river page, its status JSON and the map assets on first visit.",
+    "Cache-first with background revalidate; a stale hit still shows correct labels thanks to day identity.",
+    "Verify with the network genuinely disabled, not just throttled.",
+    "Cache version keyed to the build epoch so a new deploy supersedes cleanly."
+   ],
+   "issue": 7,
+   "issue_url": "https://github.com/Rhode025/caney/issues/7"
+  },
+  {
+   "sprint": 8,
+   "key": "OFFLINE-02",
+   "epic": "Offline",
+   "priority": "P1",
+   "effort": "S",
+   "lane": "later",
+   "title": "Manifest and install prompt",
+   "evidence": "The page already ships an <code>apple-touch-icon</code> and a <code>theme-color</code> \u2014 it was designed to live on a home screen \u2014 but there is no manifest, so it installs as a bookmark rather than an app.",
+   "done": [
+    "<code>manifest.webmanifest</code> with name, icons, standalone display, theme colour.",
+    "Start URL is the HQ; each river page is a valid entry point.",
+    "Verify installability in Chrome and iOS Safari."
+   ],
+   "issue": 8,
+   "issue_url": "https://github.com/Rhode025/caney/issues/8"
+  },
+  {
+   "sprint": 9,
+   "key": "OFFLINE-03",
+   "epic": "Offline",
+   "priority": "P1",
+   "effort": "S",
+   "lane": "later",
+   "title": "Offline state and last-synced line",
+   "evidence": "With a service worker the page will load offline \u2014 and must then be explicit that it is serving cache, or it recreates the staleness problem in a new place.",
+   "done": [
+    "Detect offline; show a persistent line stating the data\u2019s age and that you are offline.",
+    "Reuse the build-stamp vocabulary rather than inventing a second one.",
+    "Retry and refresh when connectivity returns."
+   ],
+   "issue": 9,
+   "issue_url": "https://github.com/Rhode025/caney/issues/9"
+  },
+  {
+   "sprint": 10,
+   "key": "OFFLINE-04",
+   "epic": "Offline",
+   "priority": "P1",
+   "effort": "S",
+   "lane": "later",
+   "title": "Bundle Leaflet locally instead of loading it from unpkg",
+   "evidence": "Aborting requests to <code>unpkg.com</code> leaves <code>#lmap</code> empty \u2014 the map dies completely. The rest of the page survives (5,918 chars still render), which shows the dependency is isolated and therefore easy to remove.",
+   "done": [
+    "Vendor Leaflet CSS+JS into the repo and inline or serve locally.",
+    "No runtime dependency on a third-party CDN for anything load-bearing.",
+    "A test asserts the map still initialises with external hosts blocked."
+   ],
+   "issue": 10,
+   "issue_url": "https://github.com/Rhode025/caney/issues/10"
+  },
+  {
+   "sprint": 11,
+   "key": "OFFLINE-05",
+   "epic": "Offline",
+   "priority": "P2",
+   "effort": "M",
+   "lane": "later",
+   "title": "Fall back to the SVG diagram when tiles will not load",
+   "evidence": "Satellite tiles come from ArcGIS and need bandwidth the riverbank does not have. The at-scale SVG river diagram already exists as a toggle \u2014 it should become the automatic fallback.",
+   "done": [
+    "Detect tile failure and switch to the diagram view with an explanatory line.",
+    "Diagram must carry the same pins, arrival markers and colour coding.",
+    "Manual toggle still overrides."
+   ],
+   "issue": 11,
+   "issue_url": "https://github.com/Rhode025/caney/issues/11"
+  },
+  {
+   "sprint": 12,
+   "key": "A11Y-01",
+   "epic": "Accessibility",
+   "priority": "P0",
+   "effort": "M",
+   "lane": "next",
+   "title": "Fix the 54 contrast failures at the token level",
+   "evidence": "Measured on rendered nodes on caney.html: 54 elements below WCAG AA. Worst offenders sit at 2.07:1 and 2.21:1 where 4.5:1 is required \u2014 including a 23px heading. These are token problems, so a token fix lands everywhere at once.",
+   "done": [
+    "Re-derive <code>--muted</code> and <code>--faint</code> so both clear 4.5:1 on card and ground.",
+    "Grade chips, unit-colour legends and the small-caps labels all pass.",
+    "Re-run the rendered-node contrast audit; zero failures on all thirteen pages.",
+    "Colour is never the only carrier of grade or unit count."
+   ],
+   "issue": 12,
+   "issue_url": "https://github.com/Rhode025/caney/issues/12"
+  },
+  {
+   "sprint": 13,
+   "key": "A11Y-02",
+   "epic": "Accessibility",
+   "priority": "P1",
+   "effort": "M",
+   "lane": "later",
+   "title": "Bring 227 tap targets up to 44px",
+   "evidence": "227 of 464 interactive elements are under 44px tall at a 390px viewport \u2014 roughly half of everything tappable, on a tool operated one-handed, outdoors, often with cold hands.",
+   "done": [
+    "Every button, chip, tab and select reaches 44px of tappable height.",
+    "Where visual density matters, grow the hit area with padding rather than the visual box.",
+    "Automated check in the browser suite counts undersized targets and fails above zero."
+   ],
+   "issue": 13,
+   "issue_url": "https://github.com/Rhode025/caney/issues/13"
+  },
+  {
+   "sprint": 14,
+   "key": "A11Y-03",
+   "epic": "Accessibility",
+   "priority": "P1",
+   "effort": "S",
+   "lane": "later",
+   "title": "Honour prefers-reduced-motion",
+   "evidence": "The pages animate \u2014 pulsing access pins, a gliding front marker, an auto-advancing time slider \u2014 and no stylesheet contains a <code>prefers-reduced-motion</code> query. For a vestibular-sensitive reader the map is actively unpleasant.",
+   "done": [
+    "Single riverlib block disables or reduces every animation under the query.",
+    "The play control still works; it just steps rather than glides.",
+    "Verified by emulating the preference in Playwright."
+   ],
+   "issue": 14,
+   "issue_url": "https://github.com/Rhode025/caney/issues/14"
+  },
+  {
+   "sprint": 15,
+   "key": "A11Y-04",
+   "epic": "Accessibility",
+   "priority": "P1",
+   "effort": "S",
+   "lane": "later",
+   "title": "Visible focus states throughout",
+   "evidence": "No <code>:focus</code> rule exists in any stylesheet. Tabbing through the page is invisible \u2014 the craft cards, date picker and access selects are all keyboard-reachable and give no indication of where you are.",
+   "done": [
+    "<code>:focus-visible</code> ring on every interactive element, from a token.",
+    "Ring is legible on card, ground and the satellite map.",
+    "Tab order verified to follow reading order on Caney and the HQ."
+   ],
+   "issue": 15,
+   "issue_url": "https://github.com/Rhode025/caney/issues/15"
+  },
+  {
+   "sprint": 16,
+   "key": "A11Y-05",
+   "epic": "Accessibility",
+   "priority": "P2",
+   "effort": "M",
+   "lane": "later",
+   "title": "Announce dynamic updates to screen readers",
+   "evidence": "Zero <code>aria-live</code> regions. Moving the time slider, switching craft or changing day rewrites entire panels with no announcement \u2014 a screen-reader user gets silence and a changed page.",
+   "done": [
+    "Polite live region announces the resulting state, not the raw event (\"Powerboat, tomorrow 8/24, wade until 2:30pm\").",
+    "Debounced so a slider drag announces once on settle.",
+    "Verified with VoiceOver."
+   ],
+   "issue": 16,
+   "issue_url": "https://github.com/Rhode025/caney/issues/16"
+  },
+  {
+   "sprint": 17,
+   "key": "A11Y-06",
+   "epic": "Accessibility",
+   "priority": "P2",
+   "effort": "S",
+   "lane": "later",
+   "title": "Alt text for the ten unlabelled images",
+   "evidence": "Ten images render with no alt attribute at desktop, six at mobile.",
+   "done": [
+    "Every informational image gets alt text that states what it shows.",
+    "Purely decorative images get <code>alt=\"\"</code> so they are skipped rather than read as filenames.",
+    "<code>verify.py</code> fails on any image lacking an alt attribute."
+   ],
+   "issue": 17,
+   "issue_url": "https://github.com/Rhode025/caney/issues/17"
+  },
+  {
+   "sprint": 18,
+   "key": "A11Y-07",
+   "epic": "Accessibility",
+   "priority": "P1",
+   "effort": "M",
+   "lane": "later",
+   "title": "Automated accessibility gate in CI",
+   "evidence": "Every finding above was found by hand, which means it can silently return. The project already has the pattern for this: <code>verify.py</code> and the day-identity gate exist because manual checks kept regressing.",
+   "done": [
+    "axe-core runs against all thirteen pages in the browser suite.",
+    "Serious and critical violations fail the build.",
+    "Contrast, tap-target and alt checks fold into it rather than living separately.",
+    "Baseline recorded so pre-existing issues do not block unrelated work."
+   ],
+   "issue": 18,
+   "issue_url": "https://github.com/Rhode025/caney/issues/18"
+  },
+  {
+   "sprint": 19,
+   "key": "NAV-01",
+   "epic": "Wayfinding",
+   "priority": "P1",
+   "effort": "M",
+   "lane": "later",
+   "title": "Section navigation for a 7,000px page",
+   "evidence": "Caney is 7,019px tall at 390px \u2014 around eighteen phone screens \u2014 with collapsible sections but no way to jump between them. On the water you want one section, immediately.",
+   "done": [
+    "Sticky section index that reflects the fold state.",
+    "Deep links per section so a bookmark can open straight to the generation schedule.",
+    "Collapses into the existing sticky day bar rather than adding a third sticky layer."
+   ],
+   "issue": 19,
+   "issue_url": "https://github.com/Rhode025/caney/issues/19"
+  },
+  {
+   "sprint": 20,
+   "key": "NAV-02",
+   "epic": "Wayfinding",
+   "priority": "P2",
+   "effort": "S",
+   "lane": "later",
+   "title": "Make the river switcher show that it scrolls",
+   "evidence": "Fourteen tabs, roughly six visible at 960px. It scrolls horizontally but nothing indicates that \u2014 the fourteenth river is undiscoverable if you do not think to swipe.",
+   "done": [
+    "Edge fade or an explicit control signalling more tabs.",
+    "Active tab scrolls into view on load.",
+    "Consider grouping by drive time, which is how rivers are actually chosen."
+   ],
+   "issue": 20,
+   "issue_url": "https://github.com/Rhode025/caney/issues/20"
+  },
+  {
+   "sprint": 21,
+   "key": "NAV-03",
+   "epic": "Wayfinding",
+   "priority": "P1",
+   "effort": "S",
+   "lane": "later",
+   "title": "Unique title on every page",
+   "evidence": "All three Duck sections emit <code>Duck River \u00b7 smallmouth</code>. In tabs, history and bookmarks the upper, middle and lower reaches are indistinguishable \u2014 and they are genuinely different rivers to fish.",
+   "done": [
+    "Title carries the reach: \u201cDuck \u00b7 Upper (Columbia) \u00b7 smallmouth\u201d.",
+    "<code>verify.py</code> asserts all fourteen titles are unique."
+   ],
+   "issue": 21,
+   "issue_url": "https://github.com/Rhode025/caney/issues/21"
+  },
+  {
+   "sprint": 22,
+   "key": "NAV-04",
+   "epic": "Wayfinding",
+   "priority": "P2",
+   "effort": "S",
+   "lane": "later",
+   "title": "Meta description and link previews",
+   "evidence": "No page has a meta description. Links shared to a fishing partner unfurl as a bare URL.",
+   "done": [
+    "Per-river description generated from live conditions at build time.",
+    "Open Graph and Twitter tags with a build-time preview image.",
+    "Absolute canonical URL per page."
+   ],
+   "issue": 22,
+   "issue_url": "https://github.com/Rhode025/caney/issues/22"
+  },
+  {
+   "sprint": 23,
+   "key": "NAV-05",
+   "epic": "Wayfinding",
+   "priority": "P2",
+   "effort": "M",
+   "lane": "later",
+   "title": "Dark mode",
+   "evidence": "No <code>prefers-color-scheme</code> anywhere. The solunar card recommends a 3:09am minor feed and the whole product is oriented around dawn \u2014 then hands you a pure-white screen in the dark.",
+   "done": [
+    "Full token-level dark palette in riverlib; every page inherits it.",
+    "Grade, unit and clarity colours re-derived for the dark ground, not inverted.",
+    "Map switches to a dark tile layer or dims the satellite imagery.",
+    "Contrast re-validated in both themes."
+   ],
+   "issue": 23,
+   "issue_url": "https://github.com/Rhode025/caney/issues/23"
+  },
+  {
+   "sprint": 24,
+   "key": "NAV-06",
+   "epic": "Wayfinding",
+   "priority": "P3",
+   "effort": "S",
+   "lane": "later",
+   "title": "Print stylesheet",
+   "evidence": "The Atlas Generator exists precisely because people want paper on the boat. The pages themselves print as a wall of collapsed sections and a dead map.",
+   "done": [
+    "Expand folds, drop interactive chrome, keep the schedule and arrival table.",
+    "Map prints as the diagram rather than a blank tile grid.",
+    "Fits legibly on Letter."
+   ],
+   "issue": 24,
+   "issue_url": "https://github.com/Rhode025/caney/issues/24"
+  },
+  {
+   "sprint": 25,
+   "key": "BUILD-01",
+   "epic": "Build & CI",
+   "priority": "P1",
+   "effort": "M",
+   "lane": "next",
+   "title": "Parallelise the build",
+   "evidence": "Eleven generators run serially with a hardcoded <code>sleep 2</code> between them. Measured runs: 135\u2013430s, mean ~279s. <code>CLAUDE.md</code> still says \u201c~30s\u201d, which was true when there was one river.",
+   "done": [
+    "Independent generators run concurrently; <code>hq.py</code> still runs last.",
+    "Concurrency tuned so USGS does not rate-limit \u2014 the journal already records that failure.",
+    "Target under 90s; update the documented figure to the measured one.",
+    "A crashed generator still fails the build loudly."
+   ],
+   "issue": 25,
+   "issue_url": "https://github.com/Rhode025/caney/issues/25"
+  },
+  {
+   "sprint": 26,
+   "key": "BUILD-02",
+   "epic": "Build & CI",
+   "priority": "P2",
+   "effort": "S",
+   "lane": "later",
+   "title": "Bump the five Node-20 actions",
+   "evidence": "Every run warns: checkout, setup-python, cache/restore, cache/save and wrangler-action all target Node 20 and are being force-run on Node 24. It works until it does not.",
+   "done": [
+    "All actions on versions that natively support the current runner.",
+    "Warning gone from the run log."
+   ],
+   "issue": 26,
+   "issue_url": "https://github.com/Rhode025/caney/issues/26"
+  },
+  {
+   "sprint": 27,
+   "key": "BUILD-03",
+   "epic": "Build & CI",
+   "priority": "P3",
+   "effort": "S",
+   "lane": "later",
+   "title": "Tighten the job timeout",
+   "evidence": "<code>timeout-minutes: 20</code> against a build that takes two to seven. A hung run burns the full twenty.",
+   "done": [
+    "Timeout set from the measured p99 plus headroom.",
+    "Revisit after BUILD-01 lands."
+   ],
+   "issue": 27,
+   "issue_url": "https://github.com/Rhode025/caney/issues/27"
+  },
+  {
+   "sprint": 28,
+   "key": "BUILD-04",
+   "epic": "Build & CI",
+   "priority": "P2",
+   "effort": "S",
+   "lane": "later",
+   "title": "De-flake the craft-spread assertion",
+   "evidence": "\u201cAt least one day grades differently by craft\u201d fails whenever the week\u2019s water is uniform \u2014 it failed during this audit for exactly that reason, on a week of identical afternoon releases. A test that fails on legitimate data trains you to ignore failures.",
+   "done": [
+    "Assert the scoring <em>function</em> separates crafts on synthetic inputs, not that this week happens to.",
+    "Keep a warning when real data shows no spread \u2014 that is information, not a failure.",
+    "Suite returns to zero red on a normal week."
+   ],
+   "issue": 28,
+   "issue_url": "https://github.com/Rhode025/caney/issues/28"
+  },
+  {
+   "sprint": 29,
+   "key": "BUILD-05",
+   "epic": "Build & CI",
+   "priority": "P2",
+   "effort": "M",
+   "lane": "later",
+   "title": "Per-generator timing budget",
+   "evidence": "Build time tripled as rivers were added and nobody noticed until it was being billed by the minute. The same drift will happen again.",
+   "done": [
+    "Each generator records wall time and upstream fetch count.",
+    "Build fails, or warns loudly, when a generator exceeds its budget.",
+    "Timings written to the status directory so the trend is visible."
+   ],
+   "issue": 29,
+   "issue_url": "https://github.com/Rhode025/caney/issues/29"
+  },
+  {
+   "sprint": 30,
+   "key": "MODEL-01",
+   "epic": "Model validation",
+   "priority": "P0",
+   "effort": "L",
+   "lane": "next",
+   "title": "Backtest the twelve rivers that have never been validated",
+   "evidence": "<code>analysis/backtest_flow.py</code> has only ever run against the Caney \u2014 where it moved baseflow 375\u2192205 cfs and leading-edge speed 3.0\u21922.5 mph, both material corrections to numbers that felt right. Twelve rivers still carry their original, unvalidated constants. This is the largest correctness risk in the product.",
+   "done": [
+    "Run the Caney methodology against every river with sufficient gauge history.",
+    "Each river\u2019s constants either confirmed or corrected, with provenance in the comment above them \u2014 the existing invariant.",
+    "Rivers with insufficient record are marked as such rather than quietly trusted.",
+    "Results committed to <code>analysis/</code> so the next session can see the evidence."
+   ],
+   "issue": 30,
+   "issue_url": "https://github.com/Rhode025/caney/issues/30"
+  },
+  {
+   "sprint": 31,
+   "key": "MODEL-02",
+   "epic": "Model validation",
+   "priority": "P1",
+   "effort": "M",
+   "lane": "later",
+   "title": "Show each river\u2019s model confidence in the interface",
+   "evidence": "The Caney\u2019s routing was fitted to r\u00b2=0.89; the Cumberland\u2019s is r=0.30 and the page says so only in the footer. The Harpeth\u2019s transfer function beats a constant gain by 3%. A reader cannot tell a measured number from an estimated one.",
+   "done": [
+    "Every river carries a confidence level derived from its backtest, not asserted.",
+    "Surfaced next to the prediction it qualifies, not buried in the footer.",
+    "Low-confidence rivers state which part is reliable \u2014 release schedule versus downstream timing."
+   ],
+   "issue": 31,
+   "issue_url": "https://github.com/Rhode025/caney/issues/31"
+  },
+  {
+   "sprint": 32,
+   "key": "MODEL-03",
+   "epic": "Model validation",
+   "priority": "P1",
+   "effort": "M",
+   "lane": "later",
+   "title": "Trip log records what the tool predicted",
+   "evidence": "The journal calls this the evidence engine, and it is still not built. The log currently captures what you caught; it does not capture what the page said would happen, so it can never grade itself.",
+   "done": [
+    "Every log entry snapshots the prediction: flow, arrival, grade, clarity, data age.",
+    "Stored alongside the outcome you record.",
+    "Exportable, so a season of it can be analysed offline."
+   ],
+   "issue": 32,
+   "issue_url": "https://github.com/Rhode025/caney/issues/32"
+  },
+  {
+   "sprint": 33,
+   "key": "MODEL-04",
+   "epic": "Model validation",
+   "priority": "P2",
+   "effort": "M",
+   "lane": "later",
+   "title": "Prediction-versus-observed scoreboard",
+   "evidence": "The auto-calibration already compares model to gauge every build (currently \u00b120 cfs on the Caney) and then throws the comparison away. Kept, it becomes a public accuracy record.",
+   "done": [
+    "Persist the per-build model-versus-gauge residual per river.",
+    "A page showing accuracy over time, by river.",
+    "Systematic drift triggers a recalibration ticket automatically."
+   ],
+   "issue": 33,
+   "issue_url": "https://github.com/Rhode025/caney/issues/33"
+  },
+  {
+   "sprint": 34,
+   "key": "MODEL-05",
+   "epic": "Model validation",
+   "priority": "P2",
+   "effort": "M",
+   "lane": "later",
+   "title": "Auto-calibration for the remaining tailwaters",
+   "evidence": "Feature 12 in the spec matrix is \u2705 for the Caney and \u25fb for the Cumberland. The Caney\u2019s auto-calibration measurably tightened the model \u2014 the other tailwaters get no such correction.",
+   "done": [
+    "Promote the calibration routine into riverlib.",
+    "Enabled on every river with a downstream gauge and a routing model.",
+    "Same clamped-median guard, so a bad gauge day cannot swing the page."
+   ],
+   "issue": 34,
+   "issue_url": "https://github.com/Rhode025/caney/issues/34"
+  },
+  {
+   "sprint": 35,
+   "key": "DOCS-01",
+   "epic": "Docs & system",
+   "priority": "P1",
+   "effort": "S",
+   "lane": "later",
+   "title": "Bring the spec matrix up to thirteen rivers",
+   "evidence": "\u00a73 has three river columns; the header says \u201c9 rivers\u201d; there are thirteen. The parity rule is enforced by that matrix, so a matrix covering under a quarter of the fleet cannot enforce anything \u2014 and the journal has been carrying this as an open thread for weeks.",
+   "done": [
+    "Matrix generated from the registry rather than hand-maintained.",
+    "Every \u2705 / \u25fb / \u2014 is machine-checkable against the built pages.",
+    "<code>verify.py</code> fails when a page contradicts its own matrix row."
+   ],
+   "issue": 35,
+   "issue_url": "https://github.com/Rhode025/caney/issues/35"
+  },
+  {
+   "sprint": 36,
+   "key": "DOCS-02",
+   "epic": "Docs & system",
+   "priority": "P2",
+   "effort": "M",
+   "lane": "later",
+   "title": "Finish the shared-CSS extraction",
+   "evidence": "The last open item in the \u00a75 migration backlog: base design CSS is still duplicated per page. This is the exact condition that broke the Caney hatch calendar \u2014 a leftover generic <code>.hatch</code> class colliding with a shared component.",
+   "done": [
+    "Base tokens and layout CSS live in riverlib and are injected once.",
+    "No page defines a class name a shared component also uses.",
+    "<code>verify.py</code> fails on duplicate class definitions across the shared and per-page layers."
+   ],
+   "issue": 36,
+   "issue_url": "https://github.com/Rhode025/caney/issues/36"
+  },
+  {
+   "sprint": 37,
+   "key": "DOCS-03",
+   "epic": "Docs & system",
+   "priority": "P2",
+   "effort": "M",
+   "lane": "later",
+   "title": "Visual regression snapshots",
+   "evidence": "The hatch-calendar collision rendered a shattered grid and passed every automated check, because nothing looks at the page. It was found by eye, late.",
+   "done": [
+    "Per-page screenshots at 390 and 1280px, both themes once dark mode lands.",
+    "Diffs surfaced in CI; intentional changes accepted explicitly.",
+    "Runs on the built output, not on isolated component fixtures \u2014 that is what hid the collision."
+   ],
+   "issue": 37,
+   "issue_url": "https://github.com/Rhode025/caney/issues/37"
+  },
+  {
+   "sprint": 38,
+   "key": "DOCS-04",
+   "epic": "Docs & system",
+   "priority": "P3",
+   "effort": "M",
+   "lane": "later",
+   "title": "Scaffold a new river from the registry",
+   "evidence": "Thirteen rivers exist and each was cloned from a predecessor. That is how the Buffalo shipped the Duck\u2019s ramp names in its flow timer \u2014 a real bug caught only when a later river was added.",
+   "done": [
+    "One command generates a working generator from a registry entry.",
+    "Scaffold includes the parity checklist and fails until every item is addressed or justified.",
+    "No river-specific place names can survive the clone."
+   ],
+   "issue": 38,
+   "issue_url": "https://github.com/Rhode025/caney/issues/38"
+  }
+ ],
+ "repo": "Rhode025/caney",
+ "findings": [
+  [
+   "Offline capability",
+   "none",
+   "No service worker, no manifest. This is a phone tool for places with no bars.",
+   "fail"
+  ],
+  [
+   "Map with CDN unreachable",
+   "dies",
+   "Blocking unpkg leaves <code>#lmap</code> empty. The rest of the page survives \u2014 5,918 chars still render.",
+   "fail"
+  ],
+  [
+   "WCAG AA text contrast",
+   "54 fails",
+   "On caney.html alone. Worst 2.07:1 and 2.21:1 against a 4.5:1 requirement.",
+   "fail"
+  ],
+  [
+   "Model validation coverage",
+   "1 / 13",
+   "<code>analysis/backtest_flow.py</code> has only ever run against the Caney. Twelve rivers ship unvalidated constants.",
+   "fail"
+  ],
+  [
+   "Touch targets \u2265 44px",
+   "227 / 464",
+   "Under 44px tall at a 390px viewport \u2014 about half of everything tappable.",
+   "warn"
+  ],
+  [
+   "Last-good data cache",
+   "1 / 13",
+   "Only <code>briefing.py</code> keeps <code>cache_dam.json</code>. The other twelve build empty during an upstream outage.",
+   "warn"
+  ],
+  [
+   "Reduced-motion support",
+   "absent",
+   "CSS keyframes present (pulsing pins, gliding front marker); no <code>prefers-reduced-motion</code> query anywhere.",
+   "warn"
+  ],
+  [
+   "Visible focus styles",
+   "absent",
+   "No <code>:focus</code> rule in any stylesheet. Keyboard navigation is invisible.",
+   "warn"
+  ],
+  [
+   "Page title uniqueness",
+   "12 / 14",
+   "All three Duck sections share <code>Duck River \u00b7 smallmouth</code> \u2014 indistinguishable in tabs, history, bookmarks.",
+   "warn"
+  ],
+  [
+   "Tallest page at 390px",
+   "7,019px",
+   "About eighteen phone screens of Caney, with no section nav to jump between them.",
+   "warn"
+  ],
+  [
+   "Live-region announcements",
+   "0",
+   "The slider, craft toggle and date picker rewrite whole panels silently.",
+   "warn"
+  ],
+  [
+   "Dark mode",
+   "absent",
+   "No <code>prefers-color-scheme</code> anywhere. A pure-white page read at 5am on the water.",
+   "warn"
+  ],
+  [
+   "Build wall time",
+   "135\u2013430s",
+   "Eleven generators serial with a hardcoded <code>sleep 2</code>. Docs still claim ~30s.",
+   "warn"
+  ],
+  [
+   "Spec feature matrix",
+   "3 / 13",
+   "\u00a73 has three river columns and the header says \u201c9 rivers\u201d. There are thirteen.",
+   "warn"
+  ],
+  [
+   "Images with alt text",
+   "\u221210",
+   "Ten images carry no alt attribute at desktop, six at mobile.",
+   "warn"
+  ],
+  [
+   "Horizontal overflow",
+   "0 / 14",
+   "Clean at 390, 768 and 1280px.",
+   "ok"
+  ],
+  [
+   "Console / page errors",
+   "0 / 14",
+   "Across all three viewports, including with the CDN blocked.",
+   "ok"
+  ],
+  [
+   "Day-identity regression gate",
+   "256 pass",
+   "A build staled two days degrades to \u201cFri \u00b7 2d ago\u201d instead of claiming \u201cToday\u201d.",
+   "ok"
+  ]
+ ],
+ "method": "Measured against the live build on 23 Aug 2026 \u2014 every page loaded in headless Chromium at 390 / 768 / 1280px, contrast computed per rendered node against its resolved background, CDN failure simulated by aborting unpkg, arcgisonline and the font hosts, overflow measured as scrollWidth &gt; clientWidth."
+}

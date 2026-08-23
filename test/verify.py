@@ -18,7 +18,9 @@ RIVERS = ["caney", "cumbnash", "stones", "duckup", "duckmid", "ducklow", "buffal
 # Derived, never hand-maintained: a hand-written copy of this map silently skipped
 # cheatham.html and cordell.html from every per-file check for one release.
 RIVER_FILES = {r: r + ".html" for r in RIVERS}
-ALL_HTML = ["index.html"] + list(RIVER_FILES.values())
+# roadmap.html is the audit + sprint board. Not a river, so RIVER_COMPONENTS skips it,
+# but it must still pass tokens, links, switcher and day identity like every other page.
+ALL_HTML = ["index.html", "roadmap.html"] + list(RIVER_FILES.values())
 
 # fly-only: these must never appear in output (baitfish = a fly's imitation target, allowed)
 FORBIDDEN = re.compile(

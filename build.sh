@@ -16,5 +16,8 @@ for s in "${GENERATORS[@]}"; do
   sleep 2   # be gentle on the USGS / Open-Meteo / CWMS APIs
 done
 
+echo "  ▸ roadmap"
+python3 roadmap.py || { echo "  ✗ roadmap.py crashed"; exit 1; }
+
 echo "  ▸ hq"
 python3 hq.py || { echo "  ✗ hq.py crashed"; exit 1; }
