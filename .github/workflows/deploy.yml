@@ -54,6 +54,11 @@ jobs:
 
       - name: Build site
         run: ./build.sh
+        env:
+          # roadmap.py reads the roadmap issues to decide which tickets are shipped.
+          # Unauthenticated works but shares the runner's 60/h IP budget; the built-in
+          # token gives this build its own allowance. Read-only, scoped to this repo.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Save release cache
         if: always()

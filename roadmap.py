@@ -7,7 +7,8 @@ ticket, created by tools/make_issues.py). The issue is the system of record: thi
 LINKS to it rather than duplicating its state, so there is only ever one place that
 says whether a ticket is done.
 
-No network, no live data — the only generator in the build that touches neither.
+The only upstream it touches is the GitHub issues API, to read which tickets are
+closed. If that fails the page falls back to the lanes in roadmap.json and says so.
 """
 import json, os, html as _h
 import riverlib
@@ -19,19 +20,49 @@ os.makedirs(OUT, exist_ok=True)
 R = json.load(open(os.path.join(HERE, "roadmap.json")))
 REPO = R.get("repo", "Rhode025/caney")
 
-LANES = [("now", "Now"), ("next", "Next"), ("later", "Later")]
+# The GitHub issue is the system of record for whether a ticket is done, so read it at
+# build time rather than hardcoding a lane that would drift the moment something ships.
+# Unauthenticated is fine for a public repo (60 req/h; this is one request per build);
+# CI passes a token to avoid sharing a runner's rate limit. On any failure the page falls
+# back to the lane in roadmap.json and says the state is from the file — the same
+# cache-and-be-honest rule the river pages follow.
+issue_state, state_src = {}, "file"
+try:
+    hdrs = {"Accept": "application/vnd.github+json"}
+    tok = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if tok:
+        hdrs["Authorization"] = "Bearer " + tok
+    _url = ("https://api.github.com/repos/%s/issues?state=all&labels=roadmap&per_page=100" % REPO)
+    for it in riverlib.get(_url, hdrs, timeout=30):
+        if "pull_request" not in it:
+            issue_state[it["number"]] = it["state"]
+    state_src = "github"
+    print("  issue state from GitHub: %d open, %d closed"
+          % (sum(1 for v in issue_state.values() if v == "open"),
+             sum(1 for v in issue_state.values() if v == "closed")))
+except Exception as e:
+    print("  issue-state warn (falling back to roadmap.json lanes):", e)
+
+for t in R["tickets"]:
+    st = issue_state.get(t.get("issue"))
+    t["state"] = st or "open"
+    t["lane"] = "done" if st == "closed" else t["lane"]
+
+LANES = [("done", "Shipped"), ("now", "Now"), ("next", "Next"), ("later", "Later")]
 DATA = {
     "tickets": R["tickets"],
     "findings": R["findings"],
     "method": R["method"],
     "generated": R["generated"],
     "repo": REPO,
+    "stateSrc": state_src,
     "issuesUrl": "https://github.com/%s/issues" % REPO,
     "counts": {
         "tickets": len(R["tickets"]),
         "fail": sum(1 for f in R["findings"] if f[3] == "fail"),
         "warn": sum(1 for f in R["findings"] if f[3] == "warn"),
         "ok": sum(1 for f in R["findings"] if f[3] == "ok"),
+        "done": sum(1 for t in R["tickets"] if t["lane"] == "done"),
     },
 }
 
@@ -87,7 +118,7 @@ code{font-family:var(--mono);font-size:12.5px;background:var(--card2);border:1px
 .vd.warn{background:var(--p1b);color:var(--p1f)}
 .vd.ok{background:var(--okb);color:var(--ok)}
 /* board */
-.board{display:grid;grid-template-columns:repeat(3,1fr);gap:13px;align-items:start}
+.board{display:grid;grid-template-columns:repeat(4,1fr);gap:13px;align-items:start}
 .lane{background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:11px}
 .lane.now{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
 .lh{display:flex;justify-content:space-between;align-items:center;padding:2px 3px 10px;
@@ -98,6 +129,8 @@ code{font-family:var(--mono);font-size:12.5px;background:var(--card2);border:1px
 .mini{display:block;background:var(--card);border:1px solid var(--line);border-left:3px solid var(--line);
  border-radius:8px;padding:9px 11px;margin-bottom:7px;text-decoration:none;color:inherit}
 .mini:hover{border-color:var(--accent);border-left-color:var(--accent)}
+.mini.done{border-left-color:var(--ok);opacity:.8}
+.mini.done .t{text-decoration:line-through;text-decoration-color:#9bb6a8}
 .mini.P0{border-left-color:var(--p0f)}.mini.P1{border-left-color:var(--p1f)}
 .mini.P2{border-left-color:var(--p2f)}.mini.P3{border-left-color:var(--p3f)}
 .mini .k{display:block;font-family:var(--mono);font-size:10px;color:var(--faint);letter-spacing:.05em}
@@ -124,7 +157,7 @@ code{font-family:var(--mono);font-size:12.5px;background:var(--card2);border:1px
 .sp em{display:block;font-style:normal;font-size:9px;color:var(--faint);letter-spacing:.08em;font-weight:400}
 .pr{font-family:var(--mono);font-size:10px;font-weight:700;padding:3px 7px;border-radius:5px;text-align:center}
 .pr.P0{background:var(--p0b);color:var(--p0f)}.pr.P1{background:var(--p1b);color:var(--p1f)}
-.pr.P2{background:var(--p2b);color:var(--p2f)}.pr.P3{background:var(--p3b);color:var(--p3f)}
+.pr.P2{background:var(--p2b);color:var(--p2f)}.pr.DONE{background:var(--okb);color:var(--ok)}.pr.P3{background:var(--p3b);color:var(--p3f)}
 .tt{font-weight:500;font-size:14.5px;line-height:1.35}
 .tt .kk{display:block;font-family:var(--mono);font-size:10px;color:var(--faint);letter-spacing:.07em;
  text-transform:uppercase;margin-bottom:2px}
@@ -167,7 +200,7 @@ __SWITCHER__
 </section>
 
 <section>
-  <h2>The board <i>3 lanes · live state lives on GitHub</i></h2>
+  <h2>The board <i id="bstate"></i></h2>
   <p class="lede">Lane placement is the plan; whether a ticket is <em>done</em> is answered by its
   GitHub issue, not by this page. Click a card to open the ticket below.</p>
   <div class="board" id="board"></div>
@@ -205,17 +238,20 @@ document.getElementById('foot').innerHTML=
  +'Epics are labelled rather than colour-coded on purpose: seven categorical hues failed colour-vision '
  +'separation, so colour here is reserved for priority and always ships its label. Audited '+D.generated+'.';
 
+document.getElementById('bstate').textContent=(D.stateSrc==='github'
+  ? 'live from the GitHub issues · '+D.counts.done+' shipped'
+  : 'GitHub unreachable at build time — lanes are from roadmap.json');
 document.getElementById('meas').innerHTML=
   '<div class="mh"><div>Measurement</div><div>Result</div><div class="n">Threshold &amp; consequence</div><div class="vh">Verdict</div></div>'
  +D.findings.map(f=>'<div class="mr"><b>'+esc(f[0])+'</b><div class="v">'+esc(f[1])+'</div>'
    +'<div class="n">'+f[2]+'</div><div class="vd '+f[3]+'">'
    +({fail:'Critical',warn:'Serious',ok:'Pass'})[f[3]]+'</div></div>').join('');
 
-const LANES=[['now','Now'],['next','Next'],['later','Later']];
+const LANES=[['done','Shipped'],['now','Now'],['next','Next'],['later','Later']];
 document.getElementById('board').innerHTML=LANES.map(([id,label])=>{
   const it=T.filter(t=>t.lane===id);
   return '<div class="lane'+(id==='now'?' now':'')+'"><div class="lh"><b>'+label+'</b><span>'+it.length+'</span></div>'
-   +it.map(t=>'<a class="mini '+t.priority+'" href="#tk'+t.sprint+'" data-s="'+t.sprint+'">'
+   +it.map(t=>'<a class="mini '+(t.lane==="done"?"done":t.priority)+'" href="#tk'+t.sprint+'" data-s="'+t.sprint+'">'
      +'<span class="k">S'+t.sprint+' · '+t.key+'</span><span class="t">'+esc(t.title)+'</span></a>').join('')
    +'</div>';}).join('');
 document.getElementById('board').addEventListener('click',e=>{
@@ -241,7 +277,7 @@ function renderList(){
   el.innerHTML=rows.map(t=>
     '<details class="tk" id="tk'+t.sprint+'"><summary>'
    +'<span class="sp">S'+t.sprint+'<em>SPRINT</em></span>'
-   +'<span class="pr '+t.priority+'">'+t.priority+'</span>'
+   +'<span class="pr '+(t.lane==="done"?"DONE":t.priority)+'">'+(t.lane==="done"?"✓":t.priority)+'</span>'
    +'<span class="tt"><span class="kk">'+esc(t.epic)+' · '+t.key+'</span>'+esc(t.title)+'</span>'
    +(t.issue_url?'<a class="gh" href="'+t.issue_url+'" target="_blank" rel="noopener">#'+t.issue+' ↗</a>':'<span class="gh">'+t.effort+'</span>')
    +'</summary><div class="tb">'
