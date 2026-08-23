@@ -285,6 +285,14 @@ for f in ALL_HTML:
           bool(re.search(r"const (?:DATA|D)=window\.__rlRelabel\(", html)),
           "render() must wrap the DATA blob so labels are stamped before any render call")
     check("day-identity runtime present: " + f, "window.__rlRelabel=" in html)
+    # S1 / #1 — a stale page must not render values that only mean something today.
+    check("stale-day seal present: " + f, "window.__rlSealClockKeyed=" in html)
+    if f not in ("index.html", "roadmap.html"):
+        # Every river page carries at least one clock-keyed container for the seal to find.
+        # Without one, a stale build would show live-looking numbers with nothing to blank.
+        clock = re.findall(r'id="(nowstrip|now|arrival|best|feed|sol)"|data-clock', html)
+        check("has a clock-keyed surface to seal: " + f, bool(clock),
+              "no #now/#nowstrip/#sol/#feed container — the seal has nothing to act on")
 
     D = data_blob(html)
     check("DATA parses: " + f, D is not None)

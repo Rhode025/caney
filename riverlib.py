@@ -374,10 +374,17 @@ BUILDSTAMP_JS = r"""
         +ago(-age)+' before this page was built · arrival times will be off by that much';
       return;
     }
-    var lvl = age>12*3600000 ? 2 : age>3*3600000 ? 1 : 0;
+    // Level 3 is not "very old" — it is a different KIND of wrong. Past midnight the page
+    // is no longer about today at all, so nothing keyed to "now" survives (STALEDAY_JS
+    // seals those). Red rather than a darker amber, because it is a category change.
+    var shift = window.__rlDayShift || 0;
+    var lvl = shift ? 3 : age>12*3600000 ? 2 : age>3*3600000 ? 1 : 0;
     el.className='bstamp l'+lvl;
     var a=ago(age);
-    el.innerHTML = lvl===0
+    el.innerHTML = lvl===3
+      ? '<strong>This page is from '+(Math.abs(shift)===1?'yesterday':Math.abs(shift)+' days ago')
+        +'</strong> · built '+fmt(d)+' · live readings and arrival times are unavailable'
+      : lvl===0
       ? '<span class="bsdot"></span>Data built '+fmt(d)+' · '+(a==='just now'?a:a+' ago')
       : '<strong>Data is '+ago(age)+' old</strong> · built '+fmt(d)
         +(lvl===2?' · flows and generation may have changed':'');
@@ -469,7 +476,8 @@ DAYLABEL_JS = r"""
       // The page headline. Python ships todayIso (the BUILD day); the reader's own day wins,
       // so a stale page never puts a wrong weekday at the top of the screen.
       if(D&&typeof D.todayIso==='string'&&ISO.test(D.todayIso)){
-        D.dayShift=-delta(D.todayIso);            // 0 fresh; 2 = built two days ago
+        D.dayShift=0-delta(D.todayIso)||0;        // 0 fresh; 2 = built two days ago (||0 kills -0)
+        window.__rlDayShift=D.dayShift;           // STALEDAY_JS seals clock-keyed surfaces on this
         var t=longDate(todayISO());
         if('today' in D)      D.today=t;
         if('todayLabel' in D) D.todayLabel=t;
@@ -478,6 +486,71 @@ DAYLABEL_JS = r"""
     }catch(e){ if(window.console&&console.warn)console.warn('relabel',e); }
     return D;
   };
+})();
+"""
+
+# ── FAIL CLOSED ON A STALE DAY (S1 / issue #1) ───────────────────────────────
+# Day identity made a stale page honestly LABELLED. It did not stop it rendering values
+# that only mean something today. Two kinds of surface, and they need opposite treatment:
+#
+#   DATE-KEYED  the generation schedule, the outlook, the hatch calendar. Keyed to a date
+#               they name, so an old build is still TRUE about that date. These keep rendering.
+#   CLOCK-KEYED "Right now · Center Hill 250 cfs", "water reaches Trout Hole #1 at 1:10 PM",
+#               today's feeding windows, today's grade. These have NO valid value on a build
+#               from another day. Relabelling them is not possible — there is nothing to
+#               relabel them to. They must be removed and say why.
+#
+# Sealed by ID rather than by a per-page attribute: every river already converges on the
+# same handful of ids (#now + #sol on ten rivers; the Caney's four), so the parity rule
+# holds with no TEMPLATE edit and a new river inherits it by naming its container #now.
+# A page can opt an extra surface in with data-clock.
+#
+# The seal is re-applied through a MutationObserver because these containers re-render on
+# every craft toggle, day change and slider drag — a one-shot seal would be painted over
+# by the page's own next render.
+CLOCK_KEYED = "#nowstrip, #now, #arrival, #best, #feed, #sol, [data-clock]"
+
+STALEDAY_CSS = """
+.rlsealed{background:#fff6f4;border:1px solid #f4c9bf;border-radius:10px;padding:12px 14px;
+ color:#7d2414;font:500 13.5px/1.45 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+.rlsealed b{display:block;font-weight:700;font-size:14px;margin-bottom:3px;color:#651c0f}
+.rlsealed span{color:#9a4a35}
+.bstamp.l3{color:#fff;background:#b03a22;border-bottom-color:#8e2d19;font-weight:700}
+"""
+
+STALEDAY_JS = r"""
+(function(){
+  var SEL='__CLOCK_KEYED__';
+  function fmt(e){try{return new Date(e*1000).toLocaleString([],
+    {weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});}catch(x){return '';}}
+  function apply(){
+    var shift=window.__rlDayShift;
+    if(!shift)return;                       // 0, undefined or null → page is current, do nothing
+    var built=window.__builtEpoch, when=built?fmt(built):'its last build';
+    var d=Math.abs(shift), ago=d===1?'yesterday':d+' days ago';
+    document.querySelectorAll(SEL).forEach(function(el){
+      if(el.dataset.rlSealed==='1' && el.firstElementChild
+         && el.firstElementChild.classList.contains('rlsealed')) return;
+      var mo=el.__rlMo;
+      if(mo)mo.disconnect();
+      el.dataset.rlSealed='1';
+      el.innerHTML='<div class="rlsealed"><b>No current reading</b>'
+        +'This page was built '+ago+' ('+when+') and has not refreshed since, so anything '
+        +'that depends on “now” — the live level, arrival times, today’s feeding windows — '
+        +'would be wrong. <span>The dated schedule and outlook below are still true about the '
+        +'days they name.</span></div>';
+      if(!mo){
+        mo=new MutationObserver(function(){ apply(); });
+        el.__rlMo=mo;
+      }
+      mo.observe(el,{childList:true,subtree:true});
+    });
+  }
+  window.__rlSealClockKeyed=apply;
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',apply);
+  else apply();
+  // The page's own render runs after DATA is defined; re-assert once the frame settles.
+  setTimeout(apply,0); setTimeout(apply,400);
 })();
 """
 
@@ -1251,9 +1324,12 @@ def render(html, river_id):
     """Fill every shared token for this river. Unknown/unused tokens stay blank-safe."""
     # Build stamp goes in via <head> rather than a TEMPLATE token, so every page that calls
     # render() gets it — no page can forget to display how old its data is.
-    _stamp = ("<style>" + BUILDSTAMP_CSS + "</style><script>"
+    # Order matters: DAYLABEL_JS defines __rlRelabel (which sets __rlDayShift when the page's
+    # DATA is evaluated), STALEDAY_JS reads that shift and seals the clock-keyed surfaces.
+    _stamp = ("<style>" + BUILDSTAMP_CSS + STALEDAY_CSS + "</style><script>"
               + BUILDSTAMP_JS.replace("__BUILT_EPOCH__", str(int(time.time())))
               + DAYLABEL_JS.replace("__SITE_TZ__", SITE_TZ)
+              + STALEDAY_JS.replace("__CLOCK_KEYED__", CLOCK_KEYED)
               + "</script>")
     return (html
             .replace("<head>", "<head>" + BASE_HEAD + favicon(SITE_EMOJI) + _stamp, 1)
