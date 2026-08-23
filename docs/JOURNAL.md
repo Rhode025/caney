@@ -9,6 +9,64 @@ belongs to a commit goes in the commit message. This file is for *state and inte
 
 ---
 
+## 2026-08-23 — Two days frozen, then day identity, then the roadmap goes on the site
+
+**The bug that started it.** The app showed two generators at Center Hill; TVA said one. The
+unit maths was right: Center Hill really did run 2U on Friday (observed 7,818-7,892 cfs).
+The page was 55 hours old and calling Friday "Today". Every scheduled deploy since
+2026-08-21T07:52Z had failed in 2-5s: *"the job was not started because recent account
+payments have failed"*. Actions billing, on a private repo burning ~3,650 min/month against
+a 2,000 allowance — the build had quietly grown from one river at ~30s to eleven at ~279s.
+
+**Fix: the repo is public.** Unlimited standard-runner minutes, $0. Secrets stay encrypted;
+nothing sensitive was tracked. NEW RISK, documented in CLAUDE.md: GitHub disables scheduled
+workflows in public repos after 60 days of repository inactivity — the same silent staleness
+by another door.
+
+**Why nothing caught it.** `now.stale` means "CWMS was down at build time", not "this page is
+old", so the loudest warning stayed silent. The build stamp fired but is passive. `verify.py`
+gates the build, and the build never ran. And the monitor, had there been one, would have
+lived in Actions — the same failure domain as the thing it watched.
+
+**Day identity (38 files).** Day rows carried a label but no identity — `{"label": "Today" if
+i==0, "date": "8/21"}`, no ISO, no year — so the client could not self-correct even in
+principle. Now: Python emits absolute instants, the client renders relative time.
+`riverlib.DAYLABEL_JS` stamps label/date/isToday/dayDelta from the READER's clock in the
+river's timezone; `render()` wraps each page's DATA in `window.__rlRelabel(...)` so the walk
+runs at `const DATA=`, ahead of every render call — parity by construction, and any future row
+carrying an `iso` is corrected free. Index-as-today is gone everywhere (`di===0`, `week[0]`,
+`label==='Today'`). Prose uses weekday names: a sentence is the one thing the relabeler cannot
+reach. **RIVER_SPEC §0 has the rule; verify.py gates it.**
+
+**S1 / #1 — fail closed.** Honest labelling was not enough: clock-keyed surfaces still
+rendered. Two kinds, opposite treatment. DATE-KEYED (schedule, outlook, hatch) keep rendering —
+still true about the day they name. CLOCK-KEYED (#nowstrip, #arrival, #best, #feed, #now, #sol)
+have no valid value on another day's build, so `STALEDAY_JS` seals them with a notice and the
+build stamp goes to level 3, red. Sealed by ID, not per-page attribute — the rivers already
+converge on the same containers, so a new river inherits it by naming its container `#now`.
+Re-asserted through a MutationObserver, because those containers rerender on every craft
+toggle and slider drag.
+
+**The audit and the board.** Measured, not impressed: 4 critical, 11 serious, 3 clean.
+The four criticals — no offline capability at all; the map dies when unpkg is blocked; 54 WCAG
+AA contrast failures (worst 2.07:1); and **model validation at 1 of 13** — `backtest_flow.py`
+has only ever run against the Caney, where it moved baseflow 375→205 and edge speed 3.0→2.5.
+Twelve rivers ship unvalidated constants. That is the biggest correctness risk here.
+
+38 tickets, one per sprint. `roadmap.json` is the source; it feeds GitHub issues #1-#38
+(`tools/make_issues.py`) and `roadmap.py` → `out/roadmap.html`, linked from the HQ footer.
+**The issue is the system of record** — roadmap.py reads the issues API at build time so the
+Shipped lane reflects reality rather than a hardcoded lane, falling back to the file and
+saying so if the API fails.
+
+**Open threads.**
+1. #2 (deploy watchdog outside Actions) is the one that stops this recurring. Nothing yet
+   alarms when deploys stop.
+2. #30 (backtest the other twelve rivers) is the largest correctness risk and is untouched.
+3. The craft-spread assertion in `browser.mjs` still fails on a week of uniform water — #28.
+4. `CLAUDE.md` still claims a ~30s build; it is 135-430s until #25 lands.
+5. RIVER_SPEC §3 matrix covers 3 of 13 rivers and its header says 9 — #35.
+
 ## 2026-08-13 (later) — Favicon
 
 🌊 as an inline SVG data URI, injected by `render()` so every page gets it — no extra request, no
