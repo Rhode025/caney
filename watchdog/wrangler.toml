@@ -1,0 +1,22 @@
+name = "river-monitor-watchdog"
+main = "src/worker.js"
+compatibility_date = "2026-08-01"
+
+# Every 15 minutes. The site rebuilds hourly, the stale threshold is 3 h, so this notices a
+# dead deploy within about three missed runs rather than the 55 hours it took on 2026-08-21.
+# Cron triggers are free on the Workers free plan.
+[triggers]
+crons = ["*/15 * * * *"]
+
+# Remembers the last verdict and when it was announced, so a long outage is a handful of
+# notifications rather than one every tick. Written only when the verdict changes — far
+# inside the free plan's 1,000 writes/day.
+#
+# Create it once, then paste the id here:
+#   npx wrangler kv namespace create WATCHDOG
+[[kv_namespaces]]
+binding = "WATCHDOG"
+id = "PASTE_KV_NAMESPACE_ID_HERE"
+
+# The alert topic is a secret, not a var — on ntfy.sh the topic name IS the credential.
+#   npx wrangler secret put NTFY_TOPIC

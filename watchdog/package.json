@@ -1,0 +1,11 @@
+{
+  "name": "river-monitor-watchdog",
+  "private": true,
+  "type": "module",
+  "description": "Deploy freshness watchdog — runs on Cloudflare cron, never inside GitHub Actions.",
+  "scripts": {
+    "test": "node test.mjs",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail"
+  }
+}

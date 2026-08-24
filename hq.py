@@ -6,7 +6,7 @@ week-ahead board: current condition + a 7-day conditions projection per river, f
 target species and sortable by best water / soonest / drive time. Build the rivers first, then
 this. Sources roll up from each river page. Personal use.
 """
-import json,os,sys,datetime,glob
+import json,os,sys,datetime,glob,time
 from zoneinfo import ZoneInfo
 sys.path.insert(0,os.path.dirname(os.path.abspath(__file__)))
 import riverlib
@@ -18,7 +18,12 @@ now_ct=datetime.datetime.now(CT)
 order={r["id"]:i for i,r in enumerate(riverlib.RIVERS)}
 CARDS=[]
 for f in glob.glob(os.path.join(OUT,"status","*.json")):
-    try: CARDS.append(json.load(open(f)))
+    try:
+        c=json.load(open(f))
+        # out/status/ is river cards only. Skip anything without an id rather than dying on
+        # it: a leftover from a renamed or removed river should not take the homepage down.
+        if "id" not in c: print("skip (not a river card):",os.path.basename(f)); continue
+        CARDS.append(c)
     except Exception as e: print("skip",f,e)
 CARDS.sort(key=lambda c:order.get(c["id"],99))
 # union of species for the filter chips (stable, by first appearance)
@@ -289,4 +294,24 @@ document.getElementById('foot').innerHTML='Aggregated from each river\'s live st
 </script></body></html>"""
 html=riverlib.render(TEMPLATE,"hq").replace("__DATA__",json.dumps(DATA))
 open(os.path.join(OUT,"index.html"),"w").write(html)
+
+# ── the watchdog's endpoint (#2) ─────────────────────────────────────────────
+# Deliberately out/site.json and NOT out/status/*.json: three separate places glob that
+# directory expecting river cards (hq.py itself, verify.py, qc_rivers.py), and a
+# site-level file living among them broke all three. One directory, one shape.
+# One small file the deploy watchdog can poll instead of parsing a 200 KB page or
+# fetching thirteen river cards. hq.py runs last, so `built` here is the moment the
+# WHOLE site finished — which is the number that answers "did the deploy run?".
+# oldestRiver catches the other failure: the deploy ran, but one generator quietly
+# fell back to cache and its river is hours behind the rest.
+_now=int(time.time())
+_ages={c["id"]:c.get("built") for c in CARDS if c.get("built")}
+_site={"built":_now,
+       "builtIso":datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+       "rivers":len(CARDS),
+       "oldestRiver":(min(_ages.items(),key=lambda kv:kv[1])[0] if _ages else None),
+       "oldestRiverAgeSec":(_now-min(_ages.values()) if _ages else None),
+       "site":"https://caney.pages.dev"}
+json.dump(_site,open(os.path.join(OUT,"site.json"),"w"))
 print("wrote out/index.html (River Monitor HQ) | %d rivers | species: %s"%(len(CARDS),", ".join(SPECIES)))
+print("wrote out/site.json | oldest river: %s (%ss behind)"%(_site["oldestRiver"],_site["oldestRiverAgeSec"]))

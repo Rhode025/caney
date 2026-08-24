@@ -243,6 +243,26 @@ for c in cards.values():
 check("HQ grade-map covers all emitted grades", emitted <= gw_keys,
       "unhandled " + ",".join(emitted - gw_keys))
 
+print("── deploy freshness endpoint (#2) ──")
+# The watchdog runs outside this repo and reads only this file. If its shape drifts, the
+# watchdog goes blind in exactly the silent way the 2026-08-21 outage went unnoticed — so
+# the contract is pinned here rather than in the Worker, which cannot fail the build.
+_sp = os.path.join(OUT, "site.json")
+if not os.path.exists(_sp):
+    check("site.json exists", False, "hq.py must write the watchdog's endpoint")
+else:
+    _s = json.load(open(_sp))
+    check("site.json has a numeric build epoch", isinstance(_s.get("built"), int))
+    check("site.json counts the rivers", _s.get("rivers") == len(RIVERS),
+          "says %s, registry has %d" % (_s.get("rivers"), len(RIVERS)))
+    check("site.json reports the oldest river", _s.get("oldestRiver") in RIVERS,
+          str(_s.get("oldestRiver")))
+    check("site.json reports how far behind it is",
+          isinstance(_s.get("oldestRiverAgeSec"), int) and _s["oldestRiverAgeSec"] >= 0)
+    check("every river card carries its own build epoch",
+          all(isinstance(c.get("built"), int) for c in cards.values()),
+          ",".join(r for r, c in cards.items() if not isinstance(c.get("built"), int)))
+
 print("── day identity: no build-time relative time (RIVER_SPEC §0) ──")
 # The 2026-08-23 regression: deploys stopped for two days and every page kept calling
 # Friday's data "Today", because day rows carried a label but no date identity. These

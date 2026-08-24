@@ -2072,7 +2072,12 @@ def emit_status(river_id, now, wx, base_score, tz, species, kind, drive, per_dat
     the HQ board renders. Optional; a river that omits it still gets the week strip.
     """
     r = next((x for x in RIVERS if x["id"] == river_id), {})
-    status = {"id": river_id, "name": r.get("name"), "emoji": r.get("emoji"),
+    # built: epoch seconds this river was generated. The watchdog (#2) reads freshness from
+    # here rather than parsing HTML for the build stamp — a machine-checkable contract that
+    # cannot drift with the page's markup. Per-river, because generators run minutes apart
+    # and a single river failing to regenerate is itself worth knowing about.
+    status = {"built": int(time.time()),
+              "id": river_id, "name": r.get("name"), "emoji": r.get("emoji"),
               "file": r.get("file"), "on_bg": r.get("on_bg"), "on_fg": r.get("on_fg"),
               "species": species, "kind": kind, "drive": drive,
               "now": now, "wx": today_wx(wx, tz),
