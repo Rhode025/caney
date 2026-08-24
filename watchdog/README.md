@@ -40,14 +40,15 @@ cd watchdog
 nvm use 20                                  # wrangler needs Node 20+; 18 is not enough
 npx wrangler login                          # opens the browser once
 npx wrangler kv namespace create WATCHDOG   # paste the printed id into wrangler.toml
-npx wrangler deploy                         # must come BEFORE the secret — it creates the Worker
-npx wrangler secret put NTFY_TOPIC          # any long random string — see below
+npx wrangler deploy                         # must come BEFORE the secrets — it creates the Worker
 ```
 
+Then set the two Telegram secrets below.
+
 Order matters: `secret put` targets a Worker that already exists, and `deploy` fails while
-`wrangler.toml` still holds the placeholder KV id. So: namespace → id → deploy → secret.
-The Worker runs without the secret; it just reports `NTFY_TOPIC is not set` instead of
-sending, which is a safe state to be in for the minute between those two commands.
+`wrangler.toml` still holds the placeholder KV id. So: namespace → id → deploy → secrets.
+The Worker runs without them; it just reports `TELEGRAM_TOKEN / TELEGRAM_CHAT_ID not set` in
+its send result instead of failing opaquely, which is a safe state to sit in meanwhile.
 
 **The alert channel is Telegram.** Free, pushes to a phone, and its limits are per bot rather
 than per source IP — which is what matters here.
