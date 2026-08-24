@@ -19,11 +19,20 @@ export default {
   },
 
   // GET / runs the same check and shows the verdict, so the watchdog itself can be
-  // eyeballed without waiting for a cron tick. ?test=1 forces a notification through,
-  // which is how you confirm the alert path before trusting it.
+  // eyeballed without waiting for a cron tick.
+  //   ?test=1&send   force a notification — confirms the CHANNEL works
+  //   ?simulate=stale&send   pretend the site is two days old — confirms the whole path,
+  //                          decide() through to a real alert on the phone, which is the
+  //                          only thing that proves the alarm as a whole. A fire drill you
+  //                          can run any time rather than by waiting three hours for a
+  //                          genuine outage.
   async fetch(request, env) {
     const url = new URL(request.url);
-    const result = await run(env, { dryRun: !url.searchParams.has("send"), force: url.searchParams.has("test") });
+    const result = await run(env, {
+      dryRun: !url.searchParams.has("send"),
+      force: url.searchParams.has("test"),
+      simulate: url.searchParams.get("simulate"),
+    });
     return new Response(JSON.stringify(result, null, 2), {
       headers: { "content-type": "application/json; charset=utf-8" },
     });
@@ -50,6 +59,12 @@ async function run(env, opts = {}) {
     fetchError = String(e && e.message || e);
   }
 
+  // Fire drill: age the real reading rather than inventing one, so the alert that arrives is
+  // shaped exactly like a genuine one. Never writes state — a drill must not convince the
+  // watchdog it has already announced a real outage.
+  if (opts.simulate === "stale" && site) site = { ...site, built: site.built - 48 * 3600 };
+  if (opts.simulate === "down") { site = null; fetchError = "simulated outage (fire drill)"; }
+
   let last = {};
   try { last = JSON.parse(await env.WATCHDOG.get(KEY) || "{}"); } catch (e) { /* first run */ }
 
@@ -66,14 +81,17 @@ async function run(env, opts = {}) {
   // watchdog would go quiet believing it had spoken, which is the exact silent failure it
   // exists to prevent. A failed send instead leaves the state unchanged so the next tick
   // retries, and is remembered so `GET /` can show that the alert path is broken.
-  if (!opts.dryRun) {
+  if (!opts.dryRun && !opts.simulate) {
     const delivered = !alert || (sent && sent.ok);
-    if (delivered && (verdict.state !== last.state || verdict.alert)) {
-      await env.WATCHDOG.put(KEY, JSON.stringify({ state: verdict.state, at: now }));
-    } else if (!delivered) {
+    if (!delivered) {
       await env.WATCHDOG.put(KEY, JSON.stringify({
         ...last, lastSendError: { at: now, ...sent },
       }));
+    } else if (verdict.state !== last.state || verdict.alert || (alert && last.lastSendError)) {
+      // A successful send clears lastSendError. Without this, one historical failure would
+      // sit in `GET /` forever, telling you the alarm was broken long after it was fixed —
+      // a stale warning that trains you to ignore the real one.
+      await env.WATCHDOG.put(KEY, JSON.stringify({ state: verdict.state, at: now }));
     }
   }
 
@@ -91,6 +109,7 @@ async function run(env, opts = {}) {
     alert: alert || null,
     sent,
     dryRun: !!opts.dryRun,
+    simulated: opts.simulate || null,
   };
 }
 

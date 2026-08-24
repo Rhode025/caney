@@ -89,17 +89,24 @@ not that the alarm can reach you.
 
 ## Verify it works
 
+Live at `https://river-monitor-watchdog.steven-b9c.workers.dev`.
+
 ```bash
-node test.mjs                             # the real decision logic, incl. against the live endpoint
-curl "https://<worker>.workers.dev/"          # current verdict, sends nothing
-curl "https://<worker>.workers.dev/?test=1&send"  # forces one notification through
+node test.mjs                                    # decision logic, incl. against the live endpoint
+curl "https://<worker>/"                         # current verdict, sends nothing
+curl "https://<worker>/?test=1&send"             # forces one notification — proves the CHANNEL
+curl "https://<worker>/?simulate=stale&send"     # fire drill — proves the WHOLE alarm
 ```
 
-The last one is the check that matters — a watchdog whose alert path has never fired is not
-a watchdog. Do it once at deploy, and again if you ever change the topic.
+The fire drill is the one that matters. It ages the real reading by 48 h and lets `decide()`
+run normally, so the message that reaches your phone is shaped exactly like a genuine one —
+without waiting three hours for a real outage. It never writes state, so a drill cannot
+convince the watchdog it has already announced something.
 
-To exercise the real path end to end: disable the scheduled workflow in GitHub, wait three
-hours, confirm the alert arrives, re-enable, confirm the recovery message.
+`?simulate=down` does the same for an unreachable site.
+
+**Read `lastSendError` whenever you check.** `state: "ok"` means the SITE is healthy; it says
+nothing about whether the alarm can reach you. A successful send clears it.
 
 ## Related tickets
 
