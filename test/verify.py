@@ -263,6 +263,30 @@ else:
           all(isinstance(c.get("built"), int) for c in cards.values()),
           ",".join(r for r, c in cards.items() if not isinstance(c.get("built"), int)))
 
+print("── bot corpus (RiverGuide) ──")
+# The bot answers from out/bot.json alone. It is assembled from the status cards AND from
+# each page's DATA blob, so a rename in either place would silently empty it — the bot would
+# then answer confidently from a corpus with no conditions in it. Pin the shape here.
+_bp = os.path.join(OUT, "bot.json")
+if not os.path.exists(_bp):
+    check("bot.json exists", False, "bot.py must run at the end of the build")
+else:
+    _b = json.load(open(_bp))
+    _rv = {r["id"]: r for r in _b.get("rivers", [])}
+    check("bot corpus covers every river", set(_rv) == set(RIVERS),
+          "missing " + ",".join(sorted(set(RIVERS) - set(_rv))))
+    check("bot corpus states its safety rules", len(_b.get("rules") or []) >= 3)
+    check("bot corpus is timestamped", isinstance(_b.get("built"), int))
+    for _k in ("now", "week"):
+        _bad = [r for r, c in _rv.items() if not c.get(_k)]
+        check("every river has %s: bot corpus" % _k, not _bad, ",".join(_bad))
+    # The fly answer is the single most-asked thing and the most easily lost, since it comes
+    # from the page rather than the status card.
+    _nofly = [r for r, c in _rv.items() if not (c.get("fly") or {}).get("fly")]
+    check("every river has a current fly", not _nofly, ",".join(_nofly))
+    _noacc = [r for r, c in _rv.items() if not c.get("access")]
+    check("every river has access points", not _noacc, ",".join(_noacc))
+
 print("── day identity: no build-time relative time (RIVER_SPEC §0) ──")
 # The 2026-08-23 regression: deploys stopped for two days and every page kept calling
 # Friday's data "Today", because day rows carried a label but no date identity. These

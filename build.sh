@@ -21,3 +21,7 @@ python3 roadmap.py || { echo "  ✗ roadmap.py crashed"; exit 1; }
 
 echo "  ▸ hq"
 python3 hq.py || { echo "  ✗ hq.py crashed"; exit 1; }
+
+# Last: needs every river page AND every status card to exist.
+echo "  ▸ bot corpus"
+python3 bot.py || { echo "  ✗ bot.py crashed"; exit 1; }
