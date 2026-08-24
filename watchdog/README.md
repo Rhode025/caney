@@ -37,11 +37,17 @@ Needs Node 20+ (`nvm install 20`) and your Cloudflare login.
 
 ```bash
 cd watchdog
-npx wrangler login                       # opens the browser once
+nvm use 20                                  # wrangler needs Node 20+; 18 is not enough
+npx wrangler login                          # opens the browser once
 npx wrangler kv namespace create WATCHDOG   # paste the printed id into wrangler.toml
-npx wrangler secret put NTFY_TOPIC        # any long random string — see below
-npx wrangler deploy
+npx wrangler deploy                         # must come BEFORE the secret — it creates the Worker
+npx wrangler secret put NTFY_TOPIC          # any long random string — see below
 ```
+
+Order matters: `secret put` targets a Worker that already exists, and `deploy` fails while
+`wrangler.toml` still holds the placeholder KV id. So: namespace → id → deploy → secret.
+The Worker runs without the secret; it just reports `NTFY_TOPIC is not set` instead of
+sending, which is a safe state to be in for the minute between those two commands.
 
 **The alert channel** is [ntfy.sh](https://ntfy.sh): no account, no key, free. Install the
 ntfy app, subscribe to the same topic string you set as `NTFY_TOPIC`. The topic name is the
