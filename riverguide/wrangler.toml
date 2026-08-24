@@ -1,0 +1,22 @@
+name = "riverguide-bot"
+main = "src/worker.js"
+compatibility_date = "2026-08-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Per-chat access tier and daily usage. Metered from day one even though nobody is billed:
+# without a record of what real questions cost there is no basis for pricing later.
+#   npx wrangler kv namespace create RG
+[[kv_namespaces]]
+binding = "RG"
+id = "6a77b4283cfd4c92bb094cd314fa7be1"
+
+[vars]
+# "1" opens the bot to anyone under the free tier in src/access.js. Left off deliberately:
+# strangers spending your API credit is a decision, not a default.
+OPEN_TO_ALL = "0"
+
+# Secrets (npx wrangler secret put NAME):
+#   TELEGRAM_TOKEN    @RiverIQGuide_bot, from BotFather
+#   ANTHROPIC_API_KEY console.anthropic.com
+#   OWNER_CHAT_IDS    comma-separated Telegram chat ids with no quota
+#   WEBHOOK_SECRET    random string; Telegram echoes it so only Telegram can post
