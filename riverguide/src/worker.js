@@ -10,9 +10,10 @@
  * It may reason and extrapolate freely about everything else — that is why it is a model
  * and not a menu.
  */
-import Anthropic from "@anthropic-ai/sdk";
 import { resolveAccess, getUsage, recordUsage, overQuota } from "./access.js";
 import { slice, tokenEstimate } from "./slice.js";
+import { askModel, providerName } from "./model.js";
+import { checkReply, annotate } from "./guard.js";
 
 const CORPUS_URL = "https://caney.pages.dev/bot.json";
 const SITE = "https://caney.pages.dev";
@@ -82,9 +83,6 @@ async function handle(update, env) {
 }
 
 async function ask(env, question, cut, ageH) {
-  if (!env.ANTHROPIC_API_KEY) return { error: "The bot isn't finished being set up yet." };
-  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
-
   const system =
     "You are RiverGuide, answering questions about fishing conditions on rivers in Middle " +
     "Tennessee, south-central Kentucky and north Alabama.\n\n" +
@@ -97,11 +95,11 @@ async function ask(env, question, cut, ageH) {
     "wade, give the data's own words and tell them to verify the release schedule before " +
     "they get in.\n\n" +
     "Everything else — which river suits the conditions, why a fly makes sense, how the week " +
-    "is shaping up, what to do with a forecast — reason about freely. That is what you are " +
-    "for. Be concrete and brief; two or three short paragraphs at most.\n\n" +
+    "is shaping up — reason about freely. That is what you are for. Be concrete and brief; " +
+    "two or three short paragraphs at most.\n\n" +
     "If a river's waterModel.confidence is not \"measured\", its numbers are estimates: say " +
     "so when it affects the answer. If the data does not cover what was asked, say that " +
-    "plainly rather than reaching. Link the river's url when you name one.\n\n" +
+    "plainly rather than reaching.\n\n" +
     "Telegram HTML only: <b>, <i>, <a href>. No markdown, no headings, no bullet characters.";
 
   const content =
@@ -109,37 +107,17 @@ async function ask(env, question, cut, ageH) {
     JSON.stringify(cut.payload) +
     `\n\nQUESTION: ${question}`;
 
-  try {
-    const r = await client.beta.messages.create({
-      model: "claude-opus-5",
-      max_tokens: 1200,
-      // A retrieval-and-explain task over supplied data. Low effort keeps it fast and cheap
-      // without costing accuracy — the hard reasoning already happened at build time.
-      output_config: { effort: "low" },
-      // Opus 5 can decline; without this the request simply stops and the user gets silence.
-      betas: ["server-side-fallback-2026-07-01"],
-      fallbacks: "default",
-      system,
-      messages: [{ role: "user", content }],
-    });
-    if (r.stop_reason === "refusal") {
-      return { error: "I can't answer that one. Try asking about conditions, flies or access." };
-    }
-    const out = r.content.filter((b) => b.type === "text").map((b) => b.text).join("").trim();
-    return {
-      text: out || "I don't have anything useful on that.",
-      tokensIn: r.usage?.input_tokens || 0,
-      tokensOut: r.usage?.output_tokens || 0,
-    };
-  } catch (e) {
-    const m = String(e?.message || e);
-    if (/credit balance|billing/i.test(m)) {
-      return { error: "The bot is out of API credit. (Owner: top up at console.anthropic.com.)" };
-    }
-    if (/rate|429/.test(m)) return { error: "Too many questions at once — try again in a moment." };
-    console.error("anthropic", m);
-    return { error: "Something went wrong reaching the model. Try again shortly." };
+  const r = await askModel(env, system, content);
+  if (r.error) return { error: r.error };
+
+  // Verify rather than trust. Every number the model wrote must appear in the slice it was
+  // shown; anything else is flagged to the reader instead of being quietly delivered.
+  const check = checkReply(r.text, cut.payload);
+  if (!check.ok) {
+    console.warn("guard", r.model, JSON.stringify(check.unsupported), "q=", question.slice(0, 80));
   }
+  const url = (cut.payload.rivers[0] && cut.payload.rivers[0].url) || SITE;
+  return { text: annotate(r.text, check, url), tokensIn: r.tokensIn, tokensOut: r.tokensOut };
 }
 
 // The corpus rebuilds hourly, so a 10-minute cache costs at most a little staleness and
@@ -167,6 +145,10 @@ async function health(env) {
     corpusAgeH: corpus ? +((Date.now() / 1000 - corpus.built) / 3600).toFixed(2) : null,
     rivers: corpus?.rivers?.length ?? 0,
     fullCorpusTokens: corpus ? tokenEstimate(corpus) : null,
+    provider: providerName(env),
+    model: providerName(env) === "anthropic"
+      ? (env.ANTHROPIC_MODEL || "claude-opus-5") : (env.WORKERS_MODEL || "@cf/meta/llama-3.3-70b-instruct-fp8-fast"),
+    hasAiBinding: !!env.AI,
     hasKey: !!env.ANTHROPIC_API_KEY,
     hasBotToken: !!env.TELEGRAM_TOKEN,
     openToAll: String(env.OPEN_TO_ALL) === "1",

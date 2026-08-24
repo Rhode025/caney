@@ -10,10 +10,20 @@ compatibility_flags = ["nodejs_compat"]
 binding = "RG"
 id = "6a77b4283cfd4c92bb094cd314fa7be1"
 
+# Workers AI. In-platform inference: no second API key, no egress, free at this volume.
+# Measured 2026-08-24: llama-3.3-70b held the safety line on every adversarial prompt at
+# 1.4-3.0s. See src/model.js for the bake-off.
+[ai]
+binding = "AI"
+
 [vars]
 # "1" opens the bot to anyone under the free tier in src/access.js. Left off deliberately:
 # strangers spending your API credit is a decision, not a default.
 OPEN_TO_ALL = "0"
+# "workersai" (default, free) or "anthropic". Switching provider is this one line —
+# the guard in src/guard.js checks the reply either way, which is what makes the choice
+# a cost decision rather than a safety one.
+MODEL_PROVIDER = "workersai"
 
 # Secrets (npx wrangler secret put NAME):
 #   TELEGRAM_TOKEN    @RiverIQGuide_bot, from BotFather

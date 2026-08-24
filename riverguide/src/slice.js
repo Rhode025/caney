@@ -38,10 +38,34 @@ export function detectIntent(text) {
   return hits[0];
 }
 
-/** Rivers named in the question, by name, id, or a distinctive word from the name. */
+/**
+ * Names people actually use that are not river names. Found by testing: "when does Center
+ * Hill generate" matched NOTHING, so it shipped all thirteen rivers — 5,549 tokens for a
+ * question about one. Dams, lakes and towns are how anglers refer to these reaches.
+ */
+const ALIASES = {
+  caney:      ["center hill", "centerhill", "stonewall", "betty's island", "bettys island", "happy hollow", "long branch", "smith fork"],
+  cumberland: ["wolf creek", "kendall", "burkesville", "winfrey"],
+  elktn:      ["tims ford", "timsford", "fayetteville"],
+  elk:        ["wheeler", "prospect", "joe wheeler"],
+  stones:     ["percy priest", "priest", "j. percy priest"],
+  cumbnash:   ["old hickory", "nashville", "shelby bottoms", "cleeces"],
+  cheatham:   ["cheatham dam", "ashland city"],
+  cordell:    ["cordell hull", "carthage"],
+  duckup:     ["columbia", "chickasaw trace", "iron bridge"],
+  duckmid:    ["williamsport", "leatherwood"],
+  ducklow:    ["centerville", "littlelot"],
+  buffalo:    ["flatwoods", "lobelville"],
+  harpeth:    ["narrows", "kingston springs", "newsom", "hidden lake"],
+};
+
+/** Rivers named in the question, by name, id, alias, or a distinctive word from the name. */
 export function detectRivers(text, corpus) {
   const t = text.toLowerCase();
   const hit = [];
+  for (const [id, names] of Object.entries(ALIASES)) {
+    if (names.some((n) => t.includes(n)) && corpus.rivers.some((r) => r.id === id)) hit.push(id);
+  }
   for (const r of corpus.rivers) {
     const words = [r.id, r.name.toLowerCase(), ...r.name.toLowerCase().split(/[^a-z]+/)]
       .filter((w) => w.length >= 4 && !["river", "upper", "lower", "middle", "fork"].includes(w));
