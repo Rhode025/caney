@@ -653,6 +653,93 @@
    ],
    "issue": 38,
    "issue_url": "https://github.com/Rhode025/caney/issues/38"
+  },
+  {
+   "key": "BOT-01",
+   "epic": "RiverGuide",
+   "priority": "P1",
+   "effort": "M",
+   "lane": "done",
+   "title": "Corpus, slicer and Worker \u2014 the bot answers from the build",
+   "evidence": "Shipped. <code>bot.json</code> (13 rivers, ~22k tokens) plus a deterministic slicer that ships 800\u20131,500 tokens per question \u2014 93\u201396% smaller, ~1.4\u00a2 a question. Deployed at riverguide-bot.steven-b9c.workers.dev, webhook registered, 30 tests green.",
+   "done": [
+    "Corpus gated by verify.py so a rename cannot silently empty it.",
+    "Slicing proven verbatim \u2014 sliced fields are byte-identical to the build.",
+    "Safety rules travel inside the payload, not only the system prompt."
+   ],
+   "sprint": 39,
+   "issue": 39,
+   "issue_url": "https://github.com/Rhode025/caney/issues/39"
+  },
+  {
+   "key": "BOT-02",
+   "epic": "RiverGuide",
+   "priority": "P0",
+   "effort": "S",
+   "lane": "now",
+   "title": "Prove the safety guardrail with adversarial questions",
+   "evidence": "The bot is instructed to quote generation times and wade windows verbatim or decline. That instruction is <em>untested</em> \u2014 the account has no API credit, so not one real answer has been generated. An unverified safety guardrail is the same class of thing as an alarm that has never fired.",
+   "done": [
+    "A suite of adversarial prompts: asking it to round a release time, convert cfs, average a week, infer a wade window for a river with no wade data, and answer about a river not in the corpus.",
+    "Every safety-critical number in a reply must appear verbatim in the slice it was given.",
+    "Run against the live bot, not a mock; record the transcript in the repo.",
+    "Any failure tightens the system prompt and the test is kept."
+   ],
+   "sprint": 40,
+   "issue": 40,
+   "issue_url": "https://github.com/Rhode025/caney/issues/40"
+  },
+  {
+   "key": "BOT-03",
+   "epic": "RiverGuide",
+   "priority": "P1",
+   "effort": "S",
+   "lane": "next",
+   "title": "Cost telemetry \u2014 know what a question actually costs",
+   "evidence": "1.4\u00a2 is an estimate from token counts, not an observation. Usage is already metered per chat in KV but nothing reads it back.",
+   "done": [
+    "A /usage command and a health field reporting questions and tokens per day.",
+    "Real cost per question by intent, so the free-tier caps in access.js are set from data rather than guessed.",
+    "Alert if a day exceeds a spend ceiling."
+   ],
+   "sprint": 41,
+   "issue": 41,
+   "issue_url": "https://github.com/Rhode025/caney/issues/41"
+  },
+  {
+   "key": "BOT-04",
+   "epic": "RiverGuide",
+   "priority": "P2",
+   "effort": "M",
+   "lane": "later",
+   "title": "Open it to anyone \u2014 identity, quota, abuse",
+   "evidence": "<code>access.js</code> already carries owner/free/paid tiers and OPEN_TO_ALL, and a test proves the flip admits strangers on the free tier. What is missing is everything around it: who they are, what stops abuse, and who pays.",
+   "done": [
+    "An identity story \u2014 Claude sign-in or a payment record keyed to the Telegram chat id.",
+    "Per-chat and global rate limits, with the global one protecting the API bill.",
+    "A cost ceiling that degrades to a static answer from the corpus rather than refusing.",
+    "Only then flip OPEN_TO_ALL."
+   ],
+   "sprint": 42,
+   "issue": 42,
+   "issue_url": "https://github.com/Rhode025/caney/issues/42"
+  },
+  {
+   "key": "BOT-05",
+   "epic": "RiverGuide",
+   "priority": "P2",
+   "effort": "S",
+   "lane": "later",
+   "title": "Inline buttons so the bot is discoverable without guessing",
+   "evidence": "Free text is the whole interface. A new user has no idea what it knows, and every unparsed question still costs a model call.",
+   "done": [
+    "Telegram inline keyboards for the common asks \u2014 what's good now, this week, pick a river.",
+    "Button paths answer from the corpus without a model call where the answer is purely lookup.",
+    "/start shows them."
+   ],
+   "sprint": 43,
+   "issue": 43,
+   "issue_url": "https://github.com/Rhode025/caney/issues/43"
   }
  ],
  "repo": "Rhode025/caney",
