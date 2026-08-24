@@ -94,32 +94,43 @@ async function run(env, opts = {}) {
   };
 }
 
-// ntfy.sh: free, and reaches a phone with no account on the receiving end. NTFY_TOPIC is a
-// Worker secret because on ntfy the topic name IS the credential.
+// Telegram. Free, pushes to a phone, and — the reason it is here — its limits are per BOT,
+// not per source IP.
 //
-// NTFY_TOKEN is not optional in practice. Anonymous publishing is rate-limited per source
-// IP, and Workers egress from Cloudflare's shared pool — which ntfy has long since throttled.
-// Measured 2026-08-24: every anonymous publish from the Worker returned 429, while the same
-// request from a laptop returned 200. With a token the limit attaches to the ntfy account
-// instead of the IP. Without one this function will fail, loudly, on every alert.
+// ntfy.sh was the first choice and had to be abandoned. Its free tier reports
+// `limits.basis: "ip"`, and it enforces that even for authenticated requests, so a valid
+// token made no difference: every publish from the Worker returned 429 while the identical
+// request from a laptop returned 200. Cloudflare Workers egress from a shared pool that
+// ntfy has long since throttled. Not a misconfiguration — a structural incompatibility, and
+// worth recording so nobody tries ntfy-from-Workers again.
 //
 // Swap this function for any other channel — nothing else in the watchdog depends on it.
 async function notify(env, alert) {
-  const topic = env.NTFY_TOPIC;
-  if (!topic) return { ok: false, error: "NTFY_TOPIC is not set" };
-  const headers = {
-    Title: alert.title,
-    Priority: alert.priority || "default",
-    Tags: alert.tags || "warning",
-    Click: "https://github.com/Rhode025/caney/actions",
-  };
-  if (env.NTFY_TOKEN) headers.Authorization = "Bearer " + env.NTFY_TOKEN;
+  const token = env.TELEGRAM_TOKEN, chat = env.TELEGRAM_CHAT_ID;
+  if (!token || !chat) {
+    return { ok: false, error: "TELEGRAM_TOKEN / TELEGRAM_CHAT_ID not set — see watchdog/README.md" };
+  }
+  const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const text = `<b>${esc(alert.title)}</b>\n\n${esc(alert.body)}\n\n` +
+               `<a href="https://github.com/Rhode025/caney/actions">Actions</a> · ` +
+               `<a href="https://caney.pages.dev">site</a>`;
   try {
-    const r = await fetch(`https://ntfy.sh/${topic}`, { method: "POST", body: alert.body, headers });
-    const hint = r.status === 429 && !env.NTFY_TOKEN
-      ? "rate-limited — set the NTFY_TOKEN secret (see watchdog/README.md)"
-      : undefined;
-    return { ok: r.ok, status: r.status, ...(hint ? { hint } : {}) };
+    const r = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chat,
+        text,
+        parse_mode: "HTML",
+        disable_web_page_preview: true,
+        // A recovery notice should not buzz a pocket at 3am; a dead deploy should.
+        disable_notification: alert.priority === "low",
+      }),
+    });
+    const body = await r.json().catch(() => ({}));
+    return body.ok
+      ? { ok: true, status: r.status }
+      : { ok: false, status: r.status, error: body.description || "sendMessage failed" };
   } catch (e) {
     return { ok: false, error: String(e && e.message || e) };
   }

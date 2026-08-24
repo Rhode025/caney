@@ -49,21 +49,29 @@ Order matters: `secret put` targets a Worker that already exists, and `deploy` f
 The Worker runs without the secret; it just reports `NTFY_TOPIC is not set` instead of
 sending, which is a safe state to be in for the minute between those two commands.
 
-**The alert channel** is [ntfy.sh](https://ntfy.sh). Install the ntfy app and subscribe to
-the same topic string you set as `NTFY_TOPIC`. The topic name is the only thing protecting
-it, so use something long and random and do not commit it.
+**The alert channel is Telegram.** Free, pushes to a phone, and its limits are per bot rather
+than per source IP — which is what matters here.
 
-**You also need `NTFY_TOKEN`.** Anonymous publishing is rate-limited by source IP, and
-Workers egress from Cloudflare's shared pool, which ntfy throttles. Measured 2026-08-24:
-every anonymous publish from the Worker returned `429`, while the identical request from a
-laptop returned `200`. A token moves the limit onto your ntfy account instead of the IP:
+1. In Telegram, message **@BotFather** → `/newbot` → give it a name. It replies with a token
+   like `8123456789:AAH...`.
+2. `npx wrangler secret put TELEGRAM_TOKEN` and paste that.
+3. **Send your new bot any message** (search its @username, tap Start). Telegram will not
+   let a bot message you first.
+4. Get the chat id:
+   `curl -s "https://api.telegram.org/bot<TOKEN>/getUpdates" | grep -o '"id":[0-9-]*' | head -1`
+5. `npx wrangler secret put TELEGRAM_CHAT_ID` and paste the number.
 
-1. Create a free account at [ntfy.sh](https://ntfy.sh) (Sign up, top right).
-2. Account → **Access tokens** → Create token. It looks like `tk_...`.
-3. `npx wrangler secret put NTFY_TOKEN` and paste it.
+To use a different channel — Discord, Slack, Pushover — replace `notify()` in
+`src/worker.js`; nothing else depends on it.
 
-To use a different channel — email, Slack, Pushover — replace `notify()` in `src/worker.js`;
-nothing else depends on it.
+### Why not ntfy.sh
+
+It was the first choice and it does not work from a Worker. The free tier reports
+`limits.basis: "ip"` and enforces that **even for authenticated requests**, so a valid access
+token changed nothing: every publish from the Worker returned `429`, while the identical
+request from a laptop returned `200`. Cloudflare Workers egress from a shared pool ntfy has
+long since throttled. A structural incompatibility, not a misconfiguration — recorded here so
+nobody spends another hour on it. Their paid tier flips the basis to `account` and would work.
 
 ### If an alert cannot be delivered
 
