@@ -16,7 +16,7 @@ crons = ["*/15 * * * *"]
 #   npx wrangler kv namespace create WATCHDOG
 [[kv_namespaces]]
 binding = "WATCHDOG"
-id = "PASTE_KV_NAMESPACE_ID_HERE"
+id = "b38389170ecd43e09ab4c2d8597006a5"
 
 # The alert topic is a secret, not a var — on ntfy.sh the topic name IS the credential.
 #   npx wrangler secret put NTFY_TOPIC
