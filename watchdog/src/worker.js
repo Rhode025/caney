@@ -37,7 +37,13 @@ async function run(env, opts = {}) {
   try {
     // cache:no-store — a cached copy of the status file would report the site as fresh
     // long after it stopped rebuilding, which is precisely the failure being watched for.
-    const r = await fetch(STATUS_URL, { cf: { cacheTtl: 0 }, cache: "no-store" });
+    //
+    // NOT `cf: {cacheTtl: 0}` as well: the Workers runtime rejects the pair outright
+    // ("CacheTtl: 0, is not compatible with cache: no-store header"), which is invisible
+    // to a local test and only shows up once deployed. It surfaced as a permanent
+    // `unreachable` verdict — the watchdog reporting itself broken, which is the right
+    // failure mode, but a watchdog that cries wolf every 15 minutes gets muted.
+    const r = await fetch(STATUS_URL, { cache: "no-store" });
     if (!r.ok) fetchError = `HTTP ${r.status}`;
     else site = await r.json();
   } catch (e) {
@@ -55,15 +61,29 @@ async function run(env, opts = {}) {
   let sent = null;
   if (alert && !opts.dryRun) sent = await notify(env, alert);
 
-  // Only record when the verdict changes, so the reminder clock measures time since we
-  // last SPOKE rather than time since the last cron tick.
-  if (!opts.dryRun && (verdict.state !== last.state || verdict.alert)) {
-    await env.WATCHDOG.put(KEY, JSON.stringify({ state: verdict.state, at: now }));
+  // Record the verdict as ANNOUNCED only if it actually got out. Marking it announced on a
+  // failed send would start the 6 h reminder clock on a notification nobody received — the
+  // watchdog would go quiet believing it had spoken, which is the exact silent failure it
+  // exists to prevent. A failed send instead leaves the state unchanged so the next tick
+  // retries, and is remembered so `GET /` can show that the alert path is broken.
+  if (!opts.dryRun) {
+    const delivered = !alert || (sent && sent.ok);
+    if (delivered && (verdict.state !== last.state || verdict.alert)) {
+      await env.WATCHDOG.put(KEY, JSON.stringify({ state: verdict.state, at: now }));
+    } else if (!delivered) {
+      await env.WATCHDOG.put(KEY, JSON.stringify({
+        ...last, lastSendError: { at: now, ...sent },
+      }));
+    }
   }
 
   return {
     checkedAt: new Date(now * 1000).toISOString(),
     state: verdict.state,
+    // Surfaced so `GET /` answers "is the alert path working?" and not just "is the site ok?".
+    // A watchdog that cannot deliver is as useless as no watchdog, and it cannot tell you so
+    // through the channel that is broken.
+    lastSendError: last.lastSendError || null,
     siteBuiltAgeSec: site ? now - site.built : null,
     oldestRiver: site ? site.oldestRiver : null,
     fetchError,
@@ -74,24 +94,32 @@ async function run(env, opts = {}) {
   };
 }
 
-// ntfy.sh: no account, no key, works to a phone with the free app. NTFY_TOPIC is set as a
-// Worker secret so the topic (which is effectively the password) is not in the repo.
+// ntfy.sh: free, and reaches a phone with no account on the receiving end. NTFY_TOPIC is a
+// Worker secret because on ntfy the topic name IS the credential.
+//
+// NTFY_TOKEN is not optional in practice. Anonymous publishing is rate-limited per source
+// IP, and Workers egress from Cloudflare's shared pool — which ntfy has long since throttled.
+// Measured 2026-08-24: every anonymous publish from the Worker returned 429, while the same
+// request from a laptop returned 200. With a token the limit attaches to the ntfy account
+// instead of the IP. Without one this function will fail, loudly, on every alert.
+//
 // Swap this function for any other channel — nothing else in the watchdog depends on it.
 async function notify(env, alert) {
   const topic = env.NTFY_TOPIC;
   if (!topic) return { ok: false, error: "NTFY_TOPIC is not set" };
+  const headers = {
+    Title: alert.title,
+    Priority: alert.priority || "default",
+    Tags: alert.tags || "warning",
+    Click: "https://github.com/Rhode025/caney/actions",
+  };
+  if (env.NTFY_TOKEN) headers.Authorization = "Bearer " + env.NTFY_TOKEN;
   try {
-    const r = await fetch(`https://ntfy.sh/${topic}`, {
-      method: "POST",
-      body: alert.body,
-      headers: {
-        Title: alert.title,
-        Priority: alert.priority || "default",
-        Tags: alert.tags || "warning",
-        Click: "https://github.com/Rhode025/caney/actions",
-      },
-    });
-    return { ok: r.ok, status: r.status };
+    const r = await fetch(`https://ntfy.sh/${topic}`, { method: "POST", body: alert.body, headers });
+    const hint = r.status === 429 && !env.NTFY_TOKEN
+      ? "rate-limited — set the NTFY_TOKEN secret (see watchdog/README.md)"
+      : undefined;
+    return { ok: r.ok, status: r.status, ...(hint ? { hint } : {}) };
   } catch (e) {
     return { ok: false, error: String(e && e.message || e) };
   }

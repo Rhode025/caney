@@ -49,11 +49,35 @@ Order matters: `secret put` targets a Worker that already exists, and `deploy` f
 The Worker runs without the secret; it just reports `NTFY_TOPIC is not set` instead of
 sending, which is a safe state to be in for the minute between those two commands.
 
-**The alert channel** is [ntfy.sh](https://ntfy.sh): no account, no key, free. Install the
-ntfy app, subscribe to the same topic string you set as `NTFY_TOPIC`. The topic name is the
-only thing protecting it, so use something long and random and do not commit it. To use a
-different channel — email, Slack, Pushover — replace `notify()` in `src/worker.js`; nothing
-else depends on it.
+**The alert channel** is [ntfy.sh](https://ntfy.sh). Install the ntfy app and subscribe to
+the same topic string you set as `NTFY_TOPIC`. The topic name is the only thing protecting
+it, so use something long and random and do not commit it.
+
+**You also need `NTFY_TOKEN`.** Anonymous publishing is rate-limited by source IP, and
+Workers egress from Cloudflare's shared pool, which ntfy throttles. Measured 2026-08-24:
+every anonymous publish from the Worker returned `429`, while the identical request from a
+laptop returned `200`. A token moves the limit onto your ntfy account instead of the IP:
+
+1. Create a free account at [ntfy.sh](https://ntfy.sh) (Sign up, top right).
+2. Account → **Access tokens** → Create token. It looks like `tk_...`.
+3. `npx wrangler secret put NTFY_TOKEN` and paste it.
+
+To use a different channel — email, Slack, Pushover — replace `notify()` in `src/worker.js`;
+nothing else depends on it.
+
+### If an alert cannot be delivered
+
+The watchdog does **not** mark a verdict as announced unless the send actually succeeded.
+Otherwise the 6 h reminder clock would start on a notification nobody received and it would
+go quiet believing it had spoken — the exact silent failure it exists to prevent. A failed
+send is retried on the next tick and recorded, so `GET /` reports it:
+
+```json
+"lastSendError": {"at": 1787574887, "ok": false, "status": 429, "hint": "..."}
+```
+
+Worth glancing at whenever you check the verdict: `state: "ok"` means the *site* is healthy,
+not that the alarm can reach you.
 
 ## Verify it works
 
