@@ -60,8 +60,10 @@ Shipped lane reflects reality rather than a hardcoded lane, falling back to the 
 saying so if the API fails.
 
 **Open threads.**
-1. #2 (deploy watchdog outside Actions) is the one that stops this recurring. Nothing yet
-   alarms when deploys stop.
+1. #2 is BUILT and tested (`watchdog/`, 21 checks incl. the live endpoint) but NOT DEPLOYED —
+   it needs Node 20 and a `wrangler login` I cannot do. Four commands in `watchdog/README.md`.
+   Until those run, nothing still alarms when deploys stop. `out/site.json` is live and is the
+   contract it reads; `verify.py` pins that shape so the watchdog cannot go blind silently.
 2. #30 (backtest the other twelve rivers) is the largest correctness risk and is untouched.
 3. The craft-spread assertion in `browser.mjs` still fails on a week of uniform water — #28.
 4. `CLAUDE.md` still claims a ~30s build; it is 135-430s until #25 lands.
