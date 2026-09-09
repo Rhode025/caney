@@ -89,8 +89,24 @@ def _claims_for_all(now):
     return out
 
 
-async def build_bundle(env, now):
-    """Fetch everything and serialise the snapshots. Called by the CRON, not by a request."""
+async def build_bundle(env, now, why="unknown"):
+    """Fetch everything and serialise the snapshots.
+
+    Writes a MARKER before it starts and a result after it finishes, so /health can tell
+    the three cases apart: never invoked, invoked and still running, invoked and threw.
+    Without that the cron's silence and a crashing builder look identical from outside,
+    which is exactly where an afternoon goes.
+    """
+    kv0 = getattr(env, "PLANS", None)
+    if kv0 is not None:
+        try:
+            from js import Object as _O
+            from pyodide.ffi import to_js as _tj
+            await kv0.put("build:last_start",
+                          json.dumps({"at": now, "why": why}),
+                          _tj({"expirationTtl": 86400}, dict_converter=_O.fromEntries))
+        except Exception:                           # noqa: BLE001
+            pass
     from caney.sources import runtime as rt
     from caney.sources.snapshots import build_all
 
@@ -113,8 +129,16 @@ async def build_bundle(env, now):
         from js import Object
         from pyodide.ffi import to_js
         await kv.put(BUNDLE_KEY, json.dumps(bundle, default=str),
-                     to_js({"expirationTtl": int(BUNDLE_TTL_SECONDS * 3)},
+                     to_js({"expirationTtl": int(BUNDLE_MAX_SECONDS * 6)},
                            dict_converter=Object.fromEntries))
+        try:
+            await kv.put("build:last_ok",
+                         json.dumps({"at": time.time(), "why": why,
+                                     "ok": stats.get("ok"), "failed": stats.get("failed")}),
+                         to_js({"expirationTtl": 86400},
+                               dict_converter=Object.fromEntries))
+        except Exception:                           # noqa: BLE001
+            pass
     return bundle, stats
 
 
@@ -162,17 +186,37 @@ async def _load(env, now, ctx=None):
                                          bundle_age_s=round(age, 1),
                                          revalidating=stale),
                               built_at=bundle.get("built_at"), source="kv")
-                if stale and ctx is not None:
-                    try:
-                        ctx.waitUntil(build_bundle(env, now))
-                    except Exception:               # noqa: BLE001
-                        pass
+                if stale:
+                    # Background if the platform gave us a ctx, inline otherwise. An
+                    # inline rebuild costs this requester seconds, which is worth it
+                    # against serving numbers nobody is refreshing — and it is bounded,
+                    # because the isolate cache means the NEXT requests are free.
+                    _CACHE["stats"]["revalidating"] = True
+                    did_bg = False
+                    if ctx is not None and hasattr(ctx, "waitUntil"):
+                        try:
+                            ctx.waitUntil(build_bundle(env, now, "revalidate-bg"))
+                            did_bg = True
+                        except Exception:           # noqa: BLE001
+                            did_bg = False
+                    _CACHE["stats"]["revalidate_mode"] = "background" if did_bg else "inline"
+                    if not did_bg:
+                        try:
+                            b2, st2 = await build_bundle(env, now, "revalidate-inline")
+                            snaps, book, claims = _rehydrate(b2, now)
+                            _CACHE.update(snaps=snaps, book=book, claims=claims, at=now,
+                                          stats=dict(st2, revalidate_mode="inline"),
+                                          built_at=now, source="inline-revalidate")
+                        except Exception as e:      # noqa: BLE001
+                            # Keep serving the older bundle rather than failing. It is
+                            # stale, the freshness strip says so, and that beats no plan.
+                            _CACHE["stats"]["revalidate_error"] = str(e)[:160]
                 return snaps, book, claims, _CACHE["stats"]
 
     # No bundle, or one too old to use. Build inline — expensive, and the honest fallback
     # for a cold start before anything has populated KV. The freshness strip reports the
     # real ages either way, so a request served this way is not silently different.
-    bundle, stats = await build_bundle(env, now)
+    bundle, stats = await build_bundle(env, now, "cold")
     snaps, book, claims = _rehydrate(bundle, now)
     _CACHE.update(snaps=snaps, book=book, claims=claims, at=now,
                   stats=dict(stats, built_inline=True),
@@ -263,9 +307,9 @@ async def handle(request, env, ctx=None):
         store = await _store_for(env, path, body)
         # /health must answer even when every upstream is down — it is how you find out.
         if path.rstrip("/") in ("/health", "/api/v3/health"):
-            ctx = Context(snapshots=_CACHE["snaps"] or {}, book=_CACHE["book"],
-                          claims_by_zone=_CACHE["claims"] or {}, store=store, now=now)
-            status, obj = router.route(method, path, body, ctx)
+            hctx = Context(snapshots=_CACHE["snaps"] or {}, book=_CACHE["book"],
+                           claims_by_zone=_CACHE["claims"] or {}, store=store, now=now)
+            status, obj = router.route(method, path, body, hctx)
             obj["snapshot_age_s"] = (round(now - float(_CACHE["built_at"]), 1)
                                      if _CACHE.get("built_at") else None)
             obj["prefetch"] = _CACHE.get("stats") or {}
@@ -282,6 +326,15 @@ async def handle(request, env, ctx=None):
                     obj["zones"] = len(b.get("zones") or {})
                     obj["snapshot_age_s"] = round(now - float(b.get("built_at") or now), 1)
                     obj["prefetch"] = b.get("prefetch") or {}
+            if kv is not None:
+                for k, label in (("build:last_start", "last_build_start"),
+                                 ("build:last_ok", "last_build_ok")):
+                    raw2 = await kv.get(k)
+                    if raw2:
+                        row = json.loads(raw2)
+                        row["age_s"] = round(now - float(row.get("at") or now), 1)
+                        obj[label] = row
+            obj["ctx_available"] = ctx is not None and hasattr(ctx, "waitUntil")
             return _json(status, obj, cors)
 
         snaps, book, claims, stats = await _load(env, now, ctx)
@@ -331,7 +384,7 @@ async def on_fetch(request, env, ctx=None):
 
 async def on_scheduled(event, env, ctx=None):
     """The cron. §12, §37 — the system keeps conditions fresh, not the caller."""
-    await build_bundle(env, time.time())
+    await build_bundle(env, time.time(), "cron")
 
 
 try:
