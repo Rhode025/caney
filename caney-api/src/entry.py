@@ -428,15 +428,20 @@ async def handle(request, env, ctx=None):
             # Health deliberately does not build, but it should not report "no bundle"
             # while one is sitting in KV — that reads as an outage. Peek at the metadata
             # without rehydrating 22 zones.
+            # ALWAYS read the shards, not only when the isolate cache is empty. Health
+            # was reporting the cache's view, so a cold isolate answered "no shards" while
+            # three healthy ones sat in KV — and reporting an outage that is not happening
+            # is the wrong failure for the one endpoint whose job is telling the truth
+            # about the others.
             kv = getattr(env, "PLANS", None)
-            if kv is not None and obj["bundle_source"] == "none":
+            if kv is not None:
                 zones, _bk, meta = await _read_shards(kv, now)
+                obj["shards"] = meta
                 if zones:
                     obj["bundle_source"] = "kv"
                     obj["zones"] = len(zones)
                     ages = [m["age_s"] for m in meta if m["present"]]
                     obj["snapshot_age_s"] = max(ages) if ages else None
-                    obj["shards"] = meta
             if kv is not None:
                 for k, label in (("build:last_start", "last_build_start"),
                                  ("build:last_ok", "last_build_ok")):
