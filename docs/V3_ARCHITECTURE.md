@@ -212,10 +212,12 @@ precision §17 forbids.
 ## Testing
 
 ```bash
-python3 test/planner/run.py     # 999 checks, no network, fixed clock
+python3 test/planner/run.py     # 1005 checks, no network, fixed clock
 python3 test/verify.py          # static QA
 python3 tools/api_dev.py        # the API locally, for contract tests
 node tools/check_bundle.mjs out/app   # §73's budget, enforced
+python3 tools/api_check.py --plan     # the deployed API, end to end
+python3 tools/refresh_api.py          # rebuild the snapshot shards by hand
 ```
 
 `test/planner/test_v3.py` holds §87–§93's golden scenarios as fixtures.
