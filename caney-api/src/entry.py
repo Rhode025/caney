@@ -243,17 +243,26 @@ async def _load(env, now, ctx=None):
                      "zones": len(zones)}
             _CACHE.update(snaps=snaps, book=bk, claims=claims, at=now, stats=stats,
                           built_at=now - oldest, source="kv")
+            # NO REBUILD ON THE REQUEST PATH. Requests that also rebuilt a shard were
+            # the ones returning 1102: read three shard keys, rehydrate 22 zones, plan,
+            # then run two snapshot passes and ~28 more subrequests, all on one
+            # invocation's budget. The ones that only read and planned took 1.0s and
+            # always succeeded.
+            #
+            # This also reframes the cron. It looked dead — bundle age growing 865s, 966s,
+            # 1067s with no error anywhere — and the likeliest explanation now is that it
+            # WAS firing and dying on the same 74-subrequest build, leaving no trace I
+            # could see. A cron tick is one shard now, which is the cheapest thing in the
+            # system.
+            #
+            # Worst case is 15 minutes of staleness (three shards, one per five-minute
+            # tick). The freshness strip reports every signal's real age, so that is
+            # visible rather than assumed, and a generation forecast revises far more
+            # slowly than it is fetched.
             if oldest >= BUNDLE_FRESH_SECONDS:
-                stale_n = max(present, key=lambda m: m["age_s"])["shard"]
-                stats["revalidating"] = stale_n
-                if ctx is not None and hasattr(ctx, "waitUntil"):
-                    try:
-                        ctx.waitUntil(build_bundle(env, now, "revalidate", stale_n))
-                        stats["revalidate_mode"] = "background"
-                    except Exception:               # noqa: BLE001
-                        stats["revalidate_mode"] = "failed"
-                else:
-                    stats["revalidate_mode"] = "none"
+                stats["stale"] = True
+                stats["stale_note"] = ("waiting on the scheduled build; requests do not "
+                                       "rebuild")
             return snaps, bk, claims, stats
 
         # Some shards are missing. Build EXACTLY ONE, and never fan the rest out into
