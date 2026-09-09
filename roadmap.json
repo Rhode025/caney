@@ -1,6 +1,6 @@
 {
  "generated": "2026-09-09",
- "source": "QC & UX audit of the live build, 2026-08-23 · extended for Caney 2.0, 2026-09-09",
+ "source": "QC & UX audit of the live build, 2026-08-23 \u00b7 extended for Caney 2.0, 2026-09-09",
  "tickets": [
   {
    "sprint": 1,
@@ -9,12 +9,12 @@
    "priority": "P0",
    "effort": "M",
    "lane": "now",
-   "title": "Fail closed when the build day is not the reader’s day",
-   "evidence": "The day-identity fix makes a stale page honestly <em>labelled</em>, but its clock-keyed surfaces still render: the now-strip, the fly-matrix current cell, the solunar today card. Those have no valid value on an old build — they are the last surfaces that can still mislead.",
+   "title": "Fail closed when the build day is not the reader\u2019s day",
+   "evidence": "The day-identity fix makes a stale page honestly <em>labelled</em>, but its clock-keyed surfaces still render: the now-strip, the fly-matrix current cell, the solunar today card. Those have no valid value on an old build \u2014 they are the last surfaces that can still mislead.",
    "done": [
-    "<code>__rlRelabel</code> already computes <code>DATA.dayShift</code>; when it is non-zero, blank every clock-keyed surface and replace it with “No current reading — this page has not rebuilt since &lt;build&gt;”.",
-    "Date-keyed surfaces (generation schedule, outlook, hatch) keep rendering — their data is still true about the day it names.",
-    "If the build holds no row for the reader’s today, say so rather than falling back to row 0.",
+    "<code>__rlRelabel</code> already computes <code>DATA.dayShift</code>; when it is non-zero, blank every clock-keyed surface and replace it with \u201cNo current reading \u2014 this page has not rebuilt since &lt;build&gt;\u201d.",
+    "Date-keyed surfaces (generation schedule, outlook, hatch) keep rendering \u2014 their data is still true about the day it names.",
+    "If the build holds no row for the reader\u2019s today, say so rather than falling back to row 0.",
     "Build stamp gains a fourth level for day-shift, visually distinct from the >12h amber."
    ],
    "issue": 1,
@@ -28,11 +28,11 @@
    "effort": "M",
    "lane": "now",
    "title": "Deploy watchdog that does not live inside GitHub Actions",
-   "evidence": "Forty-plus consecutive scheduled runs failed in 2–5s and nothing alerted. Any monitor running in Actions shares the failure domain with the thing it is monitoring — that is why two days passed unnoticed.",
+   "evidence": "Forty-plus consecutive scheduled runs failed in 2\u20135s and nothing alerted. Any monitor running in Actions shares the failure domain with the thing it is monitoring \u2014 that is why two days passed unnoticed.",
    "done": [
     "Cloudflare Worker on a cron trigger fetches <code>/status/caney.json</code> and reads the build epoch.",
     "Alerts when age exceeds 3h; alert path must not touch GitHub.",
-    "Worker cron triggers are free — no new spend.",
+    "Worker cron triggers are free \u2014 no new spend.",
     "Test by pausing the deploy and confirming the alert fires."
    ],
    "issue": 2,
@@ -50,7 +50,7 @@
    "done": [
     "<code>./build.sh &amp;&amp; wrangler pages deploy out/</code> on a launchd interval.",
     "Writes a heartbeat file the FRESH-02 watchdog can read, so a sleeping Mac is distinguishable from a broken script.",
-    "Never publishes a build that fails <code>verify.py</code> — same gate as CI."
+    "Never publishes a build that fails <code>verify.py</code> \u2014 same gate as CI."
    ],
    "issue": 3,
    "issue_url": "https://github.com/Rhode025/caney/issues/3",
@@ -72,8 +72,8 @@
    "done": [
     "Promote the cache-and-fallback pattern into a riverlib helper.",
     "Every generator caches its last good upstream payload and falls back on failure.",
-    "The page says it is running on cache, with the age — the Caney pattern.",
-    "CI persists all caches, not just the Caney’s."
+    "The page says it is running on cache, with the age \u2014 the Caney pattern.",
+    "CI persists all caches, not just the Caney\u2019s."
    ],
    "issue": 4,
    "issue_url": "https://github.com/Rhode025/caney/issues/4",
@@ -93,7 +93,7 @@
    "title": "Freshness probe that tests the live site, not the build",
    "evidence": "<code>verify.py</code> gates the build. During the outage the build never ran, so the gate never had an opinion. Nothing checks the artifact that is actually being served.",
    "done": [
-    "<code>test/freshness.py</code> fetches the live URL and asserts build age, day-identity plumbing, and that today’s row exists.",
+    "<code>test/freshness.py</code> fetches the live URL and asserts build age, day-identity plumbing, and that today\u2019s row exists.",
     "Run by the watchdog on a schedule, never by CI.",
     "Exit code drives the alert."
    ],
@@ -102,7 +102,7 @@
    "reconciliation": {
     "status": "still relevant",
     "shipped_in": "",
-    "note": "test/planner-smoke.mjs probes the live site post-deploy — partially covers it."
+    "note": "test/planner-smoke.mjs probes the live site post-deploy \u2014 partially covers it."
    }
   },
   {
@@ -113,7 +113,7 @@
    "effort": "S",
    "lane": "later",
    "title": "Guard against the 60-day scheduled-workflow auto-disable",
-   "evidence": "The repo went public on 23 Aug to fix the cost problem. GitHub disables scheduled workflows in public repos after 60 days without repository activity — the same silent-staleness failure, arriving by a different door.",
+   "evidence": "The repo went public on 23 Aug to fix the cost problem. GitHub disables scheduled workflows in public repos after 60 days without repository activity \u2014 the same silent-staleness failure, arriving by a different door.",
    "done": [
     "Watchdog additionally asserts a scheduled run happened in the last 24h.",
     "Document the 60-day rule in <code>CLAUDE.md</code> next to the deploy notes.",
@@ -135,7 +135,7 @@
    "effort": "L",
    "lane": "next",
    "title": "Service worker so the tool works where it is used",
-   "evidence": "No service worker and no manifest. The Caney tailwater has essentially no coverage — the moment you need the arrival times is the moment the page cannot load. Everything is already baked into one self-contained HTML file, so this is unusually cheap.",
+   "evidence": "No service worker and no manifest. The Caney tailwater has essentially no coverage \u2014 the moment you need the arrival times is the moment the page cannot load. Everything is already baked into one self-contained HTML file, so this is unusually cheap.",
    "done": [
     "Precache each river page, its status JSON and the map assets on first visit.",
     "Cache-first with background revalidate; a stale hit still shows correct labels thanks to day identity.",
@@ -147,7 +147,7 @@
    "reconciliation": {
     "status": "completed",
     "shipped_in": "2.0",
-    "note": "web/sw.js — shell cache-first, plan data network-first."
+    "note": "web/sw.js \u2014 shell cache-first, plan data network-first."
    }
   },
   {
@@ -158,7 +158,7 @@
    "effort": "S",
    "lane": "later",
    "title": "Manifest and install prompt",
-   "evidence": "The page already ships an <code>apple-touch-icon</code> and a <code>theme-color</code> — it was designed to live on a home screen — but there is no manifest, so it installs as a bookmark rather than an app.",
+   "evidence": "The page already ships an <code>apple-touch-icon</code> and a <code>theme-color</code> \u2014 it was designed to live on a home screen \u2014 but there is no manifest, so it installs as a bookmark rather than an app.",
    "done": [
     "<code>manifest.webmanifest</code> with name, icons, standalone display, theme colour.",
     "Start URL is the HQ; each river page is a valid entry point.",
@@ -180,9 +180,9 @@
    "effort": "S",
    "lane": "later",
    "title": "Offline state and last-synced line",
-   "evidence": "With a service worker the page will load offline — and must then be explicit that it is serving cache, or it recreates the staleness problem in a new place.",
+   "evidence": "With a service worker the page will load offline \u2014 and must then be explicit that it is serving cache, or it recreates the staleness problem in a new place.",
    "done": [
-    "Detect offline; show a persistent line stating the data’s age and that you are offline.",
+    "Detect offline; show a persistent line stating the data\u2019s age and that you are offline.",
     "Reuse the build-stamp vocabulary rather than inventing a second one.",
     "Retry and refresh when connectivity returns."
    ],
@@ -202,7 +202,7 @@
    "effort": "S",
    "lane": "later",
    "title": "Bundle Leaflet locally instead of loading it from unpkg",
-   "evidence": "Aborting requests to <code>unpkg.com</code> leaves <code>#lmap</code> empty — the map dies completely. The rest of the page survives (5,918 chars still render), which shows the dependency is isolated and therefore easy to remove.",
+   "evidence": "Aborting requests to <code>unpkg.com</code> leaves <code>#lmap</code> empty \u2014 the map dies completely. The rest of the page survives (5,918 chars still render), which shows the dependency is isolated and therefore easy to remove.",
    "done": [
     "Vendor Leaflet CSS+JS into the repo and inline or serve locally.",
     "No runtime dependency on a third-party CDN for anything load-bearing.",
@@ -224,7 +224,7 @@
    "effort": "M",
    "lane": "later",
    "title": "Fall back to the SVG diagram when tiles will not load",
-   "evidence": "Satellite tiles come from ArcGIS and need bandwidth the riverbank does not have. The at-scale SVG river diagram already exists as a toggle — it should become the automatic fallback.",
+   "evidence": "Satellite tiles come from ArcGIS and need bandwidth the riverbank does not have. The at-scale SVG river diagram already exists as a toggle \u2014 it should become the automatic fallback.",
    "done": [
     "Detect tile failure and switch to the diagram view with an explanatory line.",
     "Diagram must carry the same pins, arrival markers and colour coding.",
@@ -246,7 +246,7 @@
    "effort": "M",
    "lane": "next",
    "title": "Fix the 54 contrast failures at the token level",
-   "evidence": "Measured on rendered nodes on caney.html: 54 elements below WCAG AA. Worst offenders sit at 2.07:1 and 2.21:1 where 4.5:1 is required — including a 23px heading. These are token problems, so a token fix lands everywhere at once.",
+   "evidence": "Measured on rendered nodes on caney.html: 54 elements below WCAG AA. Worst offenders sit at 2.07:1 and 2.21:1 where 4.5:1 is required \u2014 including a 23px heading. These are token problems, so a token fix lands everywhere at once.",
    "done": [
     "Re-derive <code>--muted</code> and <code>--faint</code> so both clear 4.5:1 on card and ground.",
     "Grade chips, unit-colour legends and the small-caps labels all pass.",
@@ -269,7 +269,7 @@
    "effort": "M",
    "lane": "later",
    "title": "Bring 227 tap targets up to 44px",
-   "evidence": "227 of 464 interactive elements are under 44px tall at a 390px viewport — roughly half of everything tappable, on a tool operated one-handed, outdoors, often with cold hands.",
+   "evidence": "227 of 464 interactive elements are under 44px tall at a 390px viewport \u2014 roughly half of everything tappable, on a tool operated one-handed, outdoors, often with cold hands.",
    "done": [
     "Every button, chip, tab and select reaches 44px of tappable height.",
     "Where visual density matters, grow the hit area with padding rather than the visual box.",
@@ -280,7 +280,7 @@
    "reconciliation": {
     "status": "partial",
     "shipped_in": "2.0",
-    "note": "Planner controls are ≥44px and tested. River pages untouched."
+    "note": "Planner controls are \u226544px and tested. River pages untouched."
    }
   },
   {
@@ -291,7 +291,7 @@
    "effort": "S",
    "lane": "later",
    "title": "Honour prefers-reduced-motion",
-   "evidence": "The pages animate — pulsing access pins, a gliding front marker, an auto-advancing time slider — and no stylesheet contains a <code>prefers-reduced-motion</code> query. For a vestibular-sensitive reader the map is actively unpleasant.",
+   "evidence": "The pages animate \u2014 pulsing access pins, a gliding front marker, an auto-advancing time slider \u2014 and no stylesheet contains a <code>prefers-reduced-motion</code> query. For a vestibular-sensitive reader the map is actively unpleasant.",
    "done": [
     "Single riverlib block disables or reduces every animation under the query.",
     "The play control still works; it just steps rather than glides.",
@@ -313,7 +313,7 @@
    "effort": "S",
    "lane": "later",
    "title": "Visible focus states throughout",
-   "evidence": "No <code>:focus</code> rule exists in any stylesheet. Tabbing through the page is invisible — the craft cards, date picker and access selects are all keyboard-reachable and give no indication of where you are.",
+   "evidence": "No <code>:focus</code> rule exists in any stylesheet. Tabbing through the page is invisible \u2014 the craft cards, date picker and access selects are all keyboard-reachable and give no indication of where you are.",
    "done": [
     "<code>:focus-visible</code> ring on every interactive element, from a token.",
     "Ring is legible on card, ground and the satellite map.",
@@ -335,7 +335,7 @@
    "effort": "M",
    "lane": "later",
    "title": "Announce dynamic updates to screen readers",
-   "evidence": "Zero <code>aria-live</code> regions. Moving the time slider, switching craft or changing day rewrites entire panels with no announcement — a screen-reader user gets silence and a changed page.",
+   "evidence": "Zero <code>aria-live</code> regions. Moving the time slider, switching craft or changing day rewrites entire panels with no announcement \u2014 a screen-reader user gets silence and a changed page.",
    "done": [
     "Polite live region announces the resulting state, not the raw event (\"Powerboat, tomorrow 8/24, wade until 2:30pm\").",
     "Debounced so a slider drag announces once on settle.",
@@ -402,7 +402,7 @@
    "effort": "M",
    "lane": "later",
    "title": "Section navigation for a 7,000px page",
-   "evidence": "Caney is 7,019px tall at 390px — around eighteen phone screens — with collapsible sections but no way to jump between them. On the water you want one section, immediately.",
+   "evidence": "Caney is 7,019px tall at 390px \u2014 around eighteen phone screens \u2014 with collapsible sections but no way to jump between them. On the water you want one section, immediately.",
    "done": [
     "Sticky section index that reflects the fold state.",
     "Deep links per section so a bookmark can open straight to the generation schedule.",
@@ -424,7 +424,7 @@
    "effort": "S",
    "lane": "later",
    "title": "Make the river switcher show that it scrolls",
-   "evidence": "Fourteen tabs, roughly six visible at 960px. It scrolls horizontally but nothing indicates that — the fourteenth river is undiscoverable if you do not think to swipe.",
+   "evidence": "Fourteen tabs, roughly six visible at 960px. It scrolls horizontally but nothing indicates that \u2014 the fourteenth river is undiscoverable if you do not think to swipe.",
    "done": [
     "Edge fade or an explicit control signalling more tabs.",
     "Active tab scrolls into view on load.",
@@ -446,9 +446,9 @@
    "effort": "S",
    "lane": "later",
    "title": "Unique title on every page",
-   "evidence": "All three Duck sections emit <code>Duck River · smallmouth</code>. In tabs, history and bookmarks the upper, middle and lower reaches are indistinguishable — and they are genuinely different rivers to fish.",
+   "evidence": "All three Duck sections emit <code>Duck River \u00b7 smallmouth</code>. In tabs, history and bookmarks the upper, middle and lower reaches are indistinguishable \u2014 and they are genuinely different rivers to fish.",
    "done": [
-    "Title carries the reach: “Duck · Upper (Columbia) · smallmouth”.",
+    "Title carries the reach: \u201cDuck \u00b7 Upper (Columbia) \u00b7 smallmouth\u201d.",
     "<code>verify.py</code> asserts all fourteen titles are unique."
    ],
    "issue": 21,
@@ -489,7 +489,7 @@
    "effort": "M",
    "lane": "later",
    "title": "Dark mode",
-   "evidence": "No <code>prefers-color-scheme</code> anywhere. The solunar card recommends a 3:09am minor feed and the whole product is oriented around dawn — then hands you a pure-white screen in the dark.",
+   "evidence": "No <code>prefers-color-scheme</code> anywhere. The solunar card recommends a 3:09am minor feed and the whole product is oriented around dawn \u2014 then hands you a pure-white screen in the dark.",
    "done": [
     "Full token-level dark palette in riverlib; every page inherits it.",
     "Grade, unit and clarity colours re-derived for the dark ground, not inverted.",
@@ -534,10 +534,10 @@
    "effort": "M",
    "lane": "next",
    "title": "Parallelise the build",
-   "evidence": "Eleven generators run serially with a hardcoded <code>sleep 2</code> between them. Measured runs: 135–430s, mean ~279s. <code>CLAUDE.md</code> still says “~30s”, which was true when there was one river.",
+   "evidence": "Eleven generators run serially with a hardcoded <code>sleep 2</code> between them. Measured runs: 135\u2013430s, mean ~279s. <code>CLAUDE.md</code> still says \u201c~30s\u201d, which was true when there was one river.",
    "done": [
     "Independent generators run concurrently; <code>hq.py</code> still runs last.",
-    "Concurrency tuned so USGS does not rate-limit — the journal already records that failure.",
+    "Concurrency tuned so USGS does not rate-limit \u2014 the journal already records that failure.",
     "Target under 90s; update the documented figure to the measured one.",
     "A crashed generator still fails the build loudly."
    ],
@@ -599,10 +599,10 @@
    "effort": "S",
    "lane": "later",
    "title": "De-flake the craft-spread assertion",
-   "evidence": "“At least one day grades differently by craft” fails whenever the week’s water is uniform — it failed during this audit for exactly that reason, on a week of identical afternoon releases. A test that fails on legitimate data trains you to ignore failures.",
+   "evidence": "\u201cAt least one day grades differently by craft\u201d fails whenever the week\u2019s water is uniform \u2014 it failed during this audit for exactly that reason, on a week of identical afternoon releases. A test that fails on legitimate data trains you to ignore failures.",
    "done": [
     "Assert the scoring <em>function</em> separates crafts on synthetic inputs, not that this week happens to.",
-    "Keep a warning when real data shows no spread — that is information, not a failure.",
+    "Keep a warning when real data shows no spread \u2014 that is information, not a failure.",
     "Suite returns to zero red on a normal week."
    ],
    "issue": 28,
@@ -643,10 +643,10 @@
    "effort": "L",
    "lane": "next",
    "title": "Backtest the twelve rivers that have never been validated",
-   "evidence": "<code>analysis/backtest_flow.py</code> has only ever run against the Caney — where it moved baseflow 375→205 cfs and leading-edge speed 3.0→2.5 mph, both material corrections to numbers that felt right. Twelve rivers still carry their original, unvalidated constants. This is the largest correctness risk in the product.",
+   "evidence": "<code>analysis/backtest_flow.py</code> has only ever run against the Caney \u2014 where it moved baseflow 375\u2192205 cfs and leading-edge speed 3.0\u21922.5 mph, both material corrections to numbers that felt right. Twelve rivers still carry their original, unvalidated constants. This is the largest correctness risk in the product.",
    "done": [
     "Run the Caney methodology against every river with sufficient gauge history.",
-    "Each river’s constants either confirmed or corrected, with provenance in the comment above them — the existing invariant.",
+    "Each river\u2019s constants either confirmed or corrected, with provenance in the comment above them \u2014 the existing invariant.",
     "Rivers with insufficient record are marked as such rather than quietly trusted.",
     "Results committed to <code>analysis/</code> so the next session can see the evidence."
    ],
@@ -665,12 +665,12 @@
    "priority": "P1",
    "effort": "M",
    "lane": "later",
-   "title": "Show each river’s model confidence in the interface",
-   "evidence": "The Caney’s routing was fitted to r²=0.89; the Cumberland’s is r=0.30 and the page says so only in the footer. The Harpeth’s transfer function beats a constant gain by 3%. A reader cannot tell a measured number from an estimated one.",
+   "title": "Show each river\u2019s model confidence in the interface",
+   "evidence": "The Caney\u2019s routing was fitted to r\u00b2=0.89; the Cumberland\u2019s is r=0.30 and the page says so only in the footer. The Harpeth\u2019s transfer function beats a constant gain by 3%. A reader cannot tell a measured number from an estimated one.",
    "done": [
     "Every river carries a confidence level derived from its backtest, not asserted.",
     "Surfaced next to the prediction it qualifies, not buried in the footer.",
-    "Low-confidence rivers state which part is reliable — release schedule versus downstream timing."
+    "Low-confidence rivers state which part is reliable \u2014 release schedule versus downstream timing."
    ],
    "issue": 31,
    "issue_url": "https://github.com/Rhode025/caney/issues/31",
@@ -698,7 +698,7 @@
    "issue_url": "https://github.com/Rhode025/caney/issues/32",
    "reconciliation": {
     "status": "completed",
-    "shipped_in": "2.0→2.1",
+    "shipped_in": "2.0\u21922.1",
     "note": "trip.js::snapshotPrediction freezes the plan-time state; 2.1 freezes the itinerary, ranking, hourly curves, weights and model versions."
    }
   },
@@ -710,7 +710,7 @@
    "effort": "M",
    "lane": "later",
    "title": "Prediction-versus-observed scoreboard",
-   "evidence": "The auto-calibration already compares model to gauge every build (currently ±20 cfs on the Caney) and then throws the comparison away. Kept, it becomes a public accuracy record.",
+   "evidence": "The auto-calibration already compares model to gauge every build (currently \u00b120 cfs on the Caney) and then throws the comparison away. Kept, it becomes a public accuracy record.",
    "done": [
     "Persist the per-build model-versus-gauge residual per river.",
     "A page showing accuracy over time, by river.",
@@ -720,8 +720,8 @@
    "issue_url": "https://github.com/Rhode025/caney/issues/33",
    "reconciliation": {
     "status": "completed",
-    "shipped_in": "2.0→2.1",
-    "note": "The scoreboard answers all of §51: arrival residual, opportunity bands, confidence calibration, per-species, per-zone, itinerary-vs-single-zone, research."
+    "shipped_in": "2.0\u21922.1",
+    "note": "The scoreboard answers all of \u00a751: arrival residual, opportunity bands, confidence calibration, per-species, per-zone, itinerary-vs-single-zone, research."
    }
   },
   {
@@ -732,7 +732,7 @@
    "effort": "M",
    "lane": "later",
    "title": "Auto-calibration for the remaining tailwaters",
-   "evidence": "Feature 12 in the spec matrix is ✅ for the Caney and ◻ for the Cumberland. The Caney’s auto-calibration measurably tightened the model — the other tailwaters get no such correction.",
+   "evidence": "Feature 12 in the spec matrix is \u2705 for the Caney and \u25fb for the Cumberland. The Caney\u2019s auto-calibration measurably tightened the model \u2014 the other tailwaters get no such correction.",
    "done": [
     "Promote the calibration routine into riverlib.",
     "Enabled on every river with a downstream gauge and a routing model.",
@@ -743,7 +743,7 @@
    "reconciliation": {
     "status": "superseded",
     "shipped_in": "2.1",
-    "note": "Auto-calibration is now gated behind the outcome loop rather than a per-river backtest — see docs/OUTCOMES.md. MODEL-01 (#30) is the prerequisite that survives."
+    "note": "Auto-calibration is now gated behind the outcome loop rather than a per-river backtest \u2014 see docs/OUTCOMES.md. MODEL-01 (#30) is the prerequisite that survives."
    }
   },
   {
@@ -754,10 +754,10 @@
    "effort": "S",
    "lane": "later",
    "title": "Bring the spec matrix up to thirteen rivers",
-   "evidence": "§3 has three river columns; the header says “9 rivers”; there are thirteen. The parity rule is enforced by that matrix, so a matrix covering under a quarter of the fleet cannot enforce anything — and the journal has been carrying this as an open thread for weeks.",
+   "evidence": "\u00a73 has three river columns; the header says \u201c9 rivers\u201d; there are thirteen. The parity rule is enforced by that matrix, so a matrix covering under a quarter of the fleet cannot enforce anything \u2014 and the journal has been carrying this as an open thread for weeks.",
    "done": [
     "Matrix generated from the registry rather than hand-maintained.",
-    "Every ✅ / ◻ / — is machine-checkable against the built pages.",
+    "Every \u2705 / \u25fb / \u2014 is machine-checkable against the built pages.",
     "<code>verify.py</code> fails when a page contradicts its own matrix row."
    ],
    "issue": 35,
@@ -765,7 +765,7 @@
    "reconciliation": {
     "status": "still relevant",
     "shipped_in": "",
-    "note": "The §3 matrix still lists 3 of 13 rivers."
+    "note": "The \u00a73 matrix still lists 3 of 13 rivers."
    }
   },
   {
@@ -776,7 +776,7 @@
    "effort": "M",
    "lane": "later",
    "title": "Finish the shared-CSS extraction",
-   "evidence": "The last open item in the §5 migration backlog: base design CSS is still duplicated per page. This is the exact condition that broke the Caney hatch calendar — a leftover generic <code>.hatch</code> class colliding with a shared component.",
+   "evidence": "The last open item in the \u00a75 migration backlog: base design CSS is still duplicated per page. This is the exact condition that broke the Caney hatch calendar \u2014 a leftover generic <code>.hatch</code> class colliding with a shared component.",
    "done": [
     "Base tokens and layout CSS live in riverlib and are injected once.",
     "No page defines a class name a shared component also uses.",
@@ -802,7 +802,7 @@
    "done": [
     "Per-page screenshots at 390 and 1280px, both themes once dark mode lands.",
     "Diffs surfaced in CI; intentional changes accepted explicitly.",
-    "Runs on the built output, not on isolated component fixtures — that is what hid the collision."
+    "Runs on the built output, not on isolated component fixtures \u2014 that is what hid the collision."
    ],
    "issue": 37,
    "issue_url": "https://github.com/Rhode025/caney/issues/37",
@@ -820,7 +820,7 @@
    "effort": "M",
    "lane": "later",
    "title": "Scaffold a new river from the registry",
-   "evidence": "Thirteen rivers exist and each was cloned from a predecessor. That is how the Buffalo shipped the Duck’s ramp names in its flow timer — a real bug caught only when a later river was added.",
+   "evidence": "Thirteen rivers exist and each was cloned from a predecessor. That is how the Buffalo shipped the Duck\u2019s ramp names in its flow timer \u2014 a real bug caught only when a later river was added.",
    "done": [
     "One command generates a working generator from a registry entry.",
     "Scaffold includes the parity checklist and fails until every item is addressed or justified.",
@@ -840,11 +840,11 @@
    "priority": "P1",
    "effort": "M",
    "lane": "done",
-   "title": "Corpus, slicer and Worker — the bot answers from the build",
-   "evidence": "Shipped. <code>bot.json</code> (13 rivers, ~22k tokens) plus a deterministic slicer that ships 800–1,500 tokens per question — 93–96% smaller, ~1.4¢ a question. Deployed at riverguide-bot.steven-b9c.workers.dev, webhook registered, 30 tests green.",
+   "title": "Corpus, slicer and Worker \u2014 the bot answers from the build",
+   "evidence": "Shipped. <code>bot.json</code> (13 rivers, ~22k tokens) plus a deterministic slicer that ships 800\u20131,500 tokens per question \u2014 93\u201396% smaller, ~1.4\u00a2 a question. Deployed at riverguide-bot.steven-b9c.workers.dev, webhook registered, 30 tests green.",
    "done": [
     "Corpus gated by verify.py so a rename cannot silently empty it.",
-    "Slicing proven verbatim — sliced fields are byte-identical to the build.",
+    "Slicing proven verbatim \u2014 sliced fields are byte-identical to the build.",
     "Safety rules travel inside the payload, not only the system prompt."
    ],
    "sprint": 39,
@@ -858,7 +858,7 @@
    "effort": "S",
    "lane": "now",
    "title": "Prove the safety guardrail with adversarial questions",
-   "evidence": "The bot is instructed to quote generation times and wade windows verbatim or decline. That instruction is <em>untested</em> — the account has no API credit, so not one real answer has been generated. An unverified safety guardrail is the same class of thing as an alarm that has never fired.",
+   "evidence": "The bot is instructed to quote generation times and wade windows verbatim or decline. That instruction is <em>untested</em> \u2014 the account has no API credit, so not one real answer has been generated. An unverified safety guardrail is the same class of thing as an alarm that has never fired.",
    "done": [
     "A suite of adversarial prompts: asking it to round a release time, convert cfs, average a week, infer a wade window for a river with no wade data, and answer about a river not in the corpus.",
     "Every safety-critical number in a reply must appear verbatim in the slice it was given.",
@@ -880,8 +880,8 @@
    "priority": "P1",
    "effort": "S",
    "lane": "next",
-   "title": "Cost telemetry — know what a question actually costs",
-   "evidence": "1.4¢ is an estimate from token counts, not an observation. Usage is already metered per chat in KV but nothing reads it back.",
+   "title": "Cost telemetry \u2014 know what a question actually costs",
+   "evidence": "1.4\u00a2 is an estimate from token counts, not an observation. Usage is already metered per chat in KV but nothing reads it back.",
    "done": [
     "A /usage command and a health field reporting questions and tokens per day.",
     "Real cost per question by intent, so the free-tier caps in access.js are set from data rather than guessed.",
@@ -902,10 +902,10 @@
    "priority": "P2",
    "effort": "M",
    "lane": "later",
-   "title": "Open it to anyone — identity, quota, abuse",
+   "title": "Open it to anyone \u2014 identity, quota, abuse",
    "evidence": "<code>access.js</code> already carries owner/free/paid tiers and OPEN_TO_ALL, and a test proves the flip admits strangers on the free tier. What is missing is everything around it: who they are, what stops abuse, and who pays.",
    "done": [
-    "An identity story — Claude sign-in or a payment record keyed to the Telegram chat id.",
+    "An identity story \u2014 Claude sign-in or a payment record keyed to the Telegram chat id.",
     "Per-chat and global rate limits, with the global one protecting the API bill.",
     "A cost ceiling that degrades to a static answer from the corpus rather than refusing.",
     "Only then flip OPEN_TO_ALL."
@@ -928,7 +928,7 @@
    "title": "Inline buttons so the bot is discoverable without guessing",
    "evidence": "Free text is the whole interface. A new user has no idea what it knows, and every unparsed question still costs a model call.",
    "done": [
-    "Telegram inline keyboards for the common asks — what's good now, this week, pick a river.",
+    "Telegram inline keyboards for the common asks \u2014 what's good now, this week, pick a river.",
     "Button paths answer from the corpus without a model call where the answer is purely lookup.",
     "/start shows them."
    ],
@@ -948,13 +948,15 @@
    "priority": "P0",
    "effort": "M",
    "lane": "next",
-   "title": "Fish it and log trips — the species weights are priors, not calibration",
-   "evidence": "Caney 2.0 ships a published weight table per species (docs/SPECIES_SCORING.md) taken straight from the design brief. Nothing has validated a single number in it. The scoreboard that would validate them (web/planner/trip.js) is built and reports water-arrival residual, score-vs-rating correlation, species hit rate and confidence calibration — and currently has zero trips in it. Every other calibration ticket is gated on this one.",
+   "title": "Fish it and log trips \u2014 the species weights are priors, not calibration",
+   "evidence": "Caney 2.0 ships a published weight table per species (docs/SPECIES_SCORING.md) taken straight from the design brief. Nothing has validated a single number in it. The scoreboard that would validate them (web/planner/trip.js) is built and reports water-arrival residual, score-vs-rating correlation, species hit rate and confidence calibration \u2014 and currently has zero trips in it. Every other calibration ticket is gated on this one.",
    "done": [
     "Twenty logged plans with outcomes recorded, across at least three species.",
     "The scoreboard prints a figure for the arrival residual instead of &ldquo;not enough trips to say&rdquo;.",
     "Any weight moved as a result carries its evidence in the comment above it, per the calibration-provenance invariant."
-   ]
+   ],
+   "issue": 148,
+   "issue_url": "https://github.com/Rhode025/caney/issues/148"
   },
   {
    "sprint": 45,
@@ -964,12 +966,14 @@
    "effort": "M",
    "lane": "next",
    "title": "Verify the zone coordinates outside the Caney and Cordell Hull",
-   "evidence": "Of 17 fishing zones, only the Caney reaches and the Cordell Hull tailwater carry access coordinates verified against an authority (TWRA Boating &amp; Fishing Access layer, USACE LRN). The rest are OSM centreline positions marked <code>verified: false</code>, and the UI and the map both say so — which is honest but is not the same as being right. This is the highest-value data work left.",
+   "evidence": "Of 17 fishing zones, only the Caney reaches and the Cordell Hull tailwater carry access coordinates verified against an authority (TWRA Boating &amp; Fishing Access layer, USACE LRN). The rest are OSM centreline positions marked <code>verified: false</code>, and the UI and the map both say so \u2014 which is honest but is not the same as being right. This is the highest-value data work left.",
    "done": [
     "Every AccessPoint either carries a verified source or is removed.",
     "test_zones.py stops needing the unverified branch for the zones it covers.",
     "No zone geometry is a POINT unless a source published that point."
-   ]
+   ],
+   "issue": 149,
+   "issue_url": "https://github.com/Rhode025/caney/issues/149"
   },
   {
    "sprint": 46,
@@ -984,7 +988,9 @@
     "Sourced habitat evidence for at least three largemouth zones.",
     "Those SpeciesProfileRefs flip to heuristic: false with claim ids.",
     "test_species.test_largemouth_can_win asserts a specific zone rather than a set."
-   ]
+   ],
+   "issue": 150,
+   "issue_url": "https://github.com/Rhode025/caney/issues/150"
   },
   {
    "sprint": 47,
@@ -994,12 +1000,14 @@
    "effort": "L",
    "lane": "later",
    "title": "Refresh the live plane without rebuilding the static plane",
-   "evidence": "The architecture separates the two (docs/ARCHITECTURE.md §5) and <code>planner.py</code> already regenerates <code>out/plan/data.json</code> alone in about two seconds against a warm cache. What is missing is a trigger: today the only thing that runs it is the hourly full build, so a plan is at worst an hour stale even though the dataset behind it is cheap to refresh.",
+   "evidence": "The architecture separates the two (docs/ARCHITECTURE.md \u00a75) and <code>planner.py</code> already regenerates <code>out/plan/data.json</code> alone in about two seconds against a warm cache. What is missing is a trigger: today the only thing that runs it is the hourly full build, so a plan is at worst an hour stale even though the dataset behind it is cheap to refresh.",
    "done": [
     "A workflow that runs planner.py alone on a short schedule and deploys only out/plan/.",
     "The freshness strip distinguishes dataset age from river-page age.",
     "Post-deploy smoke asserts the shorter budget."
-   ]
+   ],
+   "issue": 151,
+   "issue_url": "https://github.com/Rhode025/caney/issues/151"
   },
   {
    "sprint": 48,
@@ -1009,11 +1017,13 @@
    "effort": "S",
    "lane": "later",
    "title": "Wire the in-plan question box to RiverGuide properly",
-   "evidence": "&sect;46's &ldquo;Ask about this plan&hellip;&rdquo; drawer currently hands the question to Telegram as pre-filled text. The bot already resolves a planning question to the exact FishingPlan (riverguide/src/plan.js), so the round trip works — but the plan the reader is looking at and the plan the bot fetches are matched by species/craft/preset, not by plan id.",
+   "evidence": "&sect;46's &ldquo;Ask about this plan&hellip;&rdquo; drawer currently hands the question to Telegram as pre-filled text. The bot already resolves a planning question to the exact FishingPlan (riverguide/src/plan.js), so the round trip works \u2014 but the plan the reader is looking at and the plan the bot fetches are matched by species/craft/preset, not by plan id.",
    "done": [
     "The drawer passes the plan id, and the bot fetches that plan.",
     "A question about a plan whose window has passed says so rather than answering about a different one."
-   ]
+   ],
+   "issue": 152,
+   "issue_url": "https://github.com/Rhode025/caney/issues/152"
   },
   {
    "sprint": 49,
@@ -1022,13 +1032,15 @@
    "priority": "P0",
    "effort": "M",
    "lane": "next",
-   "title": "Verify access coordinates — a dozen zones sit at location confidence 40",
+   "title": "Verify access coordinates \u2014 a dozen zones sit at location confidence 40",
    "evidence": "Caney 2.1 makes geographic confidence first class and charges for it: window utility multiplies by 0.75 + 0.25 x location_confidence, so an unverified zone gives up real ground, and its tactical language is hedged rather than precise. Of 22 zones, only the Caney reaches, the Cordell Hull tailwater and the Carthage confluence carry verified access. Twelve sit at 40/100 and say so in the UI. This is the single highest-value data task in the repo.",
    "done": [
     "Every AccessPoint either carries a verified source or is removed.",
     "The zones currently at 40 move to 62 or better.",
-    "docs/GEOGRAPHY.md §5's table is rewritten to match."
-   ]
+    "docs/GEOGRAPHY.md \u00a75's table is rewritten to match."
+   ],
+   "issue": 153,
+   "issue_url": "https://github.com/Rhode025/caney/issues/153"
   },
   {
    "sprint": 50,
@@ -1037,13 +1049,15 @@
    "priority": "P0",
    "effort": "M",
    "lane": "next",
-   "title": "The utility constants are priors — twenty logged trips is the threshold",
-   "evidence": "The whole 2.1 objective (peak/cubic/floor mixture, the duration saturation at 150 minutes, the 0.22-per-minute transition cost, the breadth bonus, the complexity penalty) was chosen so the four mandatory regression scenarios come out as specified. Nothing has validated any of it. The scoreboard answers every question in the brief's §51 and currently prints 'not enough trips to say' to all of them.",
+   "title": "The utility constants are priors \u2014 twenty logged trips is the threshold",
+   "evidence": "The whole 2.1 objective (peak/cubic/floor mixture, the duration saturation at 150 minutes, the 0.22-per-minute transition cost, the breadth bonus, the complexity penalty) was chosen so the four mandatory regression scenarios come out as specified. Nothing has validated any of it. The scoreboard answers every question in the brief's \u00a751 and currently prints 'not enough trips to say' to all of them.",
    "done": [
     "Twenty logged plans with outcomes, across at least three species.",
     "The arrival-residual and opportunity-band measures print figures.",
     "Any constant moved carries its evidence in the comment above it, and PLANNER_VERSION is bumped."
-   ]
+   ],
+   "issue": 154,
+   "issue_url": "https://github.com/Rhode025/caney/issues/154"
   },
   {
    "sprint": 51,
@@ -1053,12 +1067,14 @@
    "effort": "S",
    "lane": "next",
    "title": "Deploy the research worker and point CI at it",
-   "evidence": "research-worker/ is written, tested (no network needed) and documented, but not deployed: wrangler.toml still carries REPLACE_WITH_D1_ID and REPLACE_WITH_KV_ID. Until it exists the planner runs on the 23 seeded TWRA/TDEC claims, which is a working floor but a static one — the freshness line on every plan reads from stored evidence only.",
+   "evidence": "research-worker/ is written, tested (no network needed) and documented, but not deployed: wrangler.toml still carries REPLACE_WITH_D1_ID and REPLACE_WITH_KV_ID. Until it exists the planner runs on the 23 seeded TWRA/TDEC claims, which is a working floor but a static one \u2014 the freshness line on every plan reads from stored evidence only.",
    "done": [
     "D1 and KV created, schema applied, OPENAI_API_KEY set as a secret.",
     "/health returns enabled: true.",
     "The CANEY_RESEARCH_ENDPOINT repository variable is set and a build shows research on."
-   ]
+   ],
+   "issue": 157,
+   "issue_url": "https://github.com/Rhode025/caney/issues/157"
   },
   {
    "sprint": 52,
@@ -1067,13 +1083,15 @@
    "priority": "P2",
    "effort": "M",
    "lane": "later",
-   "title": "The transition model is priors too — and it decides whether you move",
+   "title": "The transition model is priors too \u2014 and it decides whether you move",
    "evidence": "caney/planner/transitions.py holds sixteen configured routes and estimates the rest from straight-line distance times a sinuosity factor. Speeds (18 mph downstream in a boat, 32 mph on county roads) and the 14-minute trailering overhead are guesses. They directly decide whether a move is worth making, which is the most consequential new behaviour in 2.1.",
    "done": [
     "Time an actual Cordell Hull to Caney mouth run and a trailer reposition.",
     "Replace the two speeds that matter with measured ones.",
     "Segment outcomes confirm the move was worth it, or the cost goes up."
-   ]
+   ],
+   "issue": 155,
+   "issue_url": "https://github.com/Rhode025/caney/issues/155"
   },
   {
    "sprint": 53,
@@ -1088,7 +1106,9 @@
     "riverlib's shared CSS adopts the planner's token palette.",
     "axe runs against a river page in CI.",
     "Dark mode works on a river page."
-   ]
+   ],
+   "issue": 156,
+   "issue_url": "https://github.com/Rhode025/caney/issues/156"
   }
  ],
  "repo": "Rhode025/caney",
@@ -1102,7 +1122,7 @@
   [
    "Map with CDN unreachable",
    "dies",
-   "Blocking unpkg leaves <code>#lmap</code> empty. The rest of the page survives — 5,918 chars still render.",
+   "Blocking unpkg leaves <code>#lmap</code> empty. The rest of the page survives \u2014 5,918 chars still render.",
    "fail"
   ],
   [
@@ -1118,9 +1138,9 @@
    "fail"
   ],
   [
-   "Touch targets ≥ 44px",
+   "Touch targets \u2265 44px",
    "227 / 464",
-   "Under 44px tall at a 390px viewport — about half of everything tappable.",
+   "Under 44px tall at a 390px viewport \u2014 about half of everything tappable.",
    "warn"
   ],
   [
@@ -1144,7 +1164,7 @@
   [
    "Page title uniqueness",
    "12 / 14",
-   "All three Duck sections share <code>Duck River · smallmouth</code> — indistinguishable in tabs, history, bookmarks.",
+   "All three Duck sections share <code>Duck River \u00b7 smallmouth</code> \u2014 indistinguishable in tabs, history, bookmarks.",
    "warn"
   ],
   [
@@ -1167,19 +1187,19 @@
   ],
   [
    "Build wall time",
-   "135–430s",
+   "135\u2013430s",
    "Eleven generators serial with a hardcoded <code>sleep 2</code>. Docs still claim ~30s.",
    "warn"
   ],
   [
    "Spec feature matrix",
    "3 / 13",
-   "§3 has three river columns and the header says “9 rivers”. There are thirteen.",
+   "\u00a73 has three river columns and the header says \u201c9 rivers\u201d. There are thirteen.",
    "warn"
   ],
   [
    "Images with alt text",
-   "−10",
+   "\u221210",
    "Ten images carry no alt attribute at desktop, six at mobile.",
    "warn"
   ],
@@ -1198,15 +1218,15 @@
   [
    "Day-identity regression gate",
    "256 pass",
-   "A build staled two days degrades to “Fri · 2d ago” instead of claiming “Today”.",
+   "A build staled two days degrades to \u201cFri \u00b7 2d ago\u201d instead of claiming \u201cToday\u201d.",
    "ok"
   ]
  ],
- "method": "Measured against the live build on 23 Aug 2026 — every page loaded in headless Chromium at 390 / 768 / 1280px, contrast computed per rendered node against its resolved background, CDN failure simulated by aborting unpkg, arcgisonline and the font hosts, overflow measured as scrollWidth &gt; clientWidth.",
+ "method": "Measured against the live build on 23 Aug 2026 \u2014 every page loaded in headless Chromium at 390 / 768 / 1280px, contrast computed per rendered node against its resolved background, CDN failure simulated by aborting unpkg, arcgisonline and the font hosts, overflow measured as scrollWidth &gt; clientWidth.",
  "release": {
-  "name": "Caney 2.1 — the fishing-day oracle",
+  "name": "Caney 2.1 \u2014 the fishing-day oracle",
   "date": "2026-09-09",
-  "summary": "The planner stopped optimising the mean. It now finds the best contiguous opportunity WINDOW inside your availability, and assembles the best executable itinerary from those windows — including moving between zones when that is worth the travel. Geographic confidence became first class, research became a refreshable service, and the outcome loop became the point rather than a footnote.",
+  "summary": "The planner stopped optimising the mean. It now finds the best contiguous opportunity WINDOW inside your availability, and assembles the best executable itinerary from those windows \u2014 including moving between zones when that is worth the travel. Geographic confidence became first class, research became a refreshable service, and the outcome loop became the point rather than a footnote.",
   "docs": [
    "docs/PLANNER.md",
    "docs/GEOGRAPHY.md",
@@ -1217,6 +1237,6 @@
    "docs/SCHEMAS.md",
    "docs/SAFETY.md"
   ],
-  "addresses": "Every ticket below now carries a `reconciliation` block classifying it against what 2.0 and 2.1 shipped: completed, partial, superseded or still relevant. The GitHub issue remains the system of record for whether a ticket is closed — nothing here closes one."
+  "addresses": "Every ticket below now carries a `reconciliation` block classifying it against what 2.0 and 2.1 shipped: completed, partial, superseded or still relevant. The GitHub issue remains the system of record for whether a ticket is closed \u2014 nothing here closes one."
  }
 }

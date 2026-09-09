@@ -43,7 +43,16 @@ def sh(args, check=True):
 
 EPIC_COLOR = {"Freshness":"0a5ec2","Offline":"1e7a45","Accessibility":"8b6cef",
               "Wayfinding":"c2570a","Build & CI":"3a5a8c","Model validation":"0f766e",
-              "Docs & system":"8a6524"}
+              "Docs & system":"8a6524","RiverGuide":"7a3fa0","Research":"0f6b6b"}
+
+# An epic with no colour here has no label, and `gh issue create` then fails on THAT ONE
+# issue with a one-line warning that is easy to miss in a run of fifty. Two epics had been
+# missing for a while before anyone noticed. Check up front instead.
+_missing = sorted({t["epic"] for t in R["tickets"]} - set(EPIC_COLOR))
+if _missing:
+    print("STOP: these epics have no label colour in EPIC_COLOR: %s" % ", ".join(_missing))
+    print("Add them, then re-run with --labels before --create.")
+    sys.exit(2)
 PRI_COLOR  = {"P0":"a62b17","P1":"b8791a","P2":"1f6fb2","P3":"6b7b8a"}
 EFF_COLOR  = {"S":"e2e9ef","M":"cbd7e2","L":"b3c4d4"}
 
