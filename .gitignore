@@ -2,11 +2,22 @@
 out/
 # credentials — reddit_intel.py reads this (or the REDDIT_* env vars)
 reddit_creds.json
-# caches
+# caches — source responses, research results, last-good dam release
 cache_dam.json
+.cache/
 __pycache__/
 *.pyc
 # test deps
 test/node_modules/
 node_modules/
 .DS_Store
+
+# wrangler local state (Cloudflare CLI). Generated, machine-specific, and its cache
+# directory has held account identifiers — it must never be committed.
+.wrangler/
+**/.wrangler/
+
+# secrets. OPENAI_API_KEY and friends live in the environment, never on disk.
+.env
+.env.*
+!.env.example

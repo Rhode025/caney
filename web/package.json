@@ -1,0 +1,6 @@
+{
+  "name": "caney-web",
+  "private": true,
+  "type": "module",
+  "description": "Shared frontend for the Caney planner. Plain ES modules, no build step: the files served to the browser are the files in this directory, so the debugger shows the source that is actually running."
+}

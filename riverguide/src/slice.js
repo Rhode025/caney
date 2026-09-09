@@ -16,17 +16,28 @@ const INTENTS = [
   ["week", /\b(week|weekend|next few days|forecast|coming days|saturday|sunday|monday|tuesday|wednesday|thursday|friday|tomorrow|outlook|plan)\b/i],
   ["access", /\b(ramp|ramps|launch|put in|put-in|take out|take-out|access|park|boat ramp|where can i|directions|drive)\b/i],
   ["generation", /\b(generation|generating|release|releases|schedule|units?|dam|wade window|wadeable|safe to wade|water on|water off)\b/i],
+  ["species", /\b(striper|stripers|striped bass|smallmouth|largemouth|trout|bass)\b/i],
   ["now", /\b(now|today|right now|currently|this morning|this afternoon|tonight|fishing well|best river|where should)\b/i],
 ];
 
 /** Fields kept per intent. Anything not listed is dropped before the model sees it. */
+// safetyClaims rides on EVERY slice, not just the generation one. The guard verifies
+// replies against the claim book, and a slice without it makes every water sentence
+// ungroundable — the model would be told about conditions it is then forbidden to
+// describe. `zones` rides along too: species questions are answered from the zone model,
+// not from a page's species label (§3.1).
 const FIELDS = {
-  base: ["id", "name", "emoji", "url", "species", "kind", "drive", "built"],
+  base: ["id", "name", "emoji", "url", "species", "kind", "drive", "built",
+         "safetyClaims", "zones"],
+  // Trimmed views. The guard needs a claim's licensed `numbers` and id; the MODEL does
+  // not — it is only ever allowed to quote `text`. Sending the numeric allowlist to the
+  // model both costs tokens and reads like an invitation to recombine them.
   now: ["now", "today", "weather", "solunar", "waterModel"],
   week: ["now", "week", "weather"],
   fly: ["now", "today", "fly", "hatchNow", "tips"],
   access: ["access", "today", "now"],
   generation: ["now", "today", "tomorrow", "waterModel", "tips"],
+  species: ["now", "today", "waterModel"],
   summary: ["now", "drive"],
 };
 
@@ -80,6 +91,11 @@ export function detectRivers(text, corpus) {
   return [...new Set(hit)];
 }
 
+/** Which safety claims matter most when the view has to be trimmed. */
+const KIND_RANK = ["safe_exit", "wade_cutoff", "release_arrival", "generation_start",
+                   "generation_stop", "weather_hazard", "flow", "stage",
+                   "forecast_release", "lake_elevation"];
+
 function pick(river, keys) {
   const out = {};
   for (const k of [...FIELDS.base, ...keys]) if (river[k] !== undefined) out[k] = river[k];
@@ -110,16 +126,65 @@ export function slice(text, corpus) {
   }
 
   const rivers = corpus.rivers.filter((r) => ids.includes(r.id)).map((r) => pick(r, keys));
+  const claims = rivers.flatMap((r) => r.safetyClaims || []);
+  const zoneIds = rivers.flatMap((r) => (r.zones || []).map((z) => z.id));
+
+  // Only the research claims the sliced zones actually cite — the corpus carries them all,
+  // and shipping seventeen of them to answer one question is the cost mistake this module
+  // exists to avoid.
+  const wanted = new Set();
+  for (const r of rivers) {
+    for (const z of r.zones || []) {
+      for (const ids2 of Object.values(z.evidence || {})) for (const i of ids2) wanted.add(i);
+    }
+  }
+  const researchClaims = {};
+  for (const id of wanted) {
+    if (corpus.researchClaims && corpus.researchClaims[id]) {
+      researchClaims[id] = corpus.researchClaims[id];
+    }
+  }
+
+  // What the MODEL sees: the claim sentences and nothing else about them.
+  const modelRivers = rivers.map((r) => {
+    const o = { ...r };
+    if (o.safetyClaims) {
+      // Soonest first, then a cap. The claim text already names its zone, so `zone` is
+      // redundant here; the guard keeps the untrimmed book either way, so a claim dropped
+      // from this view can still ground nothing worse than silence.
+      o.safetyClaims = o.safetyClaims
+        .slice()
+        .sort((a, b) => KIND_RANK.indexOf(a.kind) - KIND_RANK.indexOf(b.kind))
+        .slice(0, 10)
+        .map((c) => ({ kind: c.kind, bound: c.bound, text: c.text }));
+    }
+    if (o.zones) {
+      // `holds` is a paragraph per species per zone. It is the answer to "where do I
+      // fish", and noise on "is the dam running" — so it rides only where it is the point.
+      const wantHolds = ["species", "access", "now"].includes(intent);
+      o.zones = o.zones.map((z) => (intent === "species" ? z
+        : { id: z.id, name: z.name, species: z.species, craft: z.craft,
+            tailwater: z.tailwater, ...(wantHolds ? { holds: z.holds } : {}) }));
+    }
+    return o;
+  });
+
   return {
     intent,
     rivers: ids,
     note,
+    // Every zone id in the slice. The guard scopes verification to these: a claim about
+    // Cheatham may not ground a sentence about the Caney.
+    zones: zoneIds,
+    claims,
     payload: {
       built: corpus.built,
       builtIso: corpus.builtIso,
       region: corpus.region,
       rules: corpus.rules,
-      rivers,
+      planner: corpus.planner,
+      researchClaims,
+      rivers: modelRivers,
     },
   };
 }

@@ -1,4 +1,70 @@
-# Product strategy — office-hours diagnosis
+# Product strategy — the species-first oracle
+
+> **Updated 2026-09-09 for Caney 2.0.** The office-hours diagnosis below is preserved
+> verbatim from 2026-07-30, because its verdict — *build the oracle, not the network* — is
+> exactly what this release implements. What changed is the shape of the oracle.
+
+## Caney 2.0 — the current frame
+
+**The product is not a collection of river dashboards. It is a species-first planner.**
+
+> The user says what species they want to catch and when they can fish. Caney tells them
+> the single best place to go, the exact time window, where to start, where to move, what
+> to throw, what the water and weather will do, when conditions change, and why this is the
+> best decision.
+
+Four target species: **striped bass, smallmouth, largemouth, trout.** The core question,
+and everything is subordinate to answering it:
+
+> *"I want to fish for [SPECIES] on [DATE] from [START] to [END]. What exactly should I do?"*
+
+### What that changed
+
+| before | now |
+|---|---|
+| the homepage is a board of 13 river cards | the homepage asks **"What do you want to catch?"** |
+| a species is a label on a river page | a species is a behavioural profile attached to a **fishing zone** |
+| a river page owns one fishery | a **zone** can span two rivers, and one zone can be two different fisheries in different months |
+| the user sorts cards to find an answer | one action — **FIND MY BEST PLAN** — returns the answer |
+| "Prime / Good / Fair" | a 0–100 score from a **published weight table**, a separate confidence number, and a line-by-line breakdown |
+| the AI is *told* not to invent numbers | the AI is **verified in code**, per zone, and **fails closed** |
+| river pages are the product | river pages are the encyclopedia behind it |
+
+The clearest single illustration is the Carthage case. TWRA writes: *"Striped bass are
+concentrated from Cordell Hull Dam downstream to the mouth of the Caney Fork River."*
+Under the old model that opportunity was unreachable, because `cordell.py`'s species line
+reads "Smallmouth, white bass & panfish" and the Caney is a trout page. It is now a
+first-class zone spanning both, and it is a regression test.
+
+### Still true, still the strategy
+
+* **Build the oracle, not the network.** No social features. The trip log exists to feed
+  calibration — `prediction → outcome → calibration` — not to be a feed.
+* **The wedge is collapsing the 4-source 6am ritual into one decision.** Species-first is
+  that thesis taken seriously: the ritual is not "check four gauges", it is "work out where
+  the fish I want are, given the water".
+* **The moat is the data loop**, and it is now instrumented. Every logged plan freezes what
+  Caney predicted *before* the outcome is known; the model scoreboard reports the
+  water-arrival residual, the score-vs-rating correlation, the species hit rate and the
+  confidence calibration — each refusing to print a figure until it has enough trips.
+
+### The bet this release makes
+
+That the thing worth paying for is not better numbers but **a decision you can audit**. So
+every plan ships its score breakdown, the source and age of every datum, the sourced
+research behind the biology, the model's own confidence in its routing, and an explicit
+list of what it could not tell you. A recommendation you cannot interrogate is a horoscope.
+
+### Deliberately not built
+
+Social, marketplace, profiles, buddies, trip hosting. Server-pushed notifications — the
+riverbank is exactly where there is no signal, and a phone alarm from an `.ics` is the thing
+that actually rings. A chatbot homepage: the natural-language box is secondary, lives
+*inside* a plan, and explains the deterministic recommendation rather than replacing it.
+
+---
+
+# Product strategy — office-hours diagnosis (2026-07-30, preserved)
 
 *YC office-hours (startup mode) run on the "turn this into a consumer app" vision.
 Pre-product, one real user (the founder). This is the verdict, not a cheerlead.*

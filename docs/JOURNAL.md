@@ -1,3 +1,112 @@
+# Session journal
+
+Newest first. Read the top entry at the start of a session; append a new one at the end.
+
+---
+
+## 2026-09-09 — Caney 2.0: the species-first oracle
+
+**The frame changed.** The product is no longer a collection of river dashboards. It is a
+planner that answers *"I want to fish for [species] on [date] from [start] to [end] — what
+exactly should I do?"* The thirteen river pages are still here, still calibrated, and are
+now the encyclopedia one level down (`out/rivers.html` + the per-river pages);
+`out/index.html` is the planner.
+
+### What was actually wrong, and what fixed it
+
+**1. `river.species[]` cannot express the fishery.** TWRA: *"Striped bass are concentrated
+from Cordell Hull Dam downstream to the mouth of the Caney Fork River."* `cordell.py`'s
+species line reads "Smallmouth, white bass & panfish" and the Caney is a trout page, so
+that opportunity was structurally unreachable. Fixed by making **geography** the model:
+`caney/zones/registry.py` holds 17 `FishingZone`s, a zone can span pages
+(`carthage_confluence` spans `cordell` + `caney`), and a `SpeciesProfileRef` attaches per
+species with its own months and pattern. The same water is now allowed to be two
+fisheries: the lower Caney is striper water Jun–Oct and trout water Nov–Apr, with different
+patterns and different holds. `test_species.py::test_carthage_stripers` is the regression.
+
+**2. The AI guard preserved unsafe prose.** The old `guard.js` compared a reply's numbers
+against every number anywhere in the slice, flattened; small values were whitelisted
+outright; and on failure it **shipped the sentence with a warning appended**. Replaced with
+immutable `SafetyClaim`s minted in exactly one place, each scoped to one zone and carrying
+the exact digit-tokens it licenses. The verifier now **fails closed** — an unverifiable
+safety sentence is deleted and replaced with the claim text or an explicit "I don't have
+that". Two bugs found while building it, both worth remembering: `SAFETY_CUES` missed
+*"be out of the water by 1:42"* because it contained no cue **word**, and a module-level
+`/g` regex used with `.test()` carries `lastIndex`, so it alternated true/false and let
+every second unsafe sentence through.
+
+**3. `value or 0`.** A missing Center Hill forecast becoming "0 cfs" becoming "wade all
+day" is a drowning. Every planner value is now an `Observation` with an explicit
+`known/stale/unknown/error` state, `or_else()` forces the caller to name a fallback, and a
+lint greps the package for bare `or 0`. Two real bugs it surfaced: `age_s()` treated epoch
+0 as absent (`observed_at or fetched_at`), and `_first_rise` used `v > 0` where Center Hill
+holds a 250 cfs minimum flow round the clock — which marked the wade window permanently
+closed on every Caney plan.
+
+**4. False precision.** `riverlib.ARRIVAL_STAGES` already carried early/median/late speeds
+and nothing used the spread. Now: safety uses the **earliest** bound (safe exit = earliest
+arrival − 30 min, `bound="earliest"` asserted by tests), fishing optimisation uses the
+typical, and the plan shows all three.
+
+### The architectural decision worth defending
+
+The site is static, so an interactive "what about 6:30–10:00 instead?" cannot call Python.
+Rather than port the scorer to JavaScript — two engines, guaranteed drift — the scorer was
+**redefined so that a window's score is the mean of its hourly scores.** Python emits an
+hourly component series; the browser averages it and applies the same published weights.
+`out/plan/parity.json` holds Python's own score for 93 sampled cases computed *from the
+emitted dataset*, and `test/planner/test_parity.mjs` replays every one through
+`web/planner/model.js`. Currently 93/93, worst Δ 0.0000. Every constant the browser would
+otherwise hardcode — neutral fit, window-search geometry, verdict thresholds, confidence
+bands, horizon penalty, the ranking blend — is published in `data.json`, and a test scans
+`model.js` for unexplained numeric literals.
+
+### Numbers
+
+* 17 fishing zones · 4 species · 84 safety claims · 17 seeded TWRA/TDEC research claims
+* `planner.py`: ~2 s warm, ~8 s cold, 8 upstream fetches (deduped by hydrology river,
+  loaded concurrently), 718 KB dataset, 200 pre-built `FishingPlan`s
+* tests: 591 Python planner checks · 93 parity cases · RiverGuide suite · the browser suite
+  (six §62 scenarios, dark mode, on-water, trip log) · axe **0 violations**
+
+### Decisions made where the brief left it open
+
+* **No Astro.** §47 named it "acceptable preferred", but a Node build step in a repo whose
+  defining constraint is *stdlib-only, no dependencies* buys less than it costs. Plain ES
+  modules + one stylesheet, copied verbatim to `out/assets/`, meet every non-negotiable in
+  §47 — shared CSS actually shared, shared JS actually shared, components independently
+  testable in node, and the debugger shows the source that is running because there is no
+  transform.
+* **Featured plans are one file each**, not one 4.3 MB blob, so a consumer fetches the one
+  plan it was asked about.
+* **The horizon starts at local midnight today**, not at `now` — a "this morning" request
+  made at 08:16 still has to score 06:00–08:00. That was a parity failure before it was a
+  design decision.
+* **The wade gate is different on the two kinds of water.** On a tailwater the danger is
+  the release, not today's level; on a free-flowing river the gauge *is* the river. Getting
+  this backwards eliminated the entire calibrated Caney trout fishery on a Stonewall
+  reading taken fifteen miles below the dam.
+
+### Open threads
+
+1. **Fish with it and log trips.** The scoreboard (`web/planner/trip.js`) is built and
+   reports water-arrival residual, score-vs-rating correlation, species hit rate and
+   confidence calibration — each refusing to print a figure until it has enough trips. It
+   currently has none. Everything below is gated on that data.
+2. **The species weights are priors, not calibration.** They are the numbers from the brief.
+   Nothing has validated them. `docs/SPECIES_SCORING.md` §10 is the recalibration procedure.
+3. **Zone coordinates outside the Caney and Cordell are unverified** and say so in the UI
+   and on the map. Verifying them against the TWRA Boating & Fishing Access layer is the
+   highest-value data work left.
+4. **Research is off by default.** Set `RESEARCH_ENABLED` + `OPENAI_API_KEY` to turn it on;
+   the seeded corpus carries the Carthage case offline either way.
+5. **Largemouth zones are the thinnest part of the model** — mostly heuristic, since the
+   repo's rivers are current-oriented. `cordell_creek_arms` and `stones_river` carry it.
+6. `caney/planner/window.py` scans O(n²) windows per candidate. Fine at 17 zones; if the
+   registry triples, prefix-sum it.
+
+---
+
 # Journal
 
 Append-only session memory. Newest entry at the top. Each entry: what changed, why, and

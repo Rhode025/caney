@@ -5,7 +5,7 @@
  *   node test.mjs
  */
 import { slice, detectIntent, detectRivers, tokenEstimate } from "./src/slice.js";
-import { checkReply, annotate, normalise } from "./src/guard.js";
+import { verify, repair, checkReply, isSafetySensitive, numbersIn } from "./src/guard.js";
 import { resolveAccess, overQuota, TIERS } from "./src/access.js";
 import { readFileSync } from "fs";
 
@@ -50,10 +50,14 @@ for (const [q, want] of [
 
 console.log("\n── slicing is the cost model ──");
 const full = tokenEstimate(corpus);
+// Budgets went up in Caney 2.0: every slice now carries the immutable safety claim book
+// and the zone model, which is what makes a water answer verifiable instead of merely
+// plausible. Roughly +1,500 tokens per question, against a full corpus of ~34,000 — so
+// slicing still saves about 90%, and the increase buys the fail-closed guard.
 const cases = [
-  ["what fly should I use on the Caney right now", 3500],
+  ["what fly should I use on the Caney right now", 4200],
   ["how does the Duck look this weekend", 6000],
-  ["what's fishing well right now", 6000],
+  ["what's fishing well right now", 12000],
   ["where can I launch on the Harpeth", 3500],
 ];
 for (const [q, budget] of cases) {
@@ -90,36 +94,69 @@ const env = { OWNER_CHAT_IDS: "7837861720", OPEN_TO_ALL: "0" };
     typeof overQuota({ ...TIERS.free, label: "free" }, { questions: 1, tokensIn: 60000, tokensOut: 0 }) === "string");
 }
 
-console.log("\n── the guard: verify, do not trust ──");
+console.log("\n── the guard: fail closed on safety, annotate elsewhere ──");
 {
   const cut = slice("what fly should I use on the Caney right now", corpus);
   const p = cut.payload;
-  // The false positive that started this: "#18" with a sentence-ending period.
+  const claims = cut.claims;
+  const zones = cut.zones;
+  is("the slice carries the Caney claim book", claims.length > 0, String(claims.length));
+  is("the slice names its zones", zones.length > 0, zones.join(","));
+
+  // Non-safety numbers keep the gentle treatment: a wrong fly size is not a drowning risk.
   is("a fly size quoted with a full stop is NOT flagged",
-     checkReply("Try a Sowbug #18.", p).ok, JSON.stringify(checkReply("Try a Sowbug #18.", p).unsupported));
-  is("a flow quoted verbatim is not flagged", checkReply("It is running 250 cfs.", p).ok);
-  // Derived from the live corpus, never hardcoded: a literal here would pass today and
-  // fail the moment the river changed — the same data-dependent flake as issue #28.
-  const big = (JSON.stringify(p).match(/\d{1,3},\d{3}/g) || [])[0];
-  if (big) {
-    is(`a comma'd figure (${big}) matches with or without the separator`,
-       checkReply(`Peak is ${big} cfs.`, p).ok && checkReply(`Peak is ${big.replace(",", "")} cfs.`, p).ok,
-       JSON.stringify(checkReply(`Peak is ${big.replace(",", "")} cfs.`, p).unsupported));
-  } else {
-    console.log("  \x1b[33m~\x1b[0m no comma'd figure in today's slice — separator check skipped");
+     verify("Try a Sowbug #18.", p, claims, zones).ok);
+  is("tippet size is not treated as a measurement",
+     verify("Use 6X tippet.", p, claims, zones).ok);
+
+  // The failures that matter — all of these must be REMOVED, not annotated.
+  const cases = [
+    ["an INVENTED generation time", "They will probably start generating around 11:45am."],
+    ["a ROUNDED flow", "Flow is roughly 4100 cfs."],
+    ["a CONVERTED number", "The release is about 7.1 cubic metres per second."],
+    ["a small-looking count", "You have 2 hours before the water comes up."],
+    ["an INFERRED exit time", "Be out of the water by 10:30."],
+  ];
+  for (const [label, reply] of cases) {
+    const r = verify(reply, p, claims, zones);
+    is(`${label} is REMOVED, not shipped`, r.removed.length === 1 && r.text === "",
+       JSON.stringify({ removed: r.removed.length, text: r.text }));
+    const shown = repair(r, claims, zones, "https://x");
+    is(`${label} — the unsafe sentence is absent from what the reader sees`,
+       !shown.includes(reply.replace(/\.$/, "")), shown.slice(0, 90));
+    is(`${label} — the reader is told an answer was removed`,
+       /removed part of that answer/.test(shown), shown.slice(0, 60));
   }
-  // The failures that matter.
-  const conv = checkReply("That is about 7.1 cubic metres per second.", p);
-  is("a CONVERTED number is caught", !conv.ok, JSON.stringify(conv.unsupported));
-  const guess = checkReply("They will probably start generating around 11:45am.", p);
-  is("an INVENTED time is caught", !guess.ok, JSON.stringify(guess.unsupported));
-  const round = checkReply("Flow is roughly 4100 cfs.", p);
-  is("a ROUNDED flow is caught", !round.ok, JSON.stringify(round.unsupported));
-  // Tippet and small counts are language, not measurements.
-  is("tippet size is not treated as a measurement", checkReply("Use 6X tippet.", p).ok);
-  // The annotation must warn without discarding the answer.
-  const ann = annotate("Generating at 11:45am.", guess, "https://x");
-  is("a flagged reply is annotated, not dropped", /11:45am/.test(ann) && /unreliable/.test(ann));
+
+  // A claim quoted verbatim survives.
+  const c = claims.find((x) => x.numbers && x.numbers.length);
+  if (c) {
+    const r = verify(c.text, p, claims, zones);
+    // Compare with separators stripped: a claim's TEXT says "1,220 cfs" while the token
+    // it licenses is "1220". An earlier version of this assertion compared them raw and
+    // passed only on days when the river happened to be under 1,000 cfs.
+    is("a claim quoted verbatim survives",
+       r.ok && r.text.replace(/,/g, "").includes(c.numbers[0]),
+       JSON.stringify({ removed: r.removed, want: c.numbers[0], got: r.text }));
+    is("the guard records which claim grounded it", r.usedClaims.includes(c.id),
+       r.usedClaims.join(","));
+    // Scope matters: the same sentence about a DIFFERENT river must not be grounded.
+    const other = verify(c.text, p, claims, ["a_zone_that_is_not_in_scope"]);
+    is("a claim cannot ground a sentence about another water",
+       other.removed.length === 1, JSON.stringify(other));
+  } else {
+    bad("the corpus carries at least one numeric safety claim", "none found");
+  }
+
+  // Classification itself.
+  is("\"be out of the water by X\" is classified safety-sensitive",
+     isSafetySensitive("Be out of the water by 1:42 PM."));
+  is("a fly sentence is not classified safety-sensitive",
+     !isSafetySensitive("Fish a #18 zebra midge on 6X."));
+  is("classification is not stateful across calls",
+     isSafetySensitive("Flow is 250 cfs.") && isSafetySensitive("Flow is 250 cfs."));
+  is("checkReply still reports a boolean for callers that want one",
+     checkReply("Generating at 11:45am.", p, claims, zones).ok === false);
 }
 
 console.log("\n── dam and place names route to the right river ──");
@@ -136,7 +173,51 @@ for (const [q, want] of [
 {
   const cut = slice("when does Center Hill start generating tomorrow", corpus);
   const t = tokenEstimate(cut.payload);
-  is(`a dam question costs ~${t} tokens, not the whole corpus`, t < 1500, String(t));
+  // The budget went up when the claim book started riding on every slice — that is the
+  // cost of the safety model and it is worth paying, but it must not creep further.
+  is(`a dam question costs ~${t} tokens, not the whole corpus`, t < 3600, String(t));
+}
+
+console.log("\n── §45: planning questions go to the planner, not to a second set of facts ──");
+{
+  const { detectPlanRequest, planPayload, planZones } = await import("./src/plan.js");
+  const at = (h) => new Date(2026, 8, 9, h, 30).getTime();
+  for (const [q, want] of [
+    ["Where should I catch stripers around Carthage this morning?", "striped_bass-any-d0-morning"],
+    ["best place for smallmouth tomorrow afternoon on a kayak", "smallmouth-kayak-d1-afternoon"],
+    ["should i go wade for trout right now", "trout-wade-d0-morning"],
+  ]) {
+    const r = detectPlanRequest(q, at(7));
+    is(`"${q.slice(0, 40)}…" → ${want}`, r && r.key === want, r ? r.key : "null");
+  }
+  is("a fly question is NOT a planning question",
+     detectPlanRequest("what fly for the caney", at(7)) === null);
+  is("a bare conditions question is NOT a planning question",
+     detectPlanRequest("how is the water", at(7)) === null);
+
+  // The real artefact the worker fetches.
+  const fs = await import("fs");
+  const key = "striped_bass-power-d0-morning";
+  const p = `../out/plan/featured/${key}.json`;
+  if (fs.existsSync(p)) {
+    const plan = JSON.parse(fs.readFileSync(p, "utf8"));
+    const pay = planPayload(plan);
+    is("the plan payload carries the verdict and both numbers",
+       ["GO", "CONDITIONAL", "SKIP"].includes(pay.verdict) &&
+       typeof pay.score === "number" && typeof pay.confidence === "number",
+       JSON.stringify([pay.verdict, pay.score, pay.confidence]));
+    is("the plan payload carries a timeline", (pay.timeline || []).length > 0);
+    is("the plan payload carries its score breakdown", (pay.scoreBreakdown || []).length > 0);
+    is("the plan payload carries its safety claim book", Array.isArray(pay.safetyClaims));
+    is("plan zones are resolvable for guard scoping", planZones(plan).length > 0,
+       planZones(plan).join(","));
+    // Everything a plan cites must be sourced (§20).
+    is("every piece of plan evidence has a url",
+       (pay.evidence || []).every((e) => /^https?:\/\//.test(e.url || "")),
+       JSON.stringify((pay.evidence || []).map((e) => e.url).slice(0, 2)));
+  } else {
+    console.log("  \x1b[33m~\x1b[0m no featured plans built — run planner.py");
+  }
 }
 
 console.log();

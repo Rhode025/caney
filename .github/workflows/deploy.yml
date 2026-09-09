@@ -1,14 +1,16 @@
 name: Build and deploy
 
-# R1 from the 2026-07-30 CEO review. Builds the site from live data and publishes it to
-# Cloudflare Pages over HTTPS, so the tool is reachable from a phone instead of living
-# only in out/ on a laptop.
+# Builds the site from live data and publishes it to Cloudflare Pages over HTTPS.
 #
 # The cache step is load-bearing, not an optimisation. briefing.py keeps a last-good
 # Center Hill release forecast in cache_dam.json and falls back to it when USACE CWMS is
 # thin or down (briefing.py:80-89). cache_dam.json is gitignored, so a cold runner would
 # build an empty forecast during an outage and the "USING CACHED release data" path would
 # never fire. Persisting it across runs preserves that resilience in CI.
+#
+# §49: static verify.py is NOT sufficient on its own any more. The planner is an
+# interactive browser application, so the browser suite and the accessibility check gate
+# the deploy alongside the static checks. Everything runs before `pages deploy`.
 
 on:
   push:
@@ -17,9 +19,8 @@ on:
     - cron: '5 * * * *'    # hourly, UTC.
     # GitHub delays scheduled workflows under load and drops them outright when backed up:
     # observed 18:00 -> ran 19:44, 21:00 -> ran 22:11, 00:00 -> never fired. Asking hourly
-    # means a skipped or late run costs ~1 h of staleness instead of 6+. The build is ~30 s
-    # with no third-party deps, so the extra runs are close to free. Offset :05 to avoid the
-    # top-of-hour rush, which is when GitHub's scheduler is most congested.
+    # means a skipped or late run costs ~1 h of staleness instead of 6+. Offset :05 to
+    # avoid the top-of-hour rush, which is when GitHub's scheduler is most congested.
   workflow_dispatch:
 
 # Never let a scheduled build race a push build; they write the same out/.
@@ -30,25 +31,40 @@ concurrency:
 jobs:
   build-deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-          # No requirements.txt on purpose: every generator is stdlib only.
+          # No requirements.txt on purpose: every generator, and the whole caney/ package,
+          # is stdlib only.
 
-      # Restore/save are split deliberately. actions/cache's save runs as a post-step, which
-      # is SKIPPED when an earlier step fails — so a QA failure would throw away a perfectly
-      # good release forecast and leave the next run cold. Saving right after the build, with
-      # if: always(), keeps the CWMS fallback intact regardless of what QA decides.
-      # A unique key per run plus a prefix restore-key gives a rolling cache, since cache
-      # entries are immutable per key.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # ── gate 1: unit tests and model fixtures. No network, no browser, no build. ──
+      # These run FIRST so a broken scorer fails in seconds instead of after a 60-second
+      # build and a browser download.
+      - name: Planner unit tests, schemas and model fixtures
+        run: python3 test/planner/run.py
+
+      - name: Secret scan
+        run: |
+          if git grep -nIE '(sk-[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----)' -- . ':!test/vendor-axe.js' ':!*/node_modules/*'; then
+            echo "::error::a credential-shaped literal is committed"
+            exit 1
+          fi
+          echo "no credential literals found"
+
       - name: Restore release cache
         uses: actions/cache/restore@v4
         with:
-          path: cache_dam.json
+          path: |
+            cache_dam.json
+            .cache
           key: cache-dam-${{ github.run_id }}
           restore-keys: cache-dam-
 
@@ -56,22 +72,49 @@ jobs:
         run: ./build.sh
         env:
           # roadmap.py reads the roadmap issues to decide which tickets are shipped.
-          # Unauthenticated works but shares the runner's 60/h IP budget; the built-in
-          # token gives this build its own allowance. Read-only, scoped to this repo.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # §17 — optional. With neither set the planner is fully deterministic and every
+          # check below still passes; the research drawer simply says research is off.
+          RESEARCH_ENABLED: ${{ vars.RESEARCH_ENABLED }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_RESEARCH_MODEL: ${{ vars.OPENAI_RESEARCH_MODEL }}
 
+      # Saving right after the build, with if: always(), keeps the CWMS fallback intact
+      # regardless of what QA decides — actions/cache's post-step save is SKIPPED when an
+      # earlier step fails, which would throw away a perfectly good release forecast.
       - name: Save release cache
         if: always()
         uses: actions/cache/save@v4
         with:
-          path: cache_dam.json
+          path: |
+            cache_dam.json
+            .cache
           key: cache-dam-${{ github.run_id }}
 
-      # Gate: never publish a build that fails static QA. verify.py checks token
-      # completeness, link integrity, the switcher, the fly-only content policy,
-      # and the HQ status contract.
+      # ── gate 2: static QA over the built site ──
       - name: Static QA
         run: python3 test/verify.py
+
+      - name: River QC
+        run: python3 test/qc_rivers.py
+
+      # ── gate 3: the browser suites ──
+      - name: Install browser test deps
+        run: |
+          cd test && npm install --no-audit --no-fund
+          npx playwright install --with-deps chromium
+
+      - name: Python↔browser scoring parity
+        run: node test/planner/test_parity.mjs
+
+      - name: RiverGuide (slicer, access, fail-closed guard, planner integration)
+        run: cd riverguide && node test.mjs
+
+      - name: Runtime QA — river pages
+        run: cd test && node browser.mjs
+
+      - name: Runtime QA — planner, six scenarios, axe accessibility
+        run: cd test && node planner.mjs
 
       - name: Show release-cache state
         if: always()
@@ -82,9 +125,22 @@ jobs:
             echo "::warning::cache_dam.json missing after build — CWMS fallback is unavailable next run"
           fi
 
+      - name: Build report
+        if: always()
+        run: |
+          if [ -f out/plan/build.json ]; then python3 -m json.tool out/plan/build.json; fi
+
+      # ── deploy ──
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy out --project-name=caney --branch=master
+
+      # ── gate 4: post-deploy smoke and freshness ──
+      # The deploy can succeed and still serve a stale or broken page. This asks the LIVE
+      # site the questions a reader would: is it up, is it secure, is the planner data
+      # fresh, does the homepage still ask what you want to catch.
+      - name: Post-deploy smoke and freshness
+        run: cd test && node smoke.mjs && node planner-smoke.mjs

@@ -13,7 +13,8 @@
 import { resolveAccess, getUsage, recordUsage, overQuota } from "./access.js";
 import { slice, tokenEstimate } from "./slice.js";
 import { askModel, providerName } from "./model.js";
-import { checkReply, annotate } from "./guard.js";
+import { verify, repair } from "./guard.js";
+import { detectPlanRequest, fetchPlan, planPayload, planZones } from "./plan.js";
 
 const CORPUS_URL = "https://caney.pages.dev/bot.json";
 const SITE = "https://caney.pages.dev";
@@ -72,6 +73,20 @@ async function handle(update, env) {
   }
 
   const cut = slice(text, corpus);
+
+  // §45 — a planning question is answered from the planner's own FishingPlan, not from a
+  // second set of facts assembled here. The bot explains the deterministic recommendation.
+  const req = detectPlanRequest(text);
+  const plan = req ? await fetchPlan(req) : null;
+  if (plan) {
+    cut.payload.plan = planPayload(plan);
+    cut.payload.planNote =
+      "This plan was produced by the same planner the website runs. Explain it. Do not " +
+      "rank the water yourself and do not substitute your own judgement for its verdict.";
+    cut.claims = cut.claims.concat(plan.safety || []);
+    cut.zones = [...new Set(cut.zones.concat(planZones(plan)))];
+  }
+
   await sendTyping(env, chatId);
 
   const ageH = (Date.now() / 1000 - corpus.built) / 3600;
@@ -88,18 +103,33 @@ async function ask(env, question, cut, ageH) {
     "Tennessee, south-central Kentucky and north Alabama.\n\n" +
     "You answer ONLY from the DATA in the user message. It is a snapshot from a build, not " +
     "a live feed.\n\n" +
-    "SAFETY — this is the rule that matters most. Dam generation schedules, wade windows, " +
-    "arrival times and flow figures decide whether someone is standing in a river when the " +
-    "water rises. Quote those EXACTLY as the data gives them, or say you do not have them. " +
-    "Never restate, round, average, convert or infer one. If asked whether it is safe to " +
-    "wade, give the data's own words and tell them to verify the release schedule before " +
-    "they get in.\n\n" +
+    "SAFETY — this is the rule that matters most. Each river carries `safetyClaims`: " +
+    "immutable sentences generated from instrument data, each with an id and the exact " +
+    "numbers it licenses. Generation times, wade windows, arrival times, flows and stages " +
+    "may ONLY be stated by quoting a claim's `text` verbatim. Never restate, round, " +
+    "average, convert or infer one, and never state such a number that is not inside a " +
+    "claim for the river being asked about.\n" +
+    "A deterministic verifier runs on your reply after you write it and DELETES any " +
+    "safety-shaped sentence whose numbers are not in the claim book. It does not warn the " +
+    "reader and leave your sentence standing — the sentence is gone. So if you do not have " +
+    "a claim, say you do not have it.\n" +
+    "Claims marked bound=\"earliest\" are conservative bounds. When someone asks when to " +
+    "get out of the water, that is the one to give them — never the typical figure.\n\n" +
+    "SPECIES live in `zones`, not in a river's `species` label. A zone can span two " +
+    "rivers. The Cordell Hull tailwater down to the Caney Fork mouth is striped-bass water " +
+    "even though the Cordell page is labelled smallmouth — answer from `zones`.\n\n" +
     "Everything else — which river suits the conditions, why a fly makes sense, how the week " +
     "is shaping up — reason about freely. That is what you are for. Be concrete and brief; " +
     "two or three short paragraphs at most.\n\n" +
     "If a river's waterModel.confidence is not \"measured\", its numbers are estimates: say " +
     "so when it affects the answer. If the data does not cover what was asked, say that " +
     "plainly rather than reaching.\n\n" +
+    "If the data contains a `plan` object, that is the answer: it came from the planner " +
+    "that runs the website, over the same zones, species weights and sourced evidence. " +
+    "Lead with its verdict, its zone and its window, then explain WHY using its " +
+    "scoreBreakdown and evidence. Give its confidence alongside its score — they are " +
+    "separate numbers and a high score on low confidence means something different. If it " +
+    "says SKIP, say so plainly rather than talking someone into a drive.\n\n" +
     "Telegram HTML only: <b>, <i>, <a href>. No markdown, no headings, no bullet characters.";
 
   const content =
@@ -110,14 +140,22 @@ async function ask(env, question, cut, ageH) {
   const r = await askModel(env, system, content);
   if (r.error) return { error: r.error };
 
-  // Verify rather than trust. Every number the model wrote must appear in the slice it was
-  // shown; anything else is flagged to the reader instead of being quietly delivered.
-  const check = checkReply(r.text, cut.payload);
-  if (!check.ok) {
-    console.warn("guard", r.model, JSON.stringify(check.unsupported), "q=", question.slice(0, 80));
+  // Verify rather than trust, and FAIL CLOSED on anything safety-shaped. A safety
+  // sentence whose numbers are not in the claim book for the rivers in scope is removed
+  // before the reader sees it, and replaced with what the build actually says.
+  const check = verify(r.text, cut.payload, cut.claims, cut.zones);
+  if (check.removed.length) {
+    console.warn("guard REMOVED", r.model, JSON.stringify(check.removed.slice(0, 2)),
+                 "q=", question.slice(0, 80));
+  }
+  if (check.unsupported.length) {
+    console.warn("guard unsupported", r.model, JSON.stringify(check.unsupported),
+                 "q=", question.slice(0, 80));
   }
   const url = (cut.payload.rivers[0] && cut.payload.rivers[0].url) || SITE;
-  return { text: annotate(r.text, check, url), tokensIn: r.tokensIn, tokensOut: r.tokensOut };
+  return { text: repair(check, cut.claims, cut.zones, url),
+           tokensIn: r.tokensIn, tokensOut: r.tokensOut,
+           guard: { removed: check.removed.length, unsupported: check.unsupported.length } };
 }
 
 // The corpus rebuilds hourly, so a 10-minute cache costs at most a little staleness and

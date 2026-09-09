@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """
-River Monitor HQ — the homepage (out/index.html).
+River Monitor HQ — the river board (out/rivers.html).
 Aggregates every river's status card (out/status/<id>.json, written by each generator) into one
 week-ahead board: current condition + a 7-day conditions projection per river, filterable by
 target species and sortable by best water / soonest / drive time. Build the rivers first, then
 this. Sources roll up from each river page. Personal use.
+
+NOT the homepage any more. Caney 2.0 is species-first (§4): out/index.html is the planner,
+and this board is the REFERENCE layer behind it (§48) — the place to browse rivers once you
+already know what you are looking for. Nothing here was deleted; it moved one level down.
 """
 import json,os,sys,datetime,glob,time
 from zoneinfo import ZoneInfo
@@ -35,7 +39,7 @@ for c in CARDS:
 DATA={"cards":CARDS,"species":SPECIES,"updated":now_ct.strftime("%A, %b %-d · %-I:%M %p"),"count":len(CARDS)}
 
 TEMPLATE=r"""<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
-<title>River Monitor HQ</title>
+<title>River Monitor — every river</title>
 <style>
 :root{--ink:#16202b;--muted:#66788a;--faint:#93a3b3;--line:#e6ecf2;--card:#fff}
 *{box-sizing:border-box;-webkit-font-smoothing:antialiased}
@@ -293,7 +297,7 @@ document.getElementById('board').addEventListener('click',function(e){
 document.getElementById('foot').innerHTML='Aggregated from each river\'s live status card · public data only (USGS · USACE · NOAA/NWS · Open-Meteo · OpenStreetMap) · projections are estimates, tune from the water · built for personal use. · <a href="roadmap.html" style="color:var(--accent,#0a5ec2)">Audit &amp; roadmap →</a>';
 </script></body></html>"""
 html=riverlib.render(TEMPLATE,"hq").replace("__DATA__",json.dumps(DATA))
-open(os.path.join(OUT,"index.html"),"w").write(html)
+open(os.path.join(OUT,"rivers.html"),"w").write(html)
 
 # ── the watchdog's endpoint (#2) ─────────────────────────────────────────────
 # Deliberately out/site.json and NOT out/status/*.json: three separate places glob that
@@ -313,5 +317,5 @@ _site={"built":_now,
        "oldestRiverAgeSec":(_now-min(_ages.values()) if _ages else None),
        "site":"https://caney.pages.dev"}
 json.dump(_site,open(os.path.join(OUT,"site.json"),"w"))
-print("wrote out/index.html (River Monitor HQ) | %d rivers | species: %s"%(len(CARDS),", ".join(SPECIES)))
+print("wrote out/rivers.html (River Monitor HQ board) | %d rivers | species: %s"%(len(CARDS),", ".join(SPECIES)))
 print("wrote out/site.json | oldest river: %s (%ss behind)"%(_site["oldestRiver"],_site["oldestRiverAgeSec"]))

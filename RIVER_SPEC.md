@@ -1,9 +1,42 @@
 # River page — standard spec & template
 
+> **Scope changed in Caney 2.0 (2026-09-09).** This document is still canonical for the
+> **river pages**, which are now the *encyclopedia layer* (§48 of the 2.0 brief) rather
+> than the product's front door. The hierarchy is:
+>
+> ```
+> HOME  (out/index.html — the species-first planner)
+>   ↓
+> SPECIES PLAN → EXACT PLAN
+>   ↓
+> RIVER / REACH DETAIL   ← this document
+> ```
+>
+> Three concrete consequences for what follows:
+>
+> * **`hq.py` now builds `out/rivers.html`, not `out/index.html`.** `planner.py` builds the
+>   homepage. The switcher gained a leading **Plan** tab and renamed its HQ tab **Rivers**;
+>   `verify.py` derives the tab count as `len(RIVERS) + 2`.
+> * **The parity rule (§0) still governs river-page features**, and the planner is *not* a
+>   river page — it is a different surface with its own spec (`docs/ARCHITECTURE.md`) and
+>   its own runtime suite (`test/planner.mjs`).
+> * **A river page no longer defines which species live on its water.** That is now the
+>   fishing-zone model in `caney/zones/registry.py`, which can span pages. `cordell.py`'s
+>   species line reads "Smallmouth, white bass & panfish" and the Cordell Hull tailwater is
+>   nevertheless striped-bass water, because TWRA says so. See `docs/ARCHITECTURE.md` §3.
+>   Keep the page's `species` line accurate as a *page description*; do not treat it as a
+>   data source.
+>
+> The rules below that are genuinely global — the parity rule, "directions must be SHOWN",
+> and **no build-time relative time** — apply to the planner too, and `test/verify.py`
+> checks the planner against its own equivalent of the day-identity contract (epochs only,
+> labelled client-side by `web/planner/format.js`).
+
 The canonical feature spec every river page targets, plus the shared-code rules so a
 change made once lands on every river. Personal tool, not a product.
 
-Pages today (9 rivers + the HQ). `hq.py` builds `index.html`; every river builds its own file:
+Pages today (13 rivers + the board + the planner). `hq.py` builds `rivers.html`;
+`planner.py` builds `index.html`; every river builds its own file:
 **Caney Fork** (`briefing.py` → `caney.html`), **Duck River** (`duck.py`), **Cumberland KY /
 Wolf Creek** (`cumberland.py`), **Elk River / AL–Wheeler** (`elk.py`), **Elk / Tims Ford**
 (`elktn.py`), **Stones River** (`stones.py`), and the three Cumberland tailraces —

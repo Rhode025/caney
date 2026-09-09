@@ -18,9 +18,14 @@ RIVERS = ["caney", "cumbnash", "stones", "duckup", "duckmid", "ducklow", "buffal
 # Derived, never hand-maintained: a hand-written copy of this map silently skipped
 # cheatham.html and cordell.html from every per-file check for one release.
 RIVER_FILES = {r: r + ".html" for r in RIVERS}
-# roadmap.html is the audit + sprint board. Not a river, so RIVER_COMPONENTS skips it,
-# but it must still pass tokens, links, switcher and day identity like every other page.
-ALL_HTML = ["index.html", "roadmap.html"] + list(RIVER_FILES.values())
+# index.html is the species-first planner (Caney 2.0). rivers.html is the old HQ board,
+# now the reference layer behind it (§48). roadmap.html is the audit + sprint board.
+# None of the three is a river, so RIVER_COMPONENTS skips them, but rivers.html and
+# roadmap.html must still pass tokens, links, switcher and day identity like every other
+# page. index.html is exempt from the switcher check: it has its own nav and is the root
+# of the hierarchy rather than a peer of it.
+ALL_HTML = ["index.html", "rivers.html", "roadmap.html"] + list(RIVER_FILES.values())
+SWITCHER_HTML = ["rivers.html", "roadmap.html"] + list(RIVER_FILES.values())
 
 # fly-only: these must never appear in output (baitfish = a fly's imitation target, allowed)
 FORBIDDEN = re.compile(
@@ -70,9 +75,9 @@ for f in ALL_HTML:
     missing = [t for t in targets if not os.path.exists(os.path.join(OUT, t))]
     check("links resolve: " + f, not missing, "missing " + ",".join(missing))
 
-TABS = len(RIVERS) + 1          # HQ + every river; derived, never hardcoded
-print("── switcher (HQ + %d rivers = %d tabs) ──" % (len(RIVERS), TABS))
-for f in ALL_HTML:
+TABS = len(RIVERS) + 2         # Plan + Rivers + every river; derived, never hardcoded
+print("── switcher (Plan + Rivers + %d rivers = %d tabs) ──" % (len(RIVERS), TABS))
+for f in SWITCHER_HTML:
     if not os.path.exists(os.path.join(OUT, f)):
         continue
     html = read(f)
@@ -87,8 +92,9 @@ for rid, f in RIVER_FILES.items():
     html = read(f)
     missing = [alts[0] for alts in RIVER_COMPONENTS if not any(a in html for a in alts)]
     check("components: " + f, not missing, "missing " + ",".join(missing))
-idx = read("index.html") if os.path.exists(os.path.join(OUT, "index.html")) else ""
-check("HQ has board/filter/sort", all(x in idx for x in ['id="board"', 'id="spf"', 'id="sort"']))
+riv = read("rivers.html") if os.path.exists(os.path.join(OUT, "rivers.html")) else ""
+check("river board has board/filter/sort",
+      all(x in riv for x in ['id="board"', 'id="spf"', 'id="sort"']))
 
 print("── fly-only content policy ──")
 for f in ALL_HTML:
@@ -321,7 +327,11 @@ def day_rows(o, acc=None):
     return acc
 
 _rowtotal = 0
-for f in ALL_HTML:
+# index.html is the planner (Caney 2.0). It meets the SAME invariant by a different, and
+# stronger, mechanism: no time is formatted at build time at all — the dataset ships
+# epochs, and web/planner/format.js labels them against the reader's clock. So it is
+# checked below by its own contract instead of the __rlRelabel one.
+for f in [x for x in ALL_HTML if x != "index.html"]:
     p = os.path.join(OUT, f)
     if not os.path.exists(p): continue
     html = read(f)
@@ -331,7 +341,7 @@ for f in ALL_HTML:
     check("day-identity runtime present: " + f, "window.__rlRelabel=" in html)
     # S1 / #1 — a stale page must not render values that only mean something today.
     check("stale-day seal present: " + f, "window.__rlSealClockKeyed=" in html)
-    if f not in ("index.html", "roadmap.html"):
+    if f not in ("rivers.html", "roadmap.html"):
         # Every river page carries at least one clock-keyed container for the seal to find.
         # Without one, a stale build would show live-looking numbers with nothing to blank.
         clock = re.findall(r'id="(nowstrip|now|arrival|best|feed|sol)"|data-clock', html)
@@ -352,6 +362,100 @@ for f in ALL_HTML:
         check("page headline carries todayIso: " + f, _ISO.match(str(D.get("todayIso", ""))),
               "needed so the headline date follows the reader's clock, not the build's")
 
+print("── planner (Caney 2.0) ──")
+_pd = os.path.join(OUT, "plan", "data.json")
+if not os.path.exists(_pd):
+    check("plan/data.json exists", False, "planner.py must run in build.sh")
+else:
+    _P = json.load(open(_pd))
+    _idx = read("index.html")
+
+    # §4 — the homepage asks the product's question and offers the four species.
+    check("homepage asks what to catch", "What do you want to catch?" in _idx)
+    for _w in ("id=\"species\"", "id=\"times\"", "id=\"crafts\"", "id=\"go\""):
+        check("planner shell has " + _w, _w in _idx)
+    check("primary CTA is FIND MY BEST PLAN", "FIND MY BEST PLAN" in _idx)
+    for _sp in ("striped_bass", "smallmouth", "largemouth", "trout"):
+        check("species in dataset: " + _sp, _sp in _P["species"])
+        check("weights sum to 100: " + _sp, sum(_P["weights"][_sp].values()) == 100,
+              str(sum(_P["weights"][_sp].values())))
+        check("moon is capped at 3 points: " + _sp, _P["weights"][_sp].get("moon", 0) <= 3)
+
+    # §47 — shared CSS and JS are actually shared: the shell links them, never inlines them.
+    check("homepage inlines no <style>", "<style" not in _idx)
+    _inline = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", _idx, re.S)
+    _bodies = [b for b in _inline if len(b.strip()) > 200]
+    check("homepage inlines no script body", not _bodies,
+          "%d inline script(s) over 200 chars" % len(_bodies))
+    check("homepage links the shared stylesheet", 'href="assets/app.css"' in _idx)
+    for _js in ("app.js", "model.js", "ui.js", "timeline.js", "format.js", "map.js"):
+        check("shared module shipped: " + _js,
+              os.path.exists(os.path.join(OUT, "assets", "planner", _js)))
+
+    # RIVER_SPEC §0 applied to the planner: no formatted clock time in the emitted HTML.
+    _clock = re.findall(r"\b\d{1,2}:\d{2}\s*(?:AM|PM|am|pm)\b", _idx)
+    check("no build-time clock string on the homepage", not _clock, ",".join(_clock[:3]))
+    check("day labelling is client-side",
+          "dayLabel" in open(os.path.join(OUT, "assets", "planner", "format.js"),
+                             encoding="utf-8").read())
+
+    # §22 — the Carthage striper case must exist as GEOGRAPHY, not as a page species tag.
+    _cc = _P["zones"].get("carthage_confluence")
+    check("carthage_confluence zone exists", bool(_cc))
+    if _cc:
+        check("carthage_confluence holds striped bass",
+              "striped_bass" in _cc["species_profiles"])
+        check("carthage_confluence spans Cordell AND the Caney",
+              set(_cc["waterbody_ids"]) >= {"cordell", "caney"}, str(_cc["waterbody_ids"]))
+        check("carthage_confluence is a corridor, not an invented pin",
+              (_cc["geometry"] or {}).get("kind") == "corridor",
+              str((_cc["geometry"] or {}).get("kind")))
+        _ev = _P["evidence"].get("carthage_confluence|striped_bass") or []
+        check("carthage striper case carries sourced evidence", len(_ev) >= 3,
+              "%d claims" % len(_ev))
+        for _cid in _ev:
+            _cl = _P["claims"].get(_cid) or {}
+            check("every research claim has a source URL", bool(_cl.get("source_url")),
+                  _cid)
+
+    # §3.3 / §20 — safety claims are minted from instruments and carry their bound.
+    _bad_bound = [c["id"] for c in _P["safety"] if c["bound"] not in
+                  ("earliest", "typical", "latest", "measured")]
+    check("every safety claim declares its bound", not _bad_bound, ",".join(_bad_bound[:3]))
+    _exits = [c for c in _P["safety"] if c["kind"] == "safe_exit"]
+    check("every safe-exit claim uses the conservative bound",
+          all(c["bound"] == "earliest" for c in _exits),
+          ",".join(c["id"] for c in _exits if c["bound"] != "earliest"))
+    _num = [c["id"] for c in _P["safety"]
+            if c["kind"] in ("flow", "stage", "generation_start", "generation_stop",
+                             "safe_exit", "release_arrival") and not c["numbers"]]
+    check("numeric safety claims list their licensed numbers", not _num, ",".join(_num[:3]))
+
+    # §3.4 — unknown is never zero.
+    for _zid, _z in _P["zones"].items():
+        for _k, _o in _z["water"].items():
+            if _o["state"] in ("unknown", "error"):
+                check("unknown water value is not a number: %s.%s" % (_zid, _k),
+                      _o["value"] is None, repr(_o["value"]))
+
+    # §3.5 — modelled arrival ships a distribution, never a single time.
+    for _zid, _z in _P["zones"].items():
+        _a = (_z.get("arrival") or {}).get("first")
+        if _a:
+            check("arrival ships early/typical/late: " + _zid,
+                  set(_a) == {"earliest_h", "typical_h", "latest_h"} and
+                  _a["earliest_h"] <= _a["typical_h"] <= _a["latest_h"], str(_a))
+
+    check("dataset carries the published rank formula",
+          abs(_P["rank"]["base"] + _P["rank"]["conf"] - 1.0) < 1e-9, str(_P["rank"]))
+    check("planner reports research state", "provider" in _P.get("research", {}))
+    check("PWA manifest shipped", os.path.exists(os.path.join(OUT, "manifest.webmanifest")))
+    check("service worker shipped", os.path.exists(os.path.join(OUT, "sw.js")))
+    check("leaflet bundled locally (offline maps)",
+          os.path.exists(os.path.join(OUT, "assets", "leaflet.js")))
+    check("parity fixture shipped for the browser engine",
+          os.path.exists(os.path.join(OUT, "plan", "parity.json")))
+
 # A guard on the guard: if the walk stops finding rows (a refactor renames date/label), the
 # checks above would pass vacuously — as an earlier regex version of this check did.
 check("day-row scan found rows to check", _rowtotal >= 50, "only %d rows seen" % _rowtotal)
@@ -361,7 +465,7 @@ check("day-row scan found rows to check", _rowtotal >= 50, "only %d rows seen" %
 # label is a documented no-JS fallback that __rlRelabel overwrites.
 _REL = re.compile(r'"[^"]*\b(?:Today|Tomorrow|Yesterday)\b[^"]*"')
 for src in ["riverlib.py", "briefing.py", "cumberland.py", "duck.py", "buffalo.py",
-            "harpeth.py", "hq.py"]:
+            "harpeth.py", "hq.py", "planner.py", "caney/render/pages.py"]:
     txt = open(os.path.join(ROOT, src), encoding="utf-8").read()
     hits = []
     for ln, line in enumerate(txt.splitlines(), 1):

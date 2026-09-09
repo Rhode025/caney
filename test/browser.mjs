@@ -16,8 +16,12 @@ import { readFileSync } from 'fs';
 const RIVERS = [...readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'riverlib.py'), 'utf8')
   .matchAll(/\{"id":\s*"([a-z]+)",[^}]*?"file":\s*"([^"]+)"/g)].map(m => m[2]);
 if (RIVERS.length < 5) { console.error('could not read the river registry from riverlib.py'); process.exit(1); }
-const PAGES = ['index.html', ...RIVERS];
-const TABS = RIVERS.length + 1;   // HQ + every river; derived, never hardcoded
+// Caney 2.0: index.html is the species-first planner and is covered by test/planner.mjs,
+// which serves it over HTTP (it loads ES modules, which file:// blocks). This suite owns
+// the river pages and the river board, which moved from index.html to rivers.html.
+const PAGES = ['rivers.html', ...RIVERS];
+const HQ = 'rivers.html';
+const TABS = RIVERS.length + 2;   // Plan + Rivers + every river; derived, never hardcoded
 
 let fails = 0;
 const ok  = (n) => console.log('  \x1b[32m✓\x1b[0m ' + n);
@@ -37,7 +41,7 @@ for (const p of PAGES) {
   await pg.waitForTimeout(500);
   const real = errs.filter(e => !/favicon/.test(e));
   assert('no JS errors: ' + p, real.length === 0, real.join(' | '));
-  if (p !== 'index.html') {
+  if (p !== HQ) {
     const tabs = await pg.$$eval('.switch a', a => a.length).catch(() => 0);
     assert(`switcher ${TABS} tabs: ` + p, tabs === TABS, 'found ' + tabs);
     const map = await pg.$('#lmap');
@@ -52,7 +56,7 @@ console.log('── HQ interactions ──');
   const errs = [];
   const pg = await browser.newPage({ viewport: { width: 980, height: 1700 } });
   pg.on('pageerror', e => errs.push(String(e)));
-  await pg.goto(url('index.html'), { waitUntil: 'networkidle' });
+  await pg.goto(url(HQ), { waitUntil: 'networkidle' });
   await pg.waitForTimeout(400);
 
   const n0 = await pg.$$eval('#board .rc', e => e.length);
@@ -99,7 +103,7 @@ console.log('── HQ interactions ──');
   await pg.click('#board .rc .wd');
   await pg.waitForTimeout(120);
   const noteShown = await pg.$eval('#board .rc .wknote', e => !e.hidden && e.textContent.length > 5);
-  assert('day-tap reveals note, stays on HQ', noteShown && pg.url().endsWith('index.html'));
+  assert('day-tap reveals note, stays on HQ', noteShown && pg.url().endsWith(HQ));
 
   // card-body click navigates to that river
   const href = await pg.$eval('#board .rc', a => a.getAttribute('href'));
@@ -347,7 +351,7 @@ console.log('── HQ: day view selector + default by clock ──');
     }, hh);
     const errs = [];
     pg.on('pageerror', e => errs.push(String(e)));
-    await pg.goto(url('index.html'), { timeout: 20000 });
+    await pg.goto(url(HQ), { timeout: 20000 });
     await pg.waitForSelector('#viewsel button.on', { timeout: 8000 });
     const r = {
       view: await pg.$eval('#viewsel button.on', e => e.textContent.trim()),
@@ -368,7 +372,7 @@ console.log('── HQ: day view selector + default by clock ──');
 
   // switching views, and the content that must appear in each
   const pg = await browser.newPage({ viewport: { width: 390, height: 900 } });
-  await pg.goto(url('index.html'), { timeout: 20000 });
+  await pg.goto(url(HQ), { timeout: 20000 });
   await pg.waitForSelector('#viewsel button.on');
   await pg.click('#viewsel button[data-v="today"]');
   await pg.waitForTimeout(150);

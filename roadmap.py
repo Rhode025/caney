@@ -303,7 +303,12 @@ if(location.hash.startsWith('#tk')){const d=document.getElementById(location.has
 html = riverlib.render(TEMPLATE, "roadmap").replace("__DATA__", json.dumps(DATA))
 with open(os.path.join(OUT, "roadmap.html"), "w") as f:
     f.write(html)
+# Tickets added after the initial audit have no GitHub issue yet, so report the range of
+# the ones that DO rather than printing "#1-#None" and looking like a bug.
+_nums = sorted(t["issue"] for t in R["tickets"] if t.get("issue"))
+_pending = len(R["tickets"]) - len(_nums)
 print("wrote", os.path.join(OUT, "roadmap.html"),
-      "| %d tickets, %d findings, issues #%s-#%s"
+      "| %d tickets, %d findings, issues #%s-#%s%s"
       % (len(R["tickets"]), len(R["findings"]),
-         R["tickets"][0].get("issue"), R["tickets"][-1].get("issue")))
+         _nums[0] if _nums else "-", _nums[-1] if _nums else "-",
+         (", %d awaiting an issue" % _pending) if _pending else ""))

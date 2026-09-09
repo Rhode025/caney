@@ -1144,11 +1144,14 @@ def solunar(day, sunrise_hm, sunset_hm, tz):
             "minor": [[_fmt(ut-368), _fmt(ut-308)], [_fmt(ut+308), _fmt(ut+368)]]}
 
 def switcher(cur):
-    # HQ home link first, then every river. cur="hq" highlights the HQ tab.
+    # The hierarchy is PLAN -> RIVERS -> one river (§48): the planner is the front door and
+    # the river pages are the encyclopedia behind it. index.html is the species-first
+    # planner; the old HQ board moved to rivers.html and keeps its own tab.
+    parts = ['<a href="index.html">🎯 Plan</a>']
     if cur == "hq":
-        parts = ['<a class="on" style="background:#1c2b3a;color:#fff">🏠 HQ</a>']
+        parts.append('<a class="on" style="background:#1c2b3a;color:#fff">🏠 Rivers</a>')
     else:
-        parts = ['<a href="index.html">🏠 HQ</a>']
+        parts.append('<a href="rivers.html">🏠 Rivers</a>')
     for r in RIVERS:
         if r["id"] == cur:
             parts.append('<a class="on" style="background:%s;color:%s">%s %s</a>'

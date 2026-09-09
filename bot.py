@@ -25,6 +25,56 @@ OUT = os.path.join(HERE, "out")
 SITE = "https://caney.pages.dev"
 
 
+def planner_dataset():
+    """out/plan/data.json — the planner's own output. §45: RiverGuide answers from the SAME
+    objects the web product does, so there is not a parallel world of facts."""
+    p = os.path.join(OUT, "plan", "data.json")
+    if not os.path.exists(p):
+        print("  ! no plan/data.json — run planner.py before bot.py")
+        return {}
+    try:
+        return json.load(open(p, encoding="utf-8"))
+    except Exception as e:
+        print("  ! plan/data.json unreadable:", e)
+        return {}
+
+
+def safety_for(P, river_id):
+    """The immutable safety claims for every fishing zone on this river.
+
+    This is the claim book riverguide/src/guard.js verifies replies against. It ships the
+    exact text and the exact digit tokens each claim licenses; the bot may quote a claim
+    and may not restate one (§3.3, §20)."""
+    zones = [zid for zid, z in (P.get("zones") or {}).items()
+             if z.get("river") == river_id]
+    return [{"id": c["id"], "kind": c["kind"], "zone": c["zone_id"], "text": c["text"],
+             "numbers": c["numbers"], "bound": c["bound"], "source": c["source"],
+             "state": c["state"]}
+            for c in (P.get("safety") or []) if c["zone_id"] in zones]
+
+
+def zones_for(P, river_id):
+    """The fishing zones on this river, with their species — the taxonomy the bot answers
+    species questions from. A page's `species` line is a label; this is the model."""
+    out = []
+    for zid, z in (P.get("zones") or {}).items():
+        if z.get("river") != river_id:
+            continue
+        out.append({
+            "id": zid, "name": z["name"],
+            "species": list(z.get("species_profiles") or {}),
+            "waterbodies": z.get("waterbody_names"),
+            "craft": z.get("craft"), "tailwater": z.get("tailwater"),
+            "holds": {sp: (pr.get("holds") or "")[:220]
+                      for sp, pr in (z.get("species_profiles") or {}).items()},
+            "pattern": {sp: pr.get("pattern") or ""
+                        for sp, pr in (z.get("species_profiles") or {}).items()},
+            "evidence": {sp: (P.get("evidence") or {}).get(zid + "|" + sp, [])
+                         for sp in (z.get("species_profiles") or {})},
+        })
+    return out
+
+
 def page_data(river_id):
     """The DATA blob out of a built page. verify.py pins this same shape, so a rename
     that would silently empty the bot's corpus fails the build first."""
@@ -109,6 +159,7 @@ def tips(D):
 
 
 def build():
+    P = planner_dataset()
     rivers = []
     for r in riverlib.RIVERS:
         rid = r["id"]
@@ -146,6 +197,9 @@ def build():
             "access": access(D),
             "solunar": D.get("solunar"),
             "waterModel": {"how": wm.get("src"), "confidence": conf} if wm else None,
+            # §45 — the planner's own objects, not a second set of facts.
+            "safetyClaims": safety_for(P, rid),
+            "zones": zones_for(P, rid),
         }.items() if v not in (None, [], {})})
 
     now = datetime.datetime.now(datetime.timezone.utc)
@@ -166,8 +220,31 @@ def build():
             "A river whose waterModel.confidence is not 'measured' carries estimated numbers. "
             "Say which when it matters.",
             "Link the river's url so the reader can check the live page.",
+            "safetyClaims are IMMUTABLE. You may quote one verbatim. You may not restate, "
+            "round, convert, average or infer one, and you may not state a generation time, "
+            "wade window, arrival time, flow or stage that is not inside one. A verifier "
+            "removes any sentence that does — you will simply lose the answer.",
+            "Species live in ZONES, not in a page's species label. A zone can span two "
+            "rivers: the Cordell Hull tailwater down to the Caney Fork mouth is striped-bass "
+            "water even though the Cordell page is labelled smallmouth.",
+            "A researchClaim without a url does not exist. Cite the url when you use one.",
         ],
         "rivers": rivers,
+        # The research claims behind every species recommendation, keyed by id so a zone's
+        # `evidence` list resolves. §20: every one carries its source URL.
+        "researchClaims": {k: {"id": v["id"], "species": v["species"],
+                               "type": v["claim_type"], "text": v["claim_text"][:320],
+                               "url": v["source_url"], "title": v["source_title"],
+                               "tier": v["source_tier"], "published": v.get("published_at")}
+                           for k, v in (P.get("claims") or {}).items()},
+        # Deliberately NOT the weight table: the bot explains the deterministic
+        # recommendation, it does not re-derive it (§45), and 4 x 9 weights is 400 tokens
+        # on every single answer.
+        "planner": {"built": P.get("built"), "horizon": P.get("horizon"),
+                    "research": {"provider": (P.get("research") or {}).get("provider"),
+                                 "enabled": (P.get("research") or {}).get("enabled")},
+                    "featuredIndex": SITE + "/plan/featured/index.json",
+                    "planUrl": SITE + "/plan/featured/{species}-{craft}-d{day}-{preset}.json"},
     }
     return corpus
 

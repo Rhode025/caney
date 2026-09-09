@@ -1,7 +1,12 @@
 # Caney — agent orientation
 
-Personal river-fishing tool: per-river planning pages built by Python generators, plus an
-HQ that ranks the rivers. Not a product (but see `PRODUCT_STRATEGY.md`).
+Personal river-fishing tool. **Species-first planner** (`out/index.html`): you pick a fish
+and a time window, it returns one evidence-backed plan — where, when, launch, itinerary,
+water, weather, moon, flies, conditional moves, safety, score, confidence and citations.
+Behind it sit the original per-river planning pages built by Python generators, and the
+board that ranks them (`out/rivers.html`). Not a product (but see `PRODUCT_STRATEGY.md`).
+
+**Read `docs/ARCHITECTURE.md` before changing anything in `caney/` or `web/`.**
 
 ## Start every session from this directory
 
@@ -22,29 +27,39 @@ that happens to `~/.claude`.
 
 | Path | What |
 |---|---|
+| `caney/` | the 2.0 package — domain, species, zones, research, sources, planner, render |
+| `planner.py` | builds the species-first homepage + `out/plan/*` (runs after `hq.py`) |
+| `web/` | the shared frontend — one stylesheet, ES modules, no build step |
+| `docs/ARCHITECTURE.md` | how the two halves fit together. Start here. |
 | `briefing.py` | Caney Fork — the deepest page (dam routing, generation timing) |
 | `duck.py` `elk.py` `elktn.py` `stones.py` `cumberland.py` | the other single-river pages |
 | `cumbnash.py` `cheatham.py` `cordell.py` | the three Cumberland mainstem tailraces |
 | `riverlib.py` | shared components — the parity rule below lives or dies here |
-| `hq.py` | cross-river ranking page |
+| `hq.py` | cross-river ranking board → `out/rivers.html` (no longer the homepage) |
 | `analysis/` | one-off calibration and backtest scripts (not part of the build) |
 | `test/` | QA suite — see `test/README.md` |
 | `out/` | generated HTML, **gitignored**, rebuilt from the generators |
-| `RIVER_SPEC.md` | the canonical feature spec every river page targets |
+| `RIVER_SPEC.md` | the canonical feature spec every river page targets (the drill-down layer) |
 | `docs/JOURNAL.md` | session memory: state, decisions, open threads |
 
 ## Build & check
 
 ```bash
-./build.sh                   # regenerate every river + HQ into out/ (~30s, stdlib only)
+./build.sh                   # every river + board + planner + bot corpus (~60s, stdlib only)
+python3 planner.py           # JUST the planner and its dataset (~2s warm)
 python3 briefing.py          # or duck.py, elk.py, … — one river at a time
-./test/run.sh                # build, then static + runtime checks
+./test/run.sh                # build, then every check we have
+python3 test/planner/run.py  # planner unit + fixtures — no network, fixed clock, instant
 python3 test/verify.py       # static only, instant, no deps
 ```
 
-`build.sh` is the single source of the generator list and order. `hq.py` runs last because it
-aggregates every `out/status/<id>.json` into `index.html`. There are **no third-party Python
-dependencies** anywhere in this repo; keep it that way.
+`planner.py` runs **after** `hq.py` (it links the river pages as the drill-down layer) and
+**before** `bot.py` (the bot corpus embeds the planner's safety claim book).
+
+`build.sh` is the single source of the generator list and order. `hq.py` runs after the
+river generators because it aggregates every `out/status/<id>.json` into `rivers.html`;
+`planner.py` then builds the homepage, and `bot.py` runs last of all. There are **no
+third-party Python dependencies** anywhere in this repo; keep it that way.
 
 Install the pre-commit gate once: `ln -sf ../../test/hooks/pre-commit .git/hooks/pre-commit`
 
@@ -59,8 +74,13 @@ Hourly rather than 3-hourly because GitHub delays scheduled workflows under load
 them when backed up (observed: 18:00 ran at 19:44, 21:00 ran at 22:11, 00:00 never fired).
 Asking hourly makes a skipped run cost ~1 h of staleness instead of 6+.
 
-Static QA gates the deploy: a build that fails
-`verify.py` is never published.
+**Every suite gates the deploy, not just `verify.py`** (2.0, §49): planner unit tests and
+model fixtures → secret scan → build → static QA + river QC → Python↔browser scoring parity
+→ RiverGuide → browser QA for the river pages → browser QA for the planner including axe
+accessibility → deploy → post-deploy smoke and freshness against the live site.
+
+Research is optional in CI: set the `RESEARCH_ENABLED` variable and the `OPENAI_API_KEY`
+secret to turn it on. Without them the build is fully deterministic and every gate passes.
 
 The cache step in that workflow is load-bearing, not an optimisation. `briefing.py:80-89`
 keeps a last-good Center Hill release forecast in `cache_dam.json` and falls back to it when
@@ -78,6 +98,21 @@ never fire. Do not remove it.
   quotes the old number. `2c2bc2c` is the worked example: one constant, nine call sites of prose.
 - **Never hardcode a calibrated number in the page JS** — pass it through `DATA` so Python stays
   the single source. (`DATA.mph` exists because a hardcoded `3` got missed once.)
+- **Unknown is never zero.** `value or 0` is how a missing release forecast becomes
+  "0 cfs" becomes "wade all day". Every planner value is an `Observation` with a
+  `known/stale/unknown/error` state; `test_architecture.py` greps for bare `or 0` and fails
+  the build unless the line is marked `# not a measurement`.
+- **Safety numbers are minted once.** `caney/sources/snapshots.py::_mint_safety_claims` is
+  the only place a `SafetyClaim` is created. Anything generative may quote a claim and may
+  never restate one; `riverguide/src/guard.js` verifies per zone and **fails closed** —
+  an unverifiable safety sentence is deleted, not annotated. `docs/SAFETY.md`.
+- **Safety uses the earliest bound, fishing uses the typical one.** `arrival_window()`
+  returns `(earliest, typical, latest)`; safe-exit claims are always `bound="earliest"`.
+- **Species live in zones, not on pages.** A page's `species` line is a description. The
+  model is `caney/zones/registry.py`, and a zone may span pages.
+- **Weights are config.** `caney/species/profiles.py::WEIGHTS`, pinned by a test. Never put
+  a threshold in `caney/planner/scoring.py` — and never in `web/planner/model.js`, which
+  assembles and does not model (`test/planner/test_parity.mjs` enforces it).
 - **No build-time relative time** (`RIVER_SPEC.md` §0) — every day row ships `iso`, every page
   ships `todayIso`, and `Today`/`Tomorrow` are stamped client-side from the reader's clock by
   `riverlib.DAYLABEL_JS`. Never select a day by index (`week[0]`, `di===0`); select by `isToday`.
