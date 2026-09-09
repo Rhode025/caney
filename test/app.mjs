@@ -36,8 +36,18 @@ const TRANSIENT = /net::ERR_(NETWORK_CHANGED|INTERNET_DISCONNECTED|TIMED_OUT|CON
 // Filtered narrowly: only fetches to the API host. An actual CORS misconfiguration would
 // fail EVERY request rather than roughly a quarter of cold ones, and would show up as
 // every flow failing rather than a console line.
+//
+// It arrives as a PAIR of console lines and only one of them names the URL:
+//
+//   "Access to fetch at 'https://caney-api…' … blocked by CORS policy: …"   <- has it
+//   "Failed to load resource: net::ERR_FAILED"                               <- does not
+//
+// So matching on the host alone leaves the second line unfiltered, which is what kept
+// this check failing after the first attempt at it. net::ERR_FAILED is the same class of
+// network-level failure as the ERR_ codes already filtered above, and page script cannot
+// suppress either line.
 const KNOWN_WORKER_TRANSIENT =
-  /(blocked by CORS policy|Failed to load resource).*caney-api|caney-api.*(CORS|ERR_FAILED)/;
+  /caney-api.*(CORS|ERR_FAILED)|blocked by CORS policy.*caney-api|Failed to load resource:\s*net::ERR_FAILED/;
 
 const browser = await chromium.launch();
 
