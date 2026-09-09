@@ -156,264 +156,275 @@ def _f(fid, zone_id, name, ftype, geom, hydraulic, holding, species, minutes=45,
 # Grouped by zone. Every `holding` line describes behaviour the zone registry or the
 # seeded TWRA corpus already asserts; none introduces a new claim about where fish are.
 
-_ALL = [
-    # ── Cordell Hull tailwater · Carthage ────────────────────────────────────
-    _f("cordell_dam_break", "cordell_tailwater", "Dam current break",
-       FeatureType.DAM_CURRENT_BREAK, whole("cordell_tailwater"),
-       HydraulicBehavior.NEEDS_CURRENT,
-       "The boil directly below the units. Fish stack on the shear line where the "
-       "release meets slack water, and scatter within the hour once it shuts down.",
-       [_sp("striped_bass", "On the shear line, not in the boil", 1.0),
-        _sp("smallmouth", "Off the edge of the break, in the softer water", 0.6)],
-       minutes=35, notes="Dead without generation — the whole feature is the release."),
+def _build():
+        return [
+        # ── Cordell Hull tailwater · Carthage ────────────────────────────────────
+        _f("cordell_dam_break", "cordell_tailwater", "Dam current break",
+           FeatureType.DAM_CURRENT_BREAK, whole("cordell_tailwater"),
+           HydraulicBehavior.NEEDS_CURRENT,
+           "The boil directly below the units. Fish stack on the shear line where the "
+           "release meets slack water, and scatter within the hour once it shuts down.",
+           [_sp("striped_bass", "On the shear line, not in the boil", 1.0),
+            _sp("smallmouth", "Off the edge of the break, in the softer water", 0.6)],
+           minutes=35, notes="Dead without generation — the whole feature is the release."),
 
-    _f("cordell_outside_seam", "cordell_tailwater", "Outside seam",
-       FeatureType.TAILRACE_SEAM,
-       junction("cordell_tailwater", "carthage_confluence",
-                "the head of the TWRA-described corridor below the dam"),
-       HydraulicBehavior.BEST_ON_FALLING,
-       "The seam that forms along the outside of the discharge as it spreads. Holds "
-       "longer after shutdown than the boil does.",
-       [_sp("striped_bass", "Along the current edge, working down as it softens", 0.95)],
-       minutes=40),
+        _f("cordell_outside_seam", "cordell_tailwater", "Outside seam",
+           FeatureType.TAILRACE_SEAM,
+           junction("cordell_tailwater", "carthage_confluence",
+                    "the head of the TWRA-described corridor below the dam"),
+           HydraulicBehavior.BEST_ON_FALLING,
+           "The seam that forms along the outside of the discharge as it spreads. Holds "
+           "longer after shutdown than the boil does.",
+           [_sp("striped_bass", "Along the current edge, working down as it softens", 0.95)],
+           minutes=40),
 
-    # ── Carthage confluence ─────────────────────────────────────────────────
-    _f("carthage_caney_mouth", "carthage_confluence", "Caney Fork mouth",
-       FeatureType.TRIBUTARY_MOUTH,
-       junction("carthage_confluence", "caney_lower",
-                "where both zone corridors terminate — corroborated by two entries"),
-       HydraulicBehavior.IMPROVES_WITH_CURRENT,
-       "Cold Caney water meeting the Cumberland. The thermal edge is the feature; it is "
-       "sharpest while Center Hill is releasing and blurs within a few hours of shutdown.",
-       [_sp("striped_bass", "On the temperature edge, usually the downstream side", 1.0,
-            months=[5, 6, 7, 8, 9, 10]),
-        _sp("smallmouth", "Off the seam, on the rock", 0.7)],
-       minutes=55,
-       notes="The summer striper refuge TWRA describes. Two dams drive it, not one."),
+        # ── Carthage confluence ─────────────────────────────────────────────────
+        _f("carthage_caney_mouth", "carthage_confluence", "Caney Fork mouth",
+           FeatureType.TRIBUTARY_MOUTH,
+           junction("carthage_confluence", "caney_lower",
+                    "where both zone corridors terminate — corroborated by two entries"),
+           HydraulicBehavior.IMPROVES_WITH_CURRENT,
+           "Cold Caney water meeting the Cumberland. The thermal edge is the feature; it is "
+           "sharpest while Center Hill is releasing and blurs within a few hours of shutdown.",
+           [_sp("striped_bass", "On the temperature edge, usually the downstream side", 1.0,
+                months=[5, 6, 7, 8, 9, 10]),
+            _sp("smallmouth", "Off the seam, on the rock", 0.7)],
+           minutes=55,
+           notes="The summer striper refuge TWRA describes. Two dams drive it, not one."),
 
-    _f("carthage_channel_swing", "carthage_confluence", "Channel swing below the mouth",
-       FeatureType.CHANNEL_SWING, tail("carthage_confluence"),
-       HydraulicBehavior.IMPROVES_WITH_CURRENT,
-       "The first bend below the confluence, where the channel pushes against the far "
-       "bank and drops. Bait collects on the inside of the swing.",
-       [_sp("striped_bass", "Deep on the outside, bait on the inside", 0.75)],
-       minutes=45),
+        _f("carthage_channel_swing", "carthage_confluence", "Channel swing below the mouth",
+           FeatureType.CHANNEL_SWING, tail("carthage_confluence"),
+           HydraulicBehavior.IMPROVES_WITH_CURRENT,
+           "The first bend below the confluence, where the channel pushes against the far "
+           "bank and drops. Bait collects on the inside of the swing.",
+           [_sp("striped_bass", "Deep on the outside, bait on the inside", 0.75)],
+           minutes=45),
 
-    # ── Caney Fork ──────────────────────────────────────────────────────────
-    _f("caney_dam_break", "caney_upper", "Center Hill dam break",
-       FeatureType.DAM_CURRENT_BREAK, head("caney_upper"),
-       HydraulicBehavior.BLOWN_BY_CURRENT,
-       "Immediately below the units. Excellent on minimum flow and unfishable — and "
-       "unsafe to wade — once the units come on.",
-       [_sp("trout", "In the slack behind the wall on low water", 0.9)],
-       minutes=30,
-       notes="The one feature where more current is strictly worse."),
+        # ── Caney Fork ──────────────────────────────────────────────────────────
+        _f("caney_dam_break", "caney_upper", "Center Hill dam break",
+           FeatureType.DAM_CURRENT_BREAK, head("caney_upper"),
+           HydraulicBehavior.BLOWN_BY_CURRENT,
+           "Immediately below the units. Excellent on minimum flow and unfishable — and "
+           "unsafe to wade — once the units come on.",
+           [_sp("trout", "In the slack behind the wall on low water", 0.9)],
+           minutes=30,
+           notes="The one feature where more current is strictly worse."),
 
-    _f("caney_bettys_island_head", "caney_upper", "Betty's Island head",
-       FeatureType.ISLAND_HEAD, tail("caney_upper"),
-       HydraulicBehavior.IMPROVES_WITH_CURRENT,
-       "The split at the top of the island. Fish hold on the point of the divide and "
-       "along both feeding lanes.",
-       [_sp("trout", "On the divide, and in the first fifty yards of each lane", 0.85),
-        _sp("smallmouth", "The lower third of the lanes, on rock", 0.5)],
-       minutes=50),
+        _f("caney_bettys_island_head", "caney_upper", "Betty's Island head",
+           FeatureType.ISLAND_HEAD, tail("caney_upper"),
+           HydraulicBehavior.IMPROVES_WITH_CURRENT,
+           "The split at the top of the island. Fish hold on the point of the divide and "
+           "along both feeding lanes.",
+           [_sp("trout", "On the divide, and in the first fifty yards of each lane", 0.85),
+            _sp("smallmouth", "The lower third of the lanes, on rock", 0.5)],
+           minutes=50),
 
-    _f("caney_bettys_island_tail", "caney_middle", "Betty's Island tail",
-       FeatureType.ISLAND_TAIL, head("caney_middle"),
-       HydraulicBehavior.BEST_ON_FALLING,
-       "Where the two lanes rejoin. The convergence seam holds fish as the water drops "
-       "back after a release passes.",
-       [_sp("trout", "On the convergence seam", 0.8)],
-       minutes=45),
+        _f("caney_bettys_island_tail", "caney_middle", "Betty's Island tail",
+           FeatureType.ISLAND_TAIL, head("caney_middle"),
+           HydraulicBehavior.BEST_ON_FALLING,
+           "Where the two lanes rejoin. The convergence seam holds fish as the water drops "
+           "back after a release passes.",
+           [_sp("trout", "On the convergence seam", 0.8)],
+           minutes=45),
 
-    _f("caney_stonewall_shoal", "caney_middle", "Stonewall shoal",
-       FeatureType.SHOAL, tail("caney_middle"),
-       HydraulicBehavior.IMPROVES_WITH_CURRENT,
-       "The broken water at the gauge reach. Wadeable on minimum flow; the arrival of a "
-       "release is felt here before it is felt downstream.",
-       [_sp("trout", "In the pockets and along the drop at the tail", 0.75),
-        _sp("smallmouth", "The tailout, on the rock", 0.65)],
-       minutes=50),
+        _f("caney_stonewall_shoal", "caney_middle", "Stonewall shoal",
+           FeatureType.SHOAL, tail("caney_middle"),
+           HydraulicBehavior.IMPROVES_WITH_CURRENT,
+           "The broken water at the gauge reach. Wadeable on minimum flow; the arrival of a "
+           "release is felt here before it is felt downstream.",
+           [_sp("trout", "In the pockets and along the drop at the tail", 0.75),
+            _sp("smallmouth", "The tailout, on the rock", 0.65)],
+           minutes=50),
 
-    _f("caney_lower_mouth", "caney_lower", "Lower Caney, Cumberland end",
-       FeatureType.TRIBUTARY_MOUTH, tail("caney_lower"),
-       HydraulicBehavior.IMPROVES_WITH_CURRENT,
-       "The last mile of the Caney before the Cumberland. Warmer than the tailwater, "
-       "colder than the river, and the transition holds both fisheries.",
-       [_sp("striped_bass", "Where the cold water fans out", 0.85,
-            months=[5, 6, 7, 8, 9, 10]),
-        _sp("trout", "The upper end, while the water stays cold", 0.55,
-            months=[10, 11, 12, 1, 2, 3, 4]),
-        _sp("smallmouth", "On the rock through the middle", 0.7)],
-       minutes=55),
+        _f("caney_lower_mouth", "caney_lower", "Lower Caney, Cumberland end",
+           FeatureType.TRIBUTARY_MOUTH, tail("caney_lower"),
+           HydraulicBehavior.IMPROVES_WITH_CURRENT,
+           "The last mile of the Caney before the Cumberland. Warmer than the tailwater, "
+           "colder than the river, and the transition holds both fisheries.",
+           [_sp("striped_bass", "Where the cold water fans out", 0.85,
+                months=[5, 6, 7, 8, 9, 10]),
+            _sp("trout", "The upper end, while the water stays cold", 0.55,
+                months=[10, 11, 12, 1, 2, 3, 4]),
+            _sp("smallmouth", "On the rock through the middle", 0.7)],
+           minutes=55),
 
-    # ── Old Hickory ─────────────────────────────────────────────────────────
-    _f("oldhickory_tailrace_seam", "oldhickory_tailrace", "Old Hickory tailrace seam",
-       FeatureType.TAILRACE_SEAM, head("oldhickory_tailrace"),
-       HydraulicBehavior.NEEDS_CURRENT,
-       "The seam below the units, twenty-five minutes from downtown. Entirely a "
-       "generation feature.",
-       [_sp("striped_bass", "On the seam, working the edge as it moves", 0.9),
-        _sp("smallmouth", "The slack side, off the wall", 0.55)],
-       minutes=40),
+        # ── Old Hickory ─────────────────────────────────────────────────────────
+        _f("oldhickory_tailrace_seam", "oldhickory_tailrace", "Old Hickory tailrace seam",
+           FeatureType.TAILRACE_SEAM, head("oldhickory_tailrace"),
+           HydraulicBehavior.NEEDS_CURRENT,
+           "The seam below the units, twenty-five minutes from downtown. Entirely a "
+           "generation feature.",
+           [_sp("striped_bass", "On the seam, working the edge as it moves", 0.9),
+            _sp("smallmouth", "The slack side, off the wall", 0.55)],
+           minutes=40),
 
-    _f("oldhickory_metro_riprap", "oldhickory_tailrace", "Metro reach riprap",
-       FeatureType.RIPRAP, tail("oldhickory_tailrace"),
-       HydraulicBehavior.CURRENT_INDIFFERENT,
-       "Bank armouring through the Nashville reach. Fishes at any release and is the "
-       "fallback when the dam is off.",
-       [_sp("largemouth", "Tight to the rock, on the shaded side", 0.7),
-        _sp("smallmouth", "The same rock, further out", 0.6)],
-       minutes=60),
+        _f("oldhickory_metro_riprap", "oldhickory_tailrace", "Metro reach riprap",
+           FeatureType.RIPRAP, tail("oldhickory_tailrace"),
+           HydraulicBehavior.CURRENT_INDIFFERENT,
+           "Bank armouring through the Nashville reach. Fishes at any release and is the "
+           "fallback when the dam is off.",
+           [_sp("largemouth", "Tight to the rock, on the shaded side", 0.7),
+            _sp("smallmouth", "The same rock, further out", 0.6)],
+           minutes=60),
 
-    _f("oldhickory_creek_mouths", "oldhickory_creek_arms", "Bledsoe / Station Camp mouths",
-       FeatureType.CREEK_MOUTH, whole("oldhickory_creek_arms"),
-       HydraulicBehavior.CURRENT_INDIFFERENT,
-       "The creek mouths TWRA names in the mid-reservoir. Level and cover drive this, "
-       "not discharge.",
-       [_sp("largemouth", "On the first drop inside the mouth", 0.95),
-        _sp("striped_bass", "Off the mouths, on bait, in the cool months", 0.6,
-            months=[11, 12, 1, 2, 3, 4])],
-       minutes=70,
-       notes="An AREA. TWRA names the creeks; nothing published names the spots in them."),
+        _f("oldhickory_creek_mouths", "oldhickory_creek_arms", "Bledsoe / Station Camp mouths",
+           FeatureType.CREEK_MOUTH, whole("oldhickory_creek_arms"),
+           HydraulicBehavior.CURRENT_INDIFFERENT,
+           "The creek mouths TWRA names in the mid-reservoir. Level and cover drive this, "
+           "not discharge.",
+           [_sp("largemouth", "On the first drop inside the mouth", 0.95),
+            _sp("striped_bass", "Off the mouths, on bait, in the cool months", 0.6,
+                months=[11, 12, 1, 2, 3, 4])],
+           minutes=70,
+           notes="An AREA. TWRA names the creeks; nothing published names the spots in them."),
 
-    _f("oldhickory_embayment_grass", "oldhickory_embayments", "Embayment grass edges",
-       FeatureType.GRASS_EDGE, whole("oldhickory_embayments"),
-       HydraulicBehavior.CURRENT_INDIFFERENT,
-       "The vegetated edges of the lower-reservoir embayments — the cover the river "
-       "zones do not have.",
-       [_sp("largemouth", "Along the outside edge of the grass", 1.0)],
-       minutes=75),
+        _f("oldhickory_embayment_grass", "oldhickory_embayments", "Embayment grass edges",
+           FeatureType.GRASS_EDGE, whole("oldhickory_embayments"),
+           HydraulicBehavior.CURRENT_INDIFFERENT,
+           "The vegetated edges of the lower-reservoir embayments — the cover the river "
+           "zones do not have.",
+           [_sp("largemouth", "Along the outside edge of the grass", 1.0)],
+           minutes=75),
 
-    # ── Percy Priest ────────────────────────────────────────────────────────
-    _f("priest_creek_mouths", "priest_creek_arms", "Spring / Fall Creek arms",
-       FeatureType.CREEK_MOUTH, whole("priest_creek_arms"),
-       HydraulicBehavior.CURRENT_INDIFFERENT,
-       "The upper-reservoir creek arms. Thirty minutes from town and the closest real "
-       "largemouth cover to Nashville.",
-       [_sp("largemouth", "The first drop inside the arm, on wood", 0.95),
-        _sp("smallmouth", "The rockier outside points", 0.5)],
-       minutes=70),
+        # ── Percy Priest ────────────────────────────────────────────────────────
+        _f("priest_creek_mouths", "priest_creek_arms", "Spring / Fall Creek arms",
+           FeatureType.CREEK_MOUTH, whole("priest_creek_arms"),
+           HydraulicBehavior.CURRENT_INDIFFERENT,
+           "The upper-reservoir creek arms. Thirty minutes from town and the closest real "
+           "largemouth cover to Nashville.",
+           [_sp("largemouth", "The first drop inside the arm, on wood", 0.95),
+            _sp("smallmouth", "The rockier outside points", 0.5)],
+           minutes=70),
 
-    # ── Center Hill ─────────────────────────────────────────────────────────
-    _f("centerhill_bluff_banks", "centerhill_shoreline", "Bluff banks",
-       FeatureType.BLUFF_BANK, whole("centerhill_shoreline"),
-       HydraulicBehavior.CURRENT_INDIFFERENT,
-       "The rock walls TWRA describes. Deep water against the bank means fish can sit "
-       "at any level without moving far.",
-       [_sp("smallmouth", "Tight to the wall, on the shaded side", 0.9),
-        _sp("largemouth", "The transitions where bluff meets slope", 0.6)],
-       minutes=65),
+        # ── Center Hill ─────────────────────────────────────────────────────────
+        _f("centerhill_bluff_banks", "centerhill_shoreline", "Bluff banks",
+           FeatureType.BLUFF_BANK, whole("centerhill_shoreline"),
+           HydraulicBehavior.CURRENT_INDIFFERENT,
+           "The rock walls TWRA describes. Deep water against the bank means fish can sit "
+           "at any level without moving far.",
+           [_sp("smallmouth", "Tight to the wall, on the shaded side", 0.9),
+            _sp("largemouth", "The transitions where bluff meets slope", 0.6)],
+           minutes=65),
 
-    _f("centerhill_points", "centerhill_shoreline", "Main-lake points",
-       FeatureType.POINT, whole("centerhill_shoreline"),
-       HydraulicBehavior.CURRENT_INDIFFERENT,
-       "Points off the main channel. The classic reservoir smallmouth position.",
-       [_sp("smallmouth", "On the end, out to the channel drop", 0.85)],
-       minutes=55),
+        _f("centerhill_points", "centerhill_shoreline", "Main-lake points",
+           FeatureType.POINT, whole("centerhill_shoreline"),
+           HydraulicBehavior.CURRENT_INDIFFERENT,
+           "Points off the main channel. The classic reservoir smallmouth position.",
+           [_sp("smallmouth", "On the end, out to the channel drop", 0.85)],
+           minutes=55),
 
-    # ── Cordell Hull reservoir ──────────────────────────────────────────────
-    _f("cordell_defeated_creek", "cordell_creek_arms", "Defeated Creek arm",
-       FeatureType.CREEK_MOUTH, whole("cordell_creek_arms"),
-       HydraulicBehavior.CURRENT_INDIFFERENT,
-       "The reservoir arm above the dam.",
-       [_sp("largemouth", "Inside the arm, on cover", 0.75),
-        _sp("smallmouth", "The rocky outer third", 0.6)],
-       minutes=65),
+        # ── Cordell Hull reservoir ──────────────────────────────────────────────
+        _f("cordell_defeated_creek", "cordell_creek_arms", "Defeated Creek arm",
+           FeatureType.CREEK_MOUTH, whole("cordell_creek_arms"),
+           HydraulicBehavior.CURRENT_INDIFFERENT,
+           "The reservoir arm above the dam.",
+           [_sp("largemouth", "Inside the arm, on cover", 0.75),
+            _sp("smallmouth", "The rocky outer third", 0.6)],
+           minutes=65),
 
-    _f("granville_creek_mouths", "cordell_granville_reach", "Granville creek mouths",
-       FeatureType.CREEK_MOUTH, whole("cordell_granville_reach"),
-       HydraulicBehavior.IMPROVES_WITH_CURRENT,
-       "The major creeks TWRA describes stripers using between Granville and Gainesboro.",
-       [_sp("striped_bass", "At the mouths, on bait", 0.85)],
-       minutes=60),
+        _f("granville_creek_mouths", "cordell_granville_reach", "Granville creek mouths",
+           FeatureType.CREEK_MOUTH, whole("cordell_granville_reach"),
+           HydraulicBehavior.IMPROVES_WITH_CURRENT,
+           "The major creeks TWRA describes stripers using between Granville and Gainesboro.",
+           [_sp("striped_bass", "At the mouths, on bait", 0.85)],
+           minutes=60),
 
-    # ── Cheatham ────────────────────────────────────────────────────────────
-    _f("cheatham_tailrace_seam", "cheatham_tailrace", "Cheatham tailrace seam",
-       FeatureType.TAILRACE_SEAM, head("cheatham_tailrace"),
-       HydraulicBehavior.NEEDS_CURRENT,
-       "The seam below Cheatham Dam. A generation feature on the lower Cumberland.",
-       [_sp("striped_bass", "On the seam", 0.85),
-        _sp("smallmouth", "The slack edge", 0.5)],
-       minutes=45),
+        # ── Cheatham ────────────────────────────────────────────────────────────
+        _f("cheatham_tailrace_seam", "cheatham_tailrace", "Cheatham tailrace seam",
+           FeatureType.TAILRACE_SEAM, head("cheatham_tailrace"),
+           HydraulicBehavior.NEEDS_CURRENT,
+           "The seam below Cheatham Dam. A generation feature on the lower Cumberland.",
+           [_sp("striped_bass", "On the seam", 0.85),
+            _sp("smallmouth", "The slack edge", 0.5)],
+           minutes=45),
 
-    # ── free-flowing smallmouth water ───────────────────────────────────────
-    _f("duck_upper_shoals", "duck_upper", "Columbia shoals",
-       FeatureType.SHOAL, whole("duck_upper"), HydraulicBehavior.IMPROVES_WITH_CURRENT,
-       "The shoal-and-pool sequence through the upper Duck.",
-       [_sp("smallmouth", "At the head and tail of each shoal", 0.9)], minutes=60),
+        # ── free-flowing smallmouth water ───────────────────────────────────────
+        _f("duck_upper_shoals", "duck_upper", "Columbia shoals",
+           FeatureType.SHOAL, whole("duck_upper"), HydraulicBehavior.IMPROVES_WITH_CURRENT,
+           "The shoal-and-pool sequence through the upper Duck.",
+           [_sp("smallmouth", "At the head and tail of each shoal", 0.9)], minutes=60),
 
-    _f("duck_middle_swings", "duck_middle", "Middle Duck channel swings",
-       FeatureType.CHANNEL_SWING, whole("duck_middle"),
-       HydraulicBehavior.IMPROVES_WITH_CURRENT,
-       "Bend pools with rock on the outside.",
-       [_sp("smallmouth", "The outside of each swing", 0.85)], minutes=60),
+        _f("duck_middle_swings", "duck_middle", "Middle Duck channel swings",
+           FeatureType.CHANNEL_SWING, whole("duck_middle"),
+           HydraulicBehavior.IMPROVES_WITH_CURRENT,
+           "Bend pools with rock on the outside.",
+           [_sp("smallmouth", "The outside of each swing", 0.85)], minutes=60),
 
-    _f("duck_lower_swings", "duck_lower", "Lower Duck bends",
-       FeatureType.CHANNEL_SWING, whole("duck_lower"),
-       HydraulicBehavior.IMPROVES_WITH_CURRENT,
-       "Deeper, slower bends toward Centerville.",
-       [_sp("smallmouth", "Outside bends, on wood and rock", 0.8),
-        _sp("largemouth", "The slack inside, where it is soft", 0.45)], minutes=60),
+        _f("duck_lower_swings", "duck_lower", "Lower Duck bends",
+           FeatureType.CHANNEL_SWING, whole("duck_lower"),
+           HydraulicBehavior.IMPROVES_WITH_CURRENT,
+           "Deeper, slower bends toward Centerville.",
+           [_sp("smallmouth", "Outside bends, on wood and rock", 0.8),
+            _sp("largemouth", "The slack inside, where it is soft", 0.45)], minutes=60),
 
-    _f("buffalo_shoals", "buffalo_river", "Buffalo shoals",
-       FeatureType.SHOAL, whole("buffalo_river"), HydraulicBehavior.IMPROVES_WITH_CURRENT,
-       "State Scenic River shoals — the clearest smallmouth water in the set.",
-       [_sp("smallmouth", "Head and tail of the shoals", 0.9)], minutes=60),
+        _f("buffalo_shoals", "buffalo_river", "Buffalo shoals",
+           FeatureType.SHOAL, whole("buffalo_river"), HydraulicBehavior.IMPROVES_WITH_CURRENT,
+           "State Scenic River shoals — the clearest smallmouth water in the set.",
+           [_sp("smallmouth", "Head and tail of the shoals", 0.9)], minutes=60),
 
-    _f("harpeth_shoals", "harpeth_river", "Harpeth shoals",
-       FeatureType.SHOAL, whole("harpeth_river"), HydraulicBehavior.IMPROVES_WITH_CURRENT,
-       "Close-in shoal water, thirty-five minutes out.",
-       [_sp("smallmouth", "In the broken water and the tailouts", 0.8)], minutes=55),
+        _f("harpeth_shoals", "harpeth_river", "Harpeth shoals",
+           FeatureType.SHOAL, whole("harpeth_river"), HydraulicBehavior.IMPROVES_WITH_CURRENT,
+           "Close-in shoal water, thirty-five minutes out.",
+           [_sp("smallmouth", "In the broken water and the tailouts", 0.8)], minutes=55),
 
-    _f("stones_dam_break", "stones_river", "Priest dam break",
-       FeatureType.DAM_CURRENT_BREAK, head("stones_river"),
-       HydraulicBehavior.NEEDS_CURRENT,
-       "Below Percy Priest Dam. Twenty minutes from town when the dam is on.",
-       [_sp("striped_bass", "On the break", 0.7),
-        _sp("smallmouth", "The edges", 0.6)], minutes=40),
+        _f("stones_dam_break", "stones_river", "Priest dam break",
+           FeatureType.DAM_CURRENT_BREAK, head("stones_river"),
+           HydraulicBehavior.NEEDS_CURRENT,
+           "Below Percy Priest Dam. Twenty minutes from town when the dam is on.",
+           [_sp("striped_bass", "On the break", 0.7),
+            _sp("smallmouth", "The edges", 0.6)], minutes=40),
 
-    _f("elk_tims_ford_break", "elk_tims_ford", "Tims Ford dam break",
-       FeatureType.DAM_CURRENT_BREAK, head("elk_tims_ford"),
-       HydraulicBehavior.NEEDS_CURRENT,
-       "Below Tims Ford. TVA generation, and the gauge is thirty miles down.",
-       [_sp("trout", "In the slack on low water", 0.75),
-        _sp("smallmouth", "Further down, on rock", 0.6)], minutes=45),
+        _f("elk_tims_ford_break", "elk_tims_ford", "Tims Ford dam break",
+           FeatureType.DAM_CURRENT_BREAK, head("elk_tims_ford"),
+           HydraulicBehavior.NEEDS_CURRENT,
+           "Below Tims Ford. TVA generation, and the gauge is thirty miles down.",
+           [_sp("trout", "In the slack on low water", 0.75),
+            _sp("smallmouth", "Further down, on rock", 0.6)], minutes=45),
 
-    _f("elk_alabama_swings", "elk_alabama", "Lower Elk bends",
-       FeatureType.CHANNEL_SWING, whole("elk_alabama"),
-       HydraulicBehavior.IMPROVES_WITH_CURRENT,
-       "Free-flowing bend water below the state line.",
-       [_sp("smallmouth", "Outside bends", 0.8)], minutes=60),
+        _f("elk_alabama_swings", "elk_alabama", "Lower Elk bends",
+           FeatureType.CHANNEL_SWING, whole("elk_alabama"),
+           HydraulicBehavior.IMPROVES_WITH_CURRENT,
+           "Free-flowing bend water below the state line.",
+           [_sp("smallmouth", "Outside bends", 0.8)], minutes=60),
 
-    _f("cumberland_ky_tailrace", "cumberland_ky", "Wolf Creek tailrace",
-       FeatureType.TAILRACE_SEAM, head("cumberland_ky"),
-       HydraulicBehavior.NEEDS_CURRENT,
-       "Below Wolf Creek Dam. Routes weakly to the Burkesville gauge, so downstream "
-       "timing here is approximate.",
-       [_sp("trout", "On the seams", 0.85),
-        _sp("striped_bass", "Off the seams in the warm months", 0.5,
-            months=[5, 6, 7, 8, 9])], minutes=50),
-]
+        _f("cumberland_ky_tailrace", "cumberland_ky", "Wolf Creek tailrace",
+           FeatureType.TAILRACE_SEAM, head("cumberland_ky"),
+           HydraulicBehavior.NEEDS_CURRENT,
+           "Below Wolf Creek Dam. Routes weakly to the Burkesville gauge, so downstream "
+           "timing here is approximate.",
+           [_sp("trout", "On the seams", 0.85),
+            _sp("striped_bass", "Off the seams in the warm months", 0.5,
+                months=[5, 6, 7, 8, 9])], minutes=50),
+    ]
+
+
+#: Built on first use, not at import. Constructing 28 features means 28 trips into the
+#: zone registry, and a Cloudflare Python Worker pays that on every cold isolate — where
+#: CPU is the scarce resource and a request that never touches a feature should not pay
+#: for one. `_cache` is module-scoped, so it is built once per isolate.
+_CACHE = {"all": None}
 
 
 def all_features():
-    return list(_ALL)
+    if _CACHE["all"] is None:
+        _CACHE["all"] = _build()
+    return list(_CACHE["all"])
 
 
 def features_for_zone(zone_id):
-    return [f for f in _ALL if f.zone_id == zone_id]
+    return [f for f in all_features() if f.zone_id == zone_id]
 
 
 def features_for(zone_id, species, month=None):
     """The features in a zone that hold `species`, best first. §26."""
-    out = [f for f in _ALL if f.zone_id == zone_id and f.supports(species, month)]
+    out = [f for f in all_features()
+           if f.zone_id == zone_id and f.supports(species, month)]
     out.sort(key=lambda f: (-f.weight_for(species), GeometryConfidence.rank(f.confidence)))
     return out
 
 
 def feature(fid):
-    for f in _ALL:
+    for f in all_features():
         if f.id == fid:
             return f
     return None
@@ -421,6 +432,6 @@ def feature(fid):
 
 def by_zone():
     out = {}
-    for f in _ALL:
+    for f in all_features():
         out.setdefault(f.zone_id, []).append(f)
     return out

@@ -62,8 +62,11 @@ BUNDLE_FRESH_SECONDS = 300.0
 #: How old it may be before a request refuses to use it and rebuilds INLINE, blocking.
 #: An hour is well past any generation forecast's usefulness.
 BUNDLE_MAX_SECONDS = 3600.0
-#: Reuse within one isolate, so a burst of requests shares one rehydrate.
-ISOLATE_TTL_SECONDS = 120.0
+#: Reuse within one isolate. Matched to how often the DATA actually changes rather than
+#: to a cache intuition: shards refresh on a 5-minute cron and there are three of them, so
+#: rehydrating more often than ten minutes is pure CPU spent re-parsing numbers that did
+#: not move — and CPU is the scarce resource here, not memory or bandwidth.
+ISOLATE_TTL_SECONDS = 600.0
 
 #: CLOUDFLARE ALLOWS 50 SUBREQUESTS PER INVOCATION. A full build asks for 74, so 24-28 of
 #: them were failing with "Too many subrequests by single Worker invocation" — which is
