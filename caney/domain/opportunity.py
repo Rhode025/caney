@@ -19,6 +19,10 @@ class SegmentType:
     LAUNCH = "launch"
     FISH = "fish"
     MOVE = "move"
+    #: §26 — a move WITHIN a zone, from one feature to another. Distinct from MOVE
+    #: because it costs minutes rather than a transition, needs no craft check, and
+    #: reads completely differently: "slide down to the mouth", not "run to Carthage".
+    MOVE_FEATURE = "move_feature"
     WAIT = "wait"
     CHANGE_TECHNIQUE = "change_technique"
     SAFETY_EXIT = "safety_exit"
@@ -95,6 +99,16 @@ class FishingSegment:
     claim_ids: List[str] = field(default_factory=list)
     kind: str = "heuristic"     # deterministic | astronomical | forecast | heuristic | safety
     uncertainty: str = ""
+
+    #: §26 — WHICH feature inside the zone, and how well it fits this window. None when
+    #: the zone has no mapped features, which is an honest answer rather than a gap: it
+    #: means we can name the water but not the position in it.
+    feature_id: str = ""
+    feature_name: str = ""
+    feature_type: str = ""
+    feature_confidence: str = ""
+    feature_fit: Optional[float] = None
+    feature_holding: str = ""
 
     @property
     def duration_minutes(self):

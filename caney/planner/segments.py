@@ -19,6 +19,7 @@ from ..domain.claim import SafetyKind
 from ..domain.opportunity import FishingSegment, SegmentType
 from ..domain.plan import StepKind, TimelineStep
 from ..species.profiles import profile
+from . import features as feature_pick
 
 #: How long before the first cast to be at the ramp.
 LAUNCH_LEAD_MINUTES = 15
@@ -61,17 +62,48 @@ def build(itin_candidate, zones, snaps, species, craft, tz, book, claims_by_zone
         trigs = triggers_for(zone, snap, w, claims, tz, species, st)
 
         instruction, read = zone.holds_parts(species)
-        segs.append(FishingSegment(
-            type=SegmentType.FISH, start=w.start, end=w.end,
-            zone_id=zone.id, zone_name=zone.name,
-            access_id=(pick_access(zone, craft) or {}).get("id", ""),
-            instructions=instruction,
-            reason=_join(read, window_reason(w, zone, species, snap)),
-            expected_score=round(sum(w.samples) / len(w.samples), 1) if w.samples else None,
-            confidence=w.confidence,
-            location_confidence=zone.location_confidence().score,
-            location_evidence=zone.location_confidence().tactical_level,
-            technique=tech, triggers=trigs, kind="heuristic"))
+        month = _dt.datetime.fromtimestamp(w.start, tz).month
+
+        # §26 — name the FEATURE, and split the window when the release changes which
+        # feature is right (§89). One leg is the common case; two is the case the zone
+        # layer could not express at all.
+        legs = feature_pick.order_for_window(zone.id, species, month, snap,
+                                             w.start, w.end) or []
+        if not legs:
+            legs = [{"feature": None, "fit": None, "start": w.start, "end": w.end,
+                     "why": ""}]
+
+        for li, leg in enumerate(legs):
+            feat = leg["feature"]
+            if li > 0:
+                segs.append(FishingSegment(
+                    type=SegmentType.MOVE_FEATURE, start=leg["start"], end=leg["start"],
+                    zone_id=zone.id, zone_name=zone.name,
+                    instructions="Move to %s" % (feat.name if feat else "the next spot"),
+                    reason=leg.get("why", ""),
+                    feature_id=feat.id if feat else "",
+                    feature_name=feat.name if feat else "",
+                    kind="forecast"))
+            segs.append(FishingSegment(
+                type=SegmentType.FISH, start=leg["start"], end=leg["end"],
+                zone_id=zone.id, zone_name=zone.name,
+                access_id=(pick_access(zone, craft) or {}).get("id", ""),
+                instructions=(("%s — %s" % (feat.name, feat.holds(species)))
+                              if feat and feat.holds(species) else
+                              (feat.name if feat else instruction)),
+                reason=_join(read, window_reason(w, zone, species, snap)),
+                expected_score=(round(sum(w.samples) / len(w.samples), 1)
+                                if w.samples else None),
+                confidence=w.confidence,
+                location_confidence=zone.location_confidence().score,
+                location_evidence=zone.location_confidence().tactical_level,
+                technique=tech, triggers=trigs, kind="heuristic",
+                feature_id=feat.id if feat else "",
+                feature_name=feat.name if feat else "",
+                feature_type=feat.feature_type if feat else "",
+                feature_confidence=feat.confidence if feat else "",
+                feature_fit=leg.get("fit"),
+                feature_holding=feat.holds(species) if feat else ""))
 
         # A technique change INSIDE the window, where a deterministic event lands in it.
         for t in trigs:
