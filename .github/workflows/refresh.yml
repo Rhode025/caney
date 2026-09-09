@@ -19,7 +19,15 @@ name: Refresh conditions
 
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    # Every half hour, and it usually does NOTHING. The Worker's own cron is the primary
+    # path now that its handler signature is fixed, and it rebuilds one shard every five
+    # minutes — each shard therefore refreshing every fifteen, which is well matched to
+    # USGS's 15-minute instantaneous values and to CWMS and Open-Meteo being hourly.
+    #
+    # This is the net for the case where that stops working silently, which it did once
+    # already. It reads /health and rebuilds only shards genuinely behind, so a healthy
+    # system costs one GET rather than 77 fetches at four public agencies.
+    - cron: "*/30 * * * *"
   workflow_dispatch:
 
 concurrency:
@@ -33,4 +41,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Rebuild every shard
-        run: python3 tools/refresh_api.py
+        run: python3 tools/refresh_api.py --stale-after 1200

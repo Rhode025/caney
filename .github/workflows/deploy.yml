@@ -173,4 +173,4 @@ jobs:
       # signal's real age either way.
       - name: Refresh the API's conditions
         continue-on-error: true
-        run: python3 tools/refresh_api.py
+        run: python3 tools/refresh_api.py --stale-after 1800

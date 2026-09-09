@@ -70,6 +70,8 @@ def main():
     ap.add_argument("--api", default=os.environ.get("CANEY_API", DEFAULT_API))
     ap.add_argument("--token", default=os.environ.get("CANEY_INTERNAL_TOKEN", ""))
     ap.add_argument("--shards", type=int, default=3)
+    ap.add_argument("--stale-after", type=float, default=0.0,
+                    help="only rebuild shards older than this many seconds; 0 rebuilds all")
     a = ap.parse_args()
 
     token = a.token or token_from_wrangler()
@@ -77,8 +79,34 @@ def main():
         print("no INTERNAL_TOKEN — pass --token or keep it in caney-api/wrangler.toml")
         return 2
 
+    # A SAFETY NET SHOULD DO NOTHING WHEN THE PRIMARY IS WORKING.
+    #
+    # The Worker's own cron rebuilds one shard every five minutes, so each shard refreshes
+    # every fifteen — which is well matched to what the data actually does: USGS
+    # instantaneous values update every 15 minutes and CWMS and Open-Meteo are hourly.
+    # This workflow rebuilding all three every ten minutes on top of that was ~11,000
+    # extra fetches a day at four public agencies for numbers that had not changed. The
+    # repo's own comment says it: these are four public agencies, not a CDN.
+    #
+    # With --stale-after it reads /health first and rebuilds only what is genuinely
+    # behind, so a healthy system costs one GET.
+    todo = list(range(a.shards))
+    if a.stale_after > 0:
+        h0 = health(a.api)
+        rows = {m.get("shard"): m for m in (h0.get("shards") or [])}
+        todo = [n for n in range(a.shards)
+                if not rows.get(n, {}).get("present")
+                or (rows[n].get("age_s") or 1e9) > a.stale_after]
+        fresh = [n for n in range(a.shards) if n not in todo]
+        if fresh:
+            print("  fresh, skipped: %s" % ", ".join(
+                "shard %d (%.0fs)" % (n, rows[n].get("age_s") or -1) for n in fresh))
+        if not todo:
+            print("  nothing is stale — the scheduled build is keeping up")
+            return 0
+
     worst = 0
-    for n in range(a.shards):
+    for n in todo:
         # Cloudflare returns 1101/1102 — worker threw, resource limits — when a COLD
         # Python isolate cannot import the package and build inside its CPU budget. It is
         # transient by construction: the retry lands on the isolate the first attempt
