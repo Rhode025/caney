@@ -97,7 +97,17 @@ check("river board has board/filter/sort",
       all(x in riv for x in ['id="board"', 'id="spf"', 'id="sort"']))
 
 print("── fly-only content policy ──")
+# §20 CHANGED THE SCOPE OF THIS CHECK, and it is worth saying why rather than quietly
+# shortening the list. The river reference pages are a fly product and stay one — the
+# policy there is unchanged. The planner is not, as of Caney 3.0: it asks which method
+# you are fishing and answers accordingly, and largemouth in grass gets a frog because
+# that is the true answer, not because the vocabulary slipped. Deleting the check
+# outright would have lost the river-page guarantee; keeping it everywhere would have
+# made §20 unimplementable. So it is scoped, and PLANNER_PAGES is the exemption list.
+PLANNER_PAGES = {"index.html", "plan.html"}
 for f in ALL_HTML:
+    if f in PLANNER_PAGES:
+        continue
     if not os.path.exists(os.path.join(OUT, f)):
         continue
     html = read(f)

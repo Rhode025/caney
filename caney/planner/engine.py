@@ -700,11 +700,31 @@ def technique(species, zone, snap, best, req, window=None):
     if clarity_fit is not None and "muddy" in (clarity_fit.why or ""):
         why.append("muddy water — go bigger and darker than the size below suggests")
 
-    t = dict(prof.techniques.get(key) or prof.techniques["default"])
+    from ..species import techniques as conv
+    stillwater = zone.kind in ("reservoir_arm", "creek_arm", "backwater", "flat",
+                               "point", "grass_bed", "riprap")
+    fly = dict(prof.techniques.get(key) or prof.techniques["default"])
+    conv_t = conv.for_method(species, key, TackleMethod.CONVENTIONAL)
+    show_conv = conv.prefer_conventional(req.method, species, key, stillwater) and conv_t
+
     wind = scoring._mean(rows, "wind_speed")
     if wind is not None and wind >= 15:
-        why.append("%d mph wind — shorten the leader and accept a heavier fly" % round(wind))
-    return Technique(why="; ".join(why) or "the standard read for these conditions", **t)
+        why.append("%d mph wind — shorten the leader and accept a heavier %s"
+                   % (round(wind), "lure" if show_conv else "fly"))
+
+    chosen = dict(conv_t) if show_conv else dict(fly)
+    other = dict(fly) if show_conv else (dict(conv_t) if conv_t else None)
+    if other:
+        other["method"] = TackleMethod.FLY if show_conv else TackleMethod.CONVENTIONAL
+        other["method_label"] = TackleMethod.LABEL[other["method"]]
+    fields = {k: v for k, v in chosen.items()
+              if k in Technique.__dataclass_fields__}
+    return Technique(
+        why="; ".join(why) or "the standard read for these conditions",
+        method=TackleMethod.CONVENTIONAL if show_conv else TackleMethod.FLY,
+        method_label=TackleMethod.LABEL[
+            TackleMethod.CONVENTIONAL if show_conv else TackleMethod.FLY],
+        condition_key=key, alternate=other, **fields)
 
 
 def _weather_summary(snap, window):

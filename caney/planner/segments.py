@@ -18,7 +18,9 @@ import datetime as _dt
 from ..domain.claim import SafetyKind
 from ..domain.opportunity import FishingSegment, SegmentType
 from ..domain.plan import StepKind, TimelineStep
+from ..domain.method import TackleMethod
 from ..species.profiles import profile
+from ..species import techniques as conv
 from . import features as feature_pick
 
 #: How long before the first cast to be at the ramp.
@@ -58,7 +60,7 @@ def build(itin_candidate, zones, snaps, species, craft, tz, book, claims_by_zone
         snap = snaps[w.zone_id]
         st = statics_by_zone.get(w.zone_id) or {}
         claims = [c for c in book.for_zone(zone.id)]
-        tech = technique_for(species, zone, snap, w, st)
+        tech = technique_for(species, zone, snap, w, st, method=req.method)
         trigs = triggers_for(zone, snap, w, claims, tz, species, st)
 
         instruction, read = zone.holds_parts(species)
@@ -165,8 +167,14 @@ def build(itin_candidate, zones, snaps, species, craft, tz, book, claims_by_zone
 
 # ── §37 · technique, per segment ────────────────────────────────────────────
 
-def technique_for(species, zone, snap, window, statics):
-    """The primary presentation for THIS window, plus the trigger that changes it."""
+def technique_for(species, zone, snap, window, statics, method=TackleMethod.EITHER):
+    """The primary presentation for THIS window, plus the trigger that changes it.
+
+    §20/§21 — method-aware since 3.0. The CONDITION KEY is chosen first and identically
+    for both methods, because what the water is doing does not depend on what you are
+    throwing; only the answer to it does. Both answers are carried, so the UI can offer
+    the other without a second request.
+    """
     prof = profile(species)
     units, gen_known = statics.get("units"), statics.get("gen_known")
     low_light = _low_light(snap, window)
@@ -192,16 +200,36 @@ def technique_for(species, zone, snap, window, statics):
     if muddy:
         why.append("stained water — go bigger and darker than the size below suggests")
 
-    t = dict(prof.techniques.get(key) or prof.techniques["default"])
     backup_key = "slack" if key in ("heavy_current", "default") else "default"
-    b = dict(prof.techniques.get(backup_key) or prof.techniques["default"])
+    fly = dict(prof.techniques.get(key) or prof.techniques["default"])
+    fly_b = dict(prof.techniques.get(backup_key) or prof.techniques["default"])
+    conv_t = conv.for_method(species, key, TackleMethod.CONVENTIONAL)
+    conv_b = conv.for_method(species, backup_key, TackleMethod.CONVENTIONAL)
+
+    show_conv = conv.prefer_conventional(method, species, key, stillwater) and conv_t
+    t = dict(conv_t) if show_conv else dict(fly)
+    t["method"] = TackleMethod.CONVENTIONAL if show_conv else TackleMethod.FLY
+    t["method_label"] = TackleMethod.LABEL[t["method"]]
+    # §21 — target structure is a fly-table gap; the feature layer is the better source
+    # for it and fills in where the table has none.
+    t.setdefault("target_structure", "")
+    b = dict(conv_b) if show_conv else dict(fly_b)
     t["why"] = "; ".join(why) or "the standard read for these conditions"
     t["backup_presentation"] = {
-        "fly": b["primary_fly"], "size": b["primary_size"], "color": b["primary_color"],
-        "line": b["line"], "presentation": b["presentation"], "depth": b["depth"],
-        "retrieve": b["retrieve"],
+        "name": b.get("primary_fly") or b.get("primary_lure", ""),
+        "fly": b.get("primary_fly", ""), "lure": b.get("primary_lure", ""),
+        "size": b.get("primary_size", ""), "color": b.get("primary_color", ""),
+        "line": b.get("line", ""), "presentation": b.get("presentation", ""),
+        "depth": b.get("depth", ""), "retrieve": b.get("retrieve", ""),
     }
+    # The other method, so the UI can offer it without another request (§20).
+    other = dict(fly) if show_conv else (dict(conv_t) if conv_t else None)
+    if other:
+        other["method"] = TackleMethod.FLY if show_conv else TackleMethod.CONVENTIONAL
+        other["method_label"] = TackleMethod.LABEL[other["method"]]
+    t["alternate_method"] = other
     t["switch_trigger"] = _switch_trigger(key, prof, zone)
+    t["condition_key"] = key
     return t
 
 

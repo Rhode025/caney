@@ -149,7 +149,16 @@ def test_carthage_stripers():
     check("it names a launch", bool((p.access.get("launch") or {}).get("name")),
           str(p.access.get("launch")))
     check("it has a timeline", len(p.timeline) >= 4, str(len(p.timeline)))
-    check("it says what to tie on", bool(p.technique and p.technique.primary_fly))
+    # §20 — either method may be the recommendation, so assert the RECOMMENDATION rather
+    # than the fly field. A striper plan in heavy current now leads with conventional
+    # tackle, and asserting primary_fly here was asserting the old product's default.
+    check("it says what to tie on", bool(p.technique and p.technique.primary))
+    check("it offers the other method too",
+          bool(p.technique and p.technique.alternate),
+          "no alternate method offered")
+    check("the recommended method is one of the two",
+          bool(p.technique) and p.technique.method in ("fly", "conventional"),
+          str(p.technique.method if p.technique else None))
     check("current is the biggest single component for stripers",
           max(p.score_breakdown, key=lambda l: l.possible).key == "current")
 

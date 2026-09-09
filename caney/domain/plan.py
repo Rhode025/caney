@@ -63,8 +63,14 @@ class ScoreLine:
 
 @dataclass
 class Technique:
-    """§35 — what to tie on NOW, not a fly inventory."""
+    """§35, §21 — what to tie on NOW, not an inventory.
+
+    Since §20 this carries BOTH methods. `method` says which one is being recommended and
+    `alternate` holds the other, so a reader who asked for "either" sees the fly answer
+    and the conventional answer without a second request, and neither is the default.
+    """
     primary_fly: str = ""
+    primary_lure: str = ""
     primary_size: str = ""
     primary_color: str = ""
     backup_fly: str = ""
@@ -74,10 +80,21 @@ class Technique:
     presentation: str = ""
     depth: str = ""
     retrieve: str = ""
+    target_structure: str = ""
     why: str = ""
+    method: str = "fly"
+    method_label: str = "Fly"
+    condition_key: str = "default"
+    alternate: Optional[Dict[str, Any]] = None
+
+    @property
+    def primary(self):
+        return self.primary_lure or self.primary_fly
 
     def to_json(self):
-        return asdict(self)
+        d = asdict(self)
+        d["primary"] = self.primary
+        return d
 
 
 @dataclass
