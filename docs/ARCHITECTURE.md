@@ -48,6 +48,30 @@ fails the build if it does.
 
 ---
 
+## 1a. What 2.1 changed
+
+The 2.0 planner ranked **zones** by the mean of their hourly scores across the user's whole
+availability. The 2.1 planner ranks **opportunity windows** by a peak-weighted utility and
+then assembles the best executable **itinerary** from them. Availability became a
+constraint rather than an instruction.
+
+New modules:
+
+| path | what |
+|---|---|
+| `caney/domain/opportunity.py` | `OpportunityWindow`, `FishingSegment`, `FishingItinerary` |
+| `caney/domain/location.py` | `LocationEvidence`, `LocationConfidence`, `Verification` |
+| `caney/planner/utility.py` | the window utility function and every constant in it |
+| `caney/planner/opportunity.py` | window discovery and diverse pruning |
+| `caney/planner/transitions.py` | craft-aware travel cost, with provenance |
+| `caney/planner/itinerary.py` | the bounded beam search and the day objective |
+| `caney/planner/segments.py` | a won itinerary → instructions, technique, triggers |
+| `caney/version.py` | model versions, frozen into every plan |
+| `research-worker/` | the Research Intelligence service (Cloudflare Worker + D1 + KV) |
+
+See [PLANNER.md](PLANNER.md), [GEOGRAPHY.md](GEOGRAPHY.md), [RESEARCH.md](RESEARCH.md) and
+[OUTCOMES.md](OUTCOMES.md).
+
 ## 2. The one decision everything else follows from
 
 **Python owns every number. The browser owns assembly.**
@@ -62,10 +86,16 @@ Python emits an hourly series of component fits per (zone, species); the browser
 them over whatever window the user asks for and applies the same published weights. Both
 sides compute the identical number.
 
-`out/plan/parity.json` holds Python's own score for 93 sampled (zone, species, window)
-cases, computed **from the emitted dataset**. `test/planner/test_parity.mjs` replays every
-one through `web/planner/model.js` and fails on a disagreement larger than 0.05 points.
-That test is what keeps "the browser only assembles" true.
+In 2.1 the same principle extends to the window search and the itinerary search: the
+browser runs the identical scan and the identical beam, over Python's windows, Python's
+transition graph and Python's constants — which §56 permits as "selecting from precomputed
+opportunities". Nothing in `web/planner/` contains a threshold.
+
+`out/plan/parity.json` holds Python's own answers, computed **from the emitted dataset**, at
+four layers — component scores, window utilities, best-subwindow sets and complete
+itineraries. `test/planner/test_parity.mjs` replays every one through `web/planner/*.js`
+and fails on a disagreement larger than 0.05, or on any difference in the zones or times an
+itinerary picks. Currently **405 checks, all exact**.
 
 Components split in two:
 
@@ -176,11 +206,12 @@ layer; it runs before `bot.py` because the bot corpus embeds the planner's claim
 | `caney/zones/registry.py` | the 17 seeded fishing zones |
 | `caney/research/` | provider, cache, claim extraction, seeded TWRA corpus |
 | `caney/sources/` | `http` `usgs` `cwms` `weather` `lunar` `registry` `snapshots` |
-| `caney/planner/` | `scoring` `confidence` `window` `timeline` `engine` |
+| `caney/planner/` | `scoring` `utility` `opportunity` `transitions` `itinerary` `segments` `confidence` `window` `timeline` `engine` |
 | `caney/render/` | `dataset` `pages` `icons` |
 | `planner.py` | the build entry point |
 | `web/assets/app.css` | the one stylesheet |
-| `web/planner/*.js` | `model` `timeline` `ui` `app` `map` `format` `trip` |
+| `web/planner/*.js` | `model` `utility` `opportunity` `itin` `segments` `timeline` `ui` `app` `map` `format` `trip` |
+| `research-worker/` | `worker` `claims` `search` + `schema.sql` |
 | `web/sw.js`, `web/manifest.webmanifest` | the PWA |
 | `riverguide/src/guard.js` | the fail-closed safety verifier |
 | `test/planner/` | unit tests, golden fixtures, species regressions, parity |
@@ -194,4 +225,5 @@ layer; it runs before `bot.py` because the bot corpus embeds the planner's claim
 2. `caney/zones/registry.py`, the `carthage_confluence` entry — the product thesis in data.
 3. `caney/species/profiles.py`, the `WEIGHTS` table.
 4. `caney/planner/engine.py`, `plan()` — the ten-step pipeline, in order.
-5. `docs/SAFETY.md`.
+5. `docs/PLANNER.md` — the utility function and the itinerary objective.
+6. `docs/SAFETY.md`, then `docs/GEOGRAPHY.md`.

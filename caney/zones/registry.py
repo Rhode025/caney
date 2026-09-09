@@ -14,8 +14,9 @@ cordell.py's USACE tailwater pin). Nothing here was derived from prose. Where a 
 only describes a reach — "Cordell Hull Dam downstream to the mouth of the Caney Fork" —
 the zone stores a CORRIDOR between two verified endpoints, never an invented pin.
 """
+from ..domain.location import LocationConfidence, LocationEvidence, Verification
 from ..domain.zone import (FishingZone, Geometry, GeometryKind, AccessPoint,
-                           SpeciesProfileRef, Craft)
+                           SpeciesProfileRef, Craft, ZoneKind)
 from ..species.profiles import STRIPED_BASS, SMALLMOUTH, LARGEMOUTH, TROUT
 
 TWRA_ACCESS = "TWRA Boating & Fishing Access layer"
@@ -638,6 +639,235 @@ _ZONES = [
     ),
 ]
 
+# ══ §35, §36 · STILLWATER — the cover water largemouth actually live in ═════
+#
+# The 2.0 zone set was river-shaped, so largemouth had almost nowhere to be: they were
+# made to compete inside current-oriented reaches, which is not where they are. These
+# zones are creek arms, embayments and shoreline — described by TWRA, and each one an
+# AREA or CORRIDOR because an agency naming an embayment is not the same as a surveyed
+# spot. Their access coordinates are approximate to the embayment and are marked so.
+#
+# They also carry the §34 striper work: TWRA describes a WINTER striper concentration in
+# the lower Old Hickory embayments and a SPRING one in the Cordell Hull creeks between
+# Granville and Gainesboro. Modelling stripers only at Carthage was overfitting one case.
+
+_STILLWATER = [
+
+    FishingZone(
+        id="oldhickory_creek_arms", name="Old Hickory Creek Arms",
+        waterbody_ids=["cumbnash"], waterbody_names=["Old Hickory Reservoir"],
+        hydrology_river="oldhickory_lake", dam="Old Hickory Dam", tailwater=False,
+        drive="~45 min · Gallatin", detail_page="cumbnash.html",
+        geometry=Geometry(GeometryKind.AREA,
+                          [[36.3760, -86.3300], [36.3200, -86.4400], [36.2900, -86.6000],
+                           [36.3400, -86.5200]],
+                          verified=False, source="OSM embayment outlines, approximate",
+                          evidence=LocationEvidence.AGENCY_DESCRIBED_REACH,
+                          note=("TWRA names Bledsoe, Spencer and Station Camp Creek in the "
+                                "middle section and Drakes Creek and Shutes Branch "
+                                "downstream. This polygon spans those arms; it is not a "
+                                "survey of any of them.")),
+        habitat=["creek arm", "grass bed", "vegetation", "laydown", "wood", "riprap",
+                 "flat", "boat dock", "point"],
+        access=[
+            _ap("oldhickory_bledsoe", "Bledsoe Creek area", 36.3760, -86.3300, ["ramp"],
+                [Craft.POWER, Craft.DRIFT, Craft.KAYAK],
+                "Embayment access near Gallatin. Coordinates are approximate to the arm, "
+                "not to a verified ramp.", "OSM, unverified against the TWRA access layer",
+                verified=False),
+            _ap("oldhickory_drakes", "Drakes Creek area", 36.2960, -86.5900, ["ramp"],
+                [Craft.POWER, Craft.DRIFT, Craft.KAYAK],
+                "Downstream embayment near Hendersonville. Approximate.",
+                "OSM, unverified", verified=False),
+        ],
+        species_profiles={
+            LARGEMOUTH: SpeciesProfileRef(
+                LARGEMOUTH, months=ALL, pattern="grass and hard-cover embayment pattern",
+                habitat=["grass bed", "vegetation", "laydown", "wood", "riprap", "flat",
+                         "boat dock", "creek arm"],
+                holds=("Matted grass edges in 3-5 ft, and any hard structure mixed into "
+                       "the grass. TWRA maintains forty fish-attractor sites on this "
+                       "reservoir."),
+                weight=0.95, heuristic=False, evidence=["twra_oh_lmb_grass"]),
+            SMALLMOUTH: SpeciesProfileRef(
+                SMALLMOUTH, months=SPRING + FALL + [12, 1, 2],
+                pattern="riprap and point pattern",
+                habitat=["riprap", "point", "bluff bank"],
+                holds="Riprap banks and the points at the mouths of the arms.",
+                weight=0.55, heuristic=True),
+        },
+        hazards=["Standing timber and stumps in the backs of the arms.",
+                 "Barge traffic in the main channel; the arms are off it."],
+        regs="Largemouth bass 14-inch minimum on Old Hickory. TWRA statewide otherwise.",
+        kind=ZoneKind.CREEK_ARM,
+    ),
+
+    FishingZone(
+        id="oldhickory_embayments", name="Lower Old Hickory Embayments",
+        waterbody_ids=["cumbnash"], waterbody_names=["Old Hickory Reservoir"],
+        hydrology_river="oldhickory_lake", dam="Old Hickory Dam", tailwater=False,
+        drive="~35 min · Hendersonville", detail_page="cumbnash.html",
+        geometry=Geometry(GeometryKind.AREA,
+                          [[36.3050, -86.6100], [36.2800, -86.6600], [36.2950, -86.7000],
+                           [36.3200, -86.6400]],
+                          verified=False, source="OSM embayment outlines, approximate",
+                          evidence=LocationEvidence.AGENCY_DESCRIBED_REACH,
+                          note=("The lower-reservoir embayments TWRA describes as the "
+                                "winter striped-bass concentration. An area, not a spot.")),
+        habitat=["backwater", "creek arm", "flat", "point", "channel swing", "riprap"],
+        access=[
+            _ap("oldhickory_shutes", "Shutes Branch area", 36.3050, -86.6100, ["ramp"],
+                [Craft.POWER, Craft.DRIFT, Craft.KAYAK],
+                "Lower-reservoir embayment access. Approximate to the arm.",
+                "OSM, unverified", verified=False),
+        ],
+        species_profiles={
+            STRIPED_BASS: SpeciesProfileRef(
+                STRIPED_BASS, months=[12, 1, 2, 3],
+                pattern="winter embayment concentration",
+                habitat=["backwater", "creek arm", "flat", "channel swing"],
+                holds=("Fish concentrate in the lower-reservoir embayments from December "
+                       "through the winter, following bait off the main channel."),
+                move_to=["oldhickory_tailrace"], weight=0.85, heuristic=False,
+                evidence=["twra_oh_striper_winter_embayments"]),
+            LARGEMOUTH: SpeciesProfileRef(
+                LARGEMOUTH, months=ALL, pattern="embayment cover pattern",
+                habitat=["laydown", "wood", "riprap", "boat dock", "flat"],
+                holds="Docks, riprap and the wood in the backs of the pockets.",
+                weight=0.75, heuristic=False, evidence=["twra_oh_lmb_grass"]),
+        },
+        hazards=["Shallow flats and stumps in the backs of the embayments."],
+        regs="Largemouth bass 14-inch minimum. Striped bass per TWRA statewide limits.",
+        kind=ZoneKind.BACKWATER,
+    ),
+
+    FishingZone(
+        id="priest_creek_arms", name="Percy Priest Creek Arms",
+        waterbody_ids=["stones"], waterbody_names=["J. Percy Priest Reservoir"],
+        hydrology_river="priest_lake", dam="J. Percy Priest Dam", tailwater=False,
+        drive="~30 min · Smyrna / Hermitage", detail_page="stones.html",
+        geometry=Geometry(GeometryKind.AREA,
+                          [[36.1400, -86.4600], [36.0300, -86.4900], [36.0100, -86.5600],
+                           [36.1000, -86.5900]],
+                          verified=False, source="OSM embayment outlines, approximate",
+                          evidence=LocationEvidence.AGENCY_DESCRIBED_REACH,
+                          note=("TWRA names Spring and Fall Creek in the upper reservoir, "
+                                "Stewart Creek near mid-lake and Suggs Creek in the lower "
+                                "reservoir. This polygon spans them.")),
+        habitat=["creek arm", "flat", "point", "laydown", "wood", "riprap", "channel swing",
+                 "boat dock"],
+        access=[
+            _ap("priest_stewart", "Stewart Creek area", 36.0450, -86.4900, ["ramp"],
+                [Craft.POWER, Craft.DRIFT, Craft.KAYAK],
+                "Mid-lake embayment access. Approximate to the arm, not a verified ramp.",
+                "OSM, unverified", verified=False),
+            _ap("priest_suggs", "Suggs Creek area", 36.1050, -86.5500, ["ramp"],
+                [Craft.POWER, Craft.DRIFT, Craft.KAYAK],
+                "Lower-reservoir embayment access. Approximate.",
+                "OSM, unverified", verified=False),
+        ],
+        species_profiles={
+            LARGEMOUTH: SpeciesProfileRef(
+                LARGEMOUTH, months=ALL, pattern="embayment / fish-attractor pattern",
+                habitat=["creek arm", "laydown", "wood", "flat", "point", "boat dock"],
+                holds=("The Spring, Fall, Stewart and Suggs Creek embayments. TWRA "
+                       "maintains about 132 fish-attractor sites here, and largemouth use "
+                       "them year round — hardest from late November through April in "
+                       "6-15 ft."),
+                weight=0.95, heuristic=False, evidence=["twra_priest_lmb"]),
+            SMALLMOUTH: SpeciesProfileRef(
+                SMALLMOUTH, months=SPRING + FALL, pattern="point and riprap pattern",
+                habitat=["point", "riprap", "bluff bank"],
+                holds="Main-lake points and the riprap.", weight=0.5, heuristic=True),
+        },
+        hazards=["Heavy recreational traffic on summer weekends — this is a metro lake."],
+        regs="TWRA statewide black bass limits; verify Priest exceptions before you fish.",
+        kind=ZoneKind.CREEK_ARM,
+    ),
+
+    FishingZone(
+        id="centerhill_shoreline", name="Center Hill Rocky Shoreline",
+        waterbody_ids=["caney"], waterbody_names=["Center Hill Reservoir"],
+        hydrology_river="centerhill_lake", dam="Center Hill Dam", tailwater=False,
+        drive="~75 min · Smithville", detail_page="caney.html",
+        geometry=Geometry(GeometryKind.AREA,
+                          [[36.1000, -85.8300], [36.0200, -85.7300], [35.9400, -85.6600],
+                           [35.9800, -85.8200]],
+                          verified=False, source="OSM shoreline, approximate",
+                          evidence=LocationEvidence.AGENCY_DESCRIBED_REACH,
+                          note=("TWRA describes 'miles of rocky shoreline, points, and "
+                                "bluff areas'. This polygon spans the main lake; it names "
+                                "no spot because the source names no spot.")),
+        habitat=["bluff bank", "point", "riprap", "ledge", "laydown", "creek arm"],
+        access=[
+            _ap("centerhill_hurricane", "Hurricane Bridge area", 36.0200, -85.7900,
+                ["ramp"], [Craft.POWER, Craft.DRIFT, Craft.KAYAK],
+                "Main-lake access. Approximate — not verified against the TWRA layer.",
+                "OSM, unverified", verified=False),
+        ],
+        species_profiles={
+            SMALLMOUTH: SpeciesProfileRef(
+                SMALLMOUTH, months=ALL, pattern="highland-reservoir rock pattern",
+                habitat=["bluff bank", "point", "ledge", "riprap"],
+                holds=("Miles of rocky shoreline, points and bluff ends — TWRA's own "
+                       "description of the habitat here."),
+                weight=0.85, heuristic=False, evidence=["twra_centerhill"]),
+            LARGEMOUTH: SpeciesProfileRef(
+                LARGEMOUTH, months=ALL, pattern="year-round bank and pocket pattern",
+                habitat=["laydown", "wood", "creek arm", "boat dock", "point"],
+                holds="The pockets and the wood between the bluff ends.",
+                weight=0.7, heuristic=False, evidence=["twra_centerhill"]),
+        },
+        hazards=["Deep, clear, steep water — sudden wind on a big highland lake.",
+                 "Winter drawdown moves the ramps."],
+        regs="TWRA statewide black bass limits.",
+        kind=ZoneKind.BANK,
+    ),
+
+    FishingZone(
+        id="cordell_granville_reach", name="Cordell Hull — Granville to Gainesboro",
+        waterbody_ids=["cordell"], waterbody_names=["Cordell Hull Reservoir"],
+        hydrology_river="cordell_lake", dam="Cordell Hull Dam", tailwater=False,
+        drive="~90 min · Granville", detail_page="cordell.html",
+        geometry=Geometry(GeometryKind.CORRIDOR,
+                          [[36.2870, -85.7550], [36.3200, -85.6900], [36.3540, -85.6640]],
+                          verified=False, source="OSM channel centreline",
+                          evidence=LocationEvidence.AGENCY_DESCRIBED_REACH,
+                          note=("TWRA: striped bass use the major creeks from Granville to "
+                                "Gainesboro during spring. A reach between two towns — "
+                                "stored as the corridor the source describes.")),
+        habitat=["creek arm", "channel swing", "point", "flat", "bluff bank"],
+        access=[
+            _ap("cordell_granville", "Granville area", 36.2870, -85.7550, ["ramp"],
+                [Craft.POWER, Craft.DRIFT, Craft.KAYAK],
+                "Upper-reservoir access. Approximate to the town, not a verified ramp.",
+                "OSM, unverified", verified=False),
+        ],
+        species_profiles={
+            STRIPED_BASS: SpeciesProfileRef(
+                STRIPED_BASS, months=[3, 4, 5, 6],
+                pattern="spring creek-mouth staging above the dam",
+                habitat=["creek arm", "channel swing", "point"],
+                holds=("The major creeks between Granville and Gainesboro through the "
+                       "spring, and up toward Celina as the summer heat pushes fish to the "
+                       "coolest water."),
+                move_to=["cordell_tailwater"], weight=0.8, heuristic=False,
+                evidence=["twra_cordell_striper_creeks"]),
+            LARGEMOUTH: SpeciesProfileRef(
+                LARGEMOUTH, months=ALL, pattern="stump-flat and wood pattern",
+                habitat=["creek arm", "laydown", "wood", "flat"],
+                holds="Creeks, stump beds and fallen trees on flats in 2-8 ft.",
+                weight=0.85, heuristic=False, evidence=["twra_lmb_cordell"]),
+        },
+        hazards=["Standing timber on the flats — idle unfamiliar water.",
+                 "Long run from the nearest verified ramp."],
+        regs="TWRA statewide limits; verify Region 3 exceptions.",
+        kind=ZoneKind.RESERVOIR_ARM,
+    ),
+]
+
+_ZONES.extend(_STILLWATER)
+
 ZONES = {z.id: z for z in _ZONES}
 
 
@@ -682,3 +912,103 @@ def validate():
         if not zones_for_species(sp):
             bad.append("no zone supports species %s" % sp)
     return bad
+
+
+# ── §28-§33 · geographic confidence, declared per zone ──────────────────────
+#
+# Derived confidence (from the access points and the geometry) is the default and is
+# usually right. These are the zones where we know something the derivation cannot see:
+# that TWRA describes a reach without naming a spot, that a USACE project location is a
+# published coordinate, or that a shape came off an OSM centreline and nobody has stood on
+# it. `verification` is the §33 hook — status/by/at/source/notes — so a zone can be
+# upgraded from a phone at the ramp without touching any other file.
+#
+# THE PRIORS ARE NOT CALIBRATED. See docs/GEOGRAPHY.md.
+
+_A = LocationEvidence.VERIFIED_ACCESS
+_Z = LocationEvidence.VERIFIED_ZONE
+_R = LocationEvidence.AGENCY_DESCRIBED_REACH
+_M = LocationEvidence.MODELED_HABITAT
+_U = LocationEvidence.UNVERIFIED_CANDIDATE
+
+_LOCATION = {
+    "caney_upper": LocationConfidence(
+        access=_A, reach=_Z, holding_water=_M,
+        verification=Verification(status="desk_verified", verified_by="repo",
+                                  verified_at="2026-08-01",
+                                  source="TWRA Boating & Fishing Access layer + OSM centreline",
+                                  notes=("Happy Hollow and Betty's Island are TWRA published "
+                                         "ramp coordinates; mfd values are guide-verified and "
+                                         "backtested against the Stonewall gauge.")),
+        notes="The best-known water in the repo."),
+    "caney_middle": LocationConfidence(
+        access=_A, reach=_Z, holding_water=_M,
+        verification=Verification(status="desk_verified", verified_by="repo",
+                                  verified_at="2026-08-01", source="TWRA + OSM centreline")),
+    "caney_lower": LocationConfidence(
+        access=_Z, reach=_R, holding_water=_M,
+        verification=Verification(status="desk_verified", verified_by="repo",
+                                  verified_at="2026-09-09",
+                                  source="TWRA Old Hickory page describes the lower Caney reach"),
+        notes="TWRA names the reach — within two river miles of the mouth — not a spot."),
+    "carthage_confluence": LocationConfidence(
+        access=_A, reach=_R, holding_water=_M,
+        verification=Verification(status="desk_verified", verified_by="repo",
+                                  verified_at="2026-09-09",
+                                  source="USACE LRN project location + TWRA reach description",
+                                  notes=("TWRA: 'from Cordell Hull Dam downstream to the mouth "
+                                         "of the Caney Fork River'. A reach, not a spot.")),
+        notes="Access is a published USACE coordinate; the fishery is an agency-described reach."),
+    "cordell_tailwater": LocationConfidence(
+        access=_A, reach=_Z, holding_water=_M,
+        verification=Verification(status="desk_verified", verified_by="repo",
+                                  verified_at="2026-09-09", source="USACE LRN (CORT1)")),
+    "cordell_creek_arms": LocationConfidence(
+        access=_U, reach=_R, holding_water=_M,
+        verification=Verification(status="unverified",
+                                  source="TWRA describes the fishery; the ramp is unverified"),
+        notes=("TWRA describes creeks, stump beds and fallen trees on 2-8 ft flats. The "
+               "fishery is agency-described; the access coordinate is not.")),
+    "oldhickory_tailrace": LocationConfidence(access=_U, reach=_R, holding_water=_M,
+        notes="TWRA describes the below-dam winter fishery; the metro ramps are unverified."),
+    "cheatham_tailrace": LocationConfidence(access=_U, reach=_U, holding_water=_U),
+    "duck_upper": LocationConfidence(access=_U, reach=_R, holding_water=_M,
+        notes="TWRA describes the Old Stone Fort gorge and Big Falls pool by name."),
+    "duck_middle": LocationConfidence(access=_U, reach=_U, holding_water=_U),
+    "duck_lower": LocationConfidence(access=_U, reach=_U, holding_water=_U),
+    "buffalo_river": LocationConfidence(access=_U, reach=_R, holding_water=_M,
+        notes="TDEC describes the river; the liveries are named but not coordinate-verified."),
+    "harpeth_river": LocationConfidence(access=_U, reach=_U, holding_water=_U),
+    "stones_river": LocationConfidence(access=_U, reach=_U, holding_water=_U),
+    "elk_tims_ford": LocationConfidence(access=_U, reach=_U, holding_water=_U),
+    "elk_alabama": LocationConfidence(access=_U, reach=_U, holding_water=_U),
+    "cumberland_ky": LocationConfidence(access=_U, reach=_U, holding_water=_U),
+}
+
+# ── §36 · what KIND of water each zone is ──────────────────────────────────
+_KIND = {
+    "caney_upper": ZoneKind.TAILRACE,
+    "caney_middle": ZoneKind.RIVER_REACH,
+    "caney_lower": ZoneKind.CONFLUENCE,
+    "carthage_confluence": ZoneKind.CONFLUENCE,
+    "cordell_tailwater": ZoneKind.TAILRACE,
+    "cordell_creek_arms": ZoneKind.CREEK_ARM,
+    "oldhickory_tailrace": ZoneKind.TAILRACE,
+    "cheatham_tailrace": ZoneKind.TAILRACE,
+    "duck_upper": ZoneKind.RIVER_REACH,
+    "duck_middle": ZoneKind.RIVER_REACH,
+    "duck_lower": ZoneKind.RIVER_REACH,
+    "buffalo_river": ZoneKind.RIVER_REACH,
+    "harpeth_river": ZoneKind.RIVER_REACH,
+    "stones_river": ZoneKind.TAILRACE,
+    "elk_tims_ford": ZoneKind.TAILRACE,
+    "elk_alabama": ZoneKind.RIVER_REACH,
+    "cumberland_ky": ZoneKind.TAILRACE,
+}
+
+for _zid, _lc in _LOCATION.items():
+    if _zid in ZONES:
+        ZONES[_zid].location = _lc
+for _zid, _k in _KIND.items():
+    if _zid in ZONES:
+        ZONES[_zid].kind = _k

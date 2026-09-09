@@ -53,7 +53,12 @@
     "Never publishes a build that fails <code>verify.py</code> — same gate as CI."
    ],
    "issue": 3,
-   "issue_url": "https://github.com/Rhode025/caney/issues/3"
+   "issue_url": "https://github.com/Rhode025/caney/issues/3",
+   "reconciliation": {
+    "status": "still relevant",
+    "shipped_in": "",
+    "note": ""
+   }
   },
   {
    "sprint": 4,
@@ -71,7 +76,12 @@
     "CI persists all caches, not just the Caney’s."
    ],
    "issue": 4,
-   "issue_url": "https://github.com/Rhode025/caney/issues/4"
+   "issue_url": "https://github.com/Rhode025/caney/issues/4",
+   "reconciliation": {
+    "status": "still relevant",
+    "shipped_in": "",
+    "note": "cache_dam.json is Caney-only; the other twelve have no last-good cache."
+   }
   },
   {
    "sprint": 5,
@@ -88,7 +98,12 @@
     "Exit code drives the alert."
    ],
    "issue": 5,
-   "issue_url": "https://github.com/Rhode025/caney/issues/5"
+   "issue_url": "https://github.com/Rhode025/caney/issues/5",
+   "reconciliation": {
+    "status": "still relevant",
+    "shipped_in": "",
+    "note": "test/planner-smoke.mjs probes the live site post-deploy — partially covers it."
+   }
   },
   {
    "sprint": 6,
@@ -105,7 +120,12 @@
     "Consider a dated no-op commit as a backstop only if the watchdog proves insufficient."
    ],
    "issue": 6,
-   "issue_url": "https://github.com/Rhode025/caney/issues/6"
+   "issue_url": "https://github.com/Rhode025/caney/issues/6",
+   "reconciliation": {
+    "status": "still relevant",
+    "shipped_in": "",
+    "note": ""
+   }
   },
   {
    "sprint": 7,
@@ -123,7 +143,12 @@
     "Cache version keyed to the build epoch so a new deploy supersedes cleanly."
    ],
    "issue": 7,
-   "issue_url": "https://github.com/Rhode025/caney/issues/7"
+   "issue_url": "https://github.com/Rhode025/caney/issues/7",
+   "reconciliation": {
+    "status": "completed",
+    "shipped_in": "2.0",
+    "note": "web/sw.js — shell cache-first, plan data network-first."
+   }
   },
   {
    "sprint": 8,
@@ -140,7 +165,12 @@
     "Verify installability in Chrome and iOS Safari."
    ],
    "issue": 8,
-   "issue_url": "https://github.com/Rhode025/caney/issues/8"
+   "issue_url": "https://github.com/Rhode025/caney/issues/8",
+   "reconciliation": {
+    "status": "completed",
+    "shipped_in": "2.0",
+    "note": "web/manifest.webmanifest + generated icons; installable."
+   }
   },
   {
    "sprint": 9,
@@ -157,7 +187,12 @@
     "Retry and refresh when connectivity returns."
    ],
    "issue": 9,
-   "issue_url": "https://github.com/Rhode025/caney/issues/9"
+   "issue_url": "https://github.com/Rhode025/caney/issues/9",
+   "reconciliation": {
+    "status": "completed",
+    "shipped_in": "2.0",
+    "note": "Offline banner states the snapshot age and refuses to imply currency."
+   }
   },
   {
    "sprint": 10,
@@ -174,7 +209,12 @@
     "A test asserts the map still initialises with external hosts blocked."
    ],
    "issue": 10,
-   "issue_url": "https://github.com/Rhode025/caney/issues/10"
+   "issue_url": "https://github.com/Rhode025/caney/issues/10",
+   "reconciliation": {
+    "status": "completed",
+    "shipped_in": "2.0",
+    "note": "web/assets/leaflet.js is vendored; test asserts it is not a CDN load."
+   }
   },
   {
    "sprint": 11,
@@ -191,7 +231,12 @@
     "Manual toggle still overrides."
    ],
    "issue": 11,
-   "issue_url": "https://github.com/Rhode025/caney/issues/11"
+   "issue_url": "https://github.com/Rhode025/caney/issues/11",
+   "reconciliation": {
+    "status": "still relevant",
+    "shipped_in": "",
+    "note": ""
+   }
   },
   {
    "sprint": 12,
@@ -209,7 +254,12 @@
     "Colour is never the only carrier of grade or unit count."
    ],
    "issue": 12,
-   "issue_url": "https://github.com/Rhode025/caney/issues/12"
+   "issue_url": "https://github.com/Rhode025/caney/issues/12",
+   "reconciliation": {
+    "status": "partial",
+    "shipped_in": "2.0",
+    "note": "Planner palette is AA at token level (axe: 0). The thirteen river pages were NOT re-audited."
+   }
   },
   {
    "sprint": 13,
@@ -226,7 +276,12 @@
     "Automated check in the browser suite counts undersized targets and fails above zero."
    ],
    "issue": 13,
-   "issue_url": "https://github.com/Rhode025/caney/issues/13"
+   "issue_url": "https://github.com/Rhode025/caney/issues/13",
+   "reconciliation": {
+    "status": "partial",
+    "shipped_in": "2.0",
+    "note": "Planner controls are ≥44px and tested. River pages untouched."
+   }
   },
   {
    "sprint": 14,
@@ -243,7 +298,12 @@
     "Verified by emulating the preference in Playwright."
    ],
    "issue": 14,
-   "issue_url": "https://github.com/Rhode025/caney/issues/14"
+   "issue_url": "https://github.com/Rhode025/caney/issues/14",
+   "reconciliation": {
+    "status": "partial",
+    "shipped_in": "2.0",
+    "note": "prefers-reduced-motion honoured in web/assets/app.css only."
+   }
   },
   {
    "sprint": 15,
@@ -260,7 +320,12 @@
     "Tab order verified to follow reading order on Caney and the HQ."
    ],
    "issue": 15,
-   "issue_url": "https://github.com/Rhode025/caney/issues/15"
+   "issue_url": "https://github.com/Rhode025/caney/issues/15",
+   "reconciliation": {
+    "status": "partial",
+    "shipped_in": "2.0",
+    "note": "focus-visible throughout the planner; river pages untouched."
+   }
   },
   {
    "sprint": 16,
@@ -277,7 +342,12 @@
     "Verified with VoiceOver."
    ],
    "issue": 16,
-   "issue_url": "https://github.com/Rhode025/caney/issues/16"
+   "issue_url": "https://github.com/Rhode025/caney/issues/16",
+   "reconciliation": {
+    "status": "partial",
+    "shipped_in": "2.0",
+    "note": "aria-live on the planner result region; river pages untouched."
+   }
   },
   {
    "sprint": 17,
@@ -294,7 +364,12 @@
     "<code>verify.py</code> fails on any image lacking an alt attribute."
    ],
    "issue": 17,
-   "issue_url": "https://github.com/Rhode025/caney/issues/17"
+   "issue_url": "https://github.com/Rhode025/caney/issues/17",
+   "reconciliation": {
+    "status": "still relevant",
+    "shipped_in": "",
+    "note": "Alt text on river-page images is untouched."
+   }
   },
   {
    "sprint": 18,
@@ -312,7 +387,12 @@
     "Baseline recorded so pre-existing issues do not block unrelated work."
    ],
    "issue": 18,
-   "issue_url": "https://github.com/Rhode025/caney/issues/18"
+   "issue_url": "https://github.com/Rhode025/caney/issues/18",
+   "reconciliation": {
+    "status": "completed",
+    "shipped_in": "2.0",
+    "note": "axe runs in test/planner.mjs and gates the deploy. 0 violations."
+   }
   },
   {
    "sprint": 19,
@@ -329,7 +409,12 @@
     "Collapses into the existing sticky day bar rather than adding a third sticky layer."
    ],
    "issue": 19,
-   "issue_url": "https://github.com/Rhode025/caney/issues/19"
+   "issue_url": "https://github.com/Rhode025/caney/issues/19",
+   "reconciliation": {
+    "status": "still relevant",
+    "shipped_in": "",
+    "note": "Section nav for long river pages is untouched."
+   }
   },
   {
    "sprint": 20,
@@ -346,7 +431,12 @@
     "Consider grouping by drive time, which is how rivers are actually chosen."
    ],
    "issue": 20,
-   "issue_url": "https://github.com/Rhode025/caney/issues/20"
+   "issue_url": "https://github.com/Rhode025/caney/issues/20",
+   "reconciliation": {
+    "status": "still relevant",
+    "shipped_in": "",
+    "note": "Switcher scroll affordance is untouched."
+   }
   },
   {
    "sprint": 21,
@@ -362,7 +452,12 @@
     "<code>verify.py</code> asserts all fourteen titles are unique."
    ],
    "issue": 21,
-   "issue_url": "https://github.com/Rhode025/caney/issues/21"
+   "issue_url": "https://github.com/Rhode025/caney/issues/21",
+   "reconciliation": {
+    "status": "still relevant",
+    "shipped_in": "",
+    "note": "Unique titles: the planner has one; the river pages do not."
+   }
   },
   {
    "sprint": 22,
@@ -379,7 +474,12 @@
     "Absolute canonical URL per page."
    ],
    "issue": 22,
-   "issue_url": "https://github.com/Rhode025/caney/issues/22"
+   "issue_url": "https://github.com/Rhode025/caney/issues/22",
+   "reconciliation": {
+    "status": "still relevant",
+    "shipped_in": "",
+    "note": "Meta description: the planner has one; the river pages do not."
+   }
   },
   {
    "sprint": 23,
@@ -397,7 +497,12 @@
     "Contrast re-validated in both themes."
    ],
    "issue": 23,
-   "issue_url": "https://github.com/Rhode025/caney/issues/23"
+   "issue_url": "https://github.com/Rhode025/caney/issues/23",
+   "reconciliation": {
+    "status": "partial",
+    "shipped_in": "2.0",
+    "note": "Token-level dark mode on the planner. River pages are still light-only."
+   }
   },
   {
    "sprint": 24,
@@ -414,7 +519,12 @@
     "Fits legibly on Letter."
    ],
    "issue": 24,
-   "issue_url": "https://github.com/Rhode025/caney/issues/24"
+   "issue_url": "https://github.com/Rhode025/caney/issues/24",
+   "reconciliation": {
+    "status": "still relevant",
+    "shipped_in": "",
+    "note": "A print stylesheet exists for the planner only."
+   }
   },
   {
    "sprint": 25,
@@ -432,7 +542,12 @@
     "A crashed generator still fails the build loudly."
    ],
    "issue": 25,
-   "issue_url": "https://github.com/Rhode025/caney/issues/25"
+   "issue_url": "https://github.com/Rhode025/caney/issues/25",
+   "reconciliation": {
+    "status": "still relevant",
+    "shipped_in": "",
+    "note": "planner.py parallelises its own fetches; the generators do not."
+   }
   },
   {
    "sprint": 26,
@@ -448,7 +563,12 @@
     "Warning gone from the run log."
    ],
    "issue": 26,
-   "issue_url": "https://github.com/Rhode025/caney/issues/26"
+   "issue_url": "https://github.com/Rhode025/caney/issues/26",
+   "reconciliation": {
+    "status": "still relevant",
+    "shipped_in": "",
+    "note": ""
+   }
   },
   {
    "sprint": 27,
@@ -464,7 +584,12 @@
     "Revisit after BUILD-01 lands."
    ],
    "issue": 27,
-   "issue_url": "https://github.com/Rhode025/caney/issues/27"
+   "issue_url": "https://github.com/Rhode025/caney/issues/27",
+   "reconciliation": {
+    "status": "still relevant",
+    "shipped_in": "",
+    "note": "Timeout raised to 30 min for the added gates."
+   }
   },
   {
    "sprint": 28,
@@ -481,7 +606,12 @@
     "Suite returns to zero red on a normal week."
    ],
    "issue": 28,
-   "issue_url": "https://github.com/Rhode025/caney/issues/28"
+   "issue_url": "https://github.com/Rhode025/caney/issues/28",
+   "reconciliation": {
+    "status": "still relevant",
+    "shipped_in": "",
+    "note": ""
+   }
   },
   {
    "sprint": 29,
@@ -498,7 +628,12 @@
     "Timings written to the status directory so the trend is visible."
    ],
    "issue": 29,
-   "issue_url": "https://github.com/Rhode025/caney/issues/29"
+   "issue_url": "https://github.com/Rhode025/caney/issues/29",
+   "reconciliation": {
+    "status": "still relevant",
+    "shipped_in": "",
+    "note": "out/plan/build.json records planner duration; the generators do not."
+   }
   },
   {
    "sprint": 30,
@@ -516,7 +651,12 @@
     "Results committed to <code>analysis/</code> so the next session can see the evidence."
    ],
    "issue": 30,
-   "issue_url": "https://github.com/Rhode025/caney/issues/30"
+   "issue_url": "https://github.com/Rhode025/caney/issues/30",
+   "reconciliation": {
+    "status": "still relevant",
+    "shipped_in": "",
+    "note": "The twelve unvalidated rivers are still unvalidated."
+   }
   },
   {
    "sprint": 31,
@@ -533,7 +673,12 @@
     "Low-confidence rivers state which part is reliable — release schedule versus downstream timing."
    ],
    "issue": 31,
-   "issue_url": "https://github.com/Rhode025/caney/issues/31"
+   "issue_url": "https://github.com/Rhode025/caney/issues/31",
+   "reconciliation": {
+    "status": "completed",
+    "shipped_in": "2.0",
+    "note": "modelConfidence is on every zone and in the evidence drawer; four separate confidences in 2.1."
+   }
   },
   {
    "sprint": 32,
@@ -550,7 +695,12 @@
     "Exportable, so a season of it can be analysed offline."
    ],
    "issue": 32,
-   "issue_url": "https://github.com/Rhode025/caney/issues/32"
+   "issue_url": "https://github.com/Rhode025/caney/issues/32",
+   "reconciliation": {
+    "status": "completed",
+    "shipped_in": "2.0→2.1",
+    "note": "trip.js::snapshotPrediction freezes the plan-time state; 2.1 freezes the itinerary, ranking, hourly curves, weights and model versions."
+   }
   },
   {
    "sprint": 33,
@@ -567,7 +717,12 @@
     "Systematic drift triggers a recalibration ticket automatically."
    ],
    "issue": 33,
-   "issue_url": "https://github.com/Rhode025/caney/issues/33"
+   "issue_url": "https://github.com/Rhode025/caney/issues/33",
+   "reconciliation": {
+    "status": "completed",
+    "shipped_in": "2.0→2.1",
+    "note": "The scoreboard answers all of §51: arrival residual, opportunity bands, confidence calibration, per-species, per-zone, itinerary-vs-single-zone, research."
+   }
   },
   {
    "sprint": 34,
@@ -584,7 +739,12 @@
     "Same clamped-median guard, so a bad gauge day cannot swing the page."
    ],
    "issue": 34,
-   "issue_url": "https://github.com/Rhode025/caney/issues/34"
+   "issue_url": "https://github.com/Rhode025/caney/issues/34",
+   "reconciliation": {
+    "status": "superseded",
+    "shipped_in": "2.1",
+    "note": "Auto-calibration is now gated behind the outcome loop rather than a per-river backtest — see docs/OUTCOMES.md. MODEL-01 (#30) is the prerequisite that survives."
+   }
   },
   {
    "sprint": 35,
@@ -601,7 +761,12 @@
     "<code>verify.py</code> fails when a page contradicts its own matrix row."
    ],
    "issue": 35,
-   "issue_url": "https://github.com/Rhode025/caney/issues/35"
+   "issue_url": "https://github.com/Rhode025/caney/issues/35",
+   "reconciliation": {
+    "status": "still relevant",
+    "shipped_in": "",
+    "note": "The §3 matrix still lists 3 of 13 rivers."
+   }
   },
   {
    "sprint": 36,
@@ -618,7 +783,12 @@
     "<code>verify.py</code> fails on duplicate class definitions across the shared and per-page layers."
    ],
    "issue": 36,
-   "issue_url": "https://github.com/Rhode025/caney/issues/36"
+   "issue_url": "https://github.com/Rhode025/caney/issues/36",
+   "reconciliation": {
+    "status": "partial",
+    "shipped_in": "2.0",
+    "note": "One shared stylesheet and shared ES modules for the planner. The generators still inline their own CSS."
+   }
   },
   {
    "sprint": 37,
@@ -635,7 +805,12 @@
     "Runs on the built output, not on isolated component fixtures — that is what hid the collision."
    ],
    "issue": 37,
-   "issue_url": "https://github.com/Rhode025/caney/issues/37"
+   "issue_url": "https://github.com/Rhode025/caney/issues/37",
+   "reconciliation": {
+    "status": "still relevant",
+    "shipped_in": "",
+    "note": ""
+   }
   },
   {
    "sprint": 38,
@@ -652,7 +827,12 @@
     "No river-specific place names can survive the clone."
    ],
    "issue": 38,
-   "issue_url": "https://github.com/Rhode025/caney/issues/38"
+   "issue_url": "https://github.com/Rhode025/caney/issues/38",
+   "reconciliation": {
+    "status": "still relevant",
+    "shipped_in": "",
+    "note": ""
+   }
   },
   {
    "key": "BOT-01",
@@ -687,7 +867,12 @@
    ],
    "sprint": 40,
    "issue": 40,
-   "issue_url": "https://github.com/Rhode025/caney/issues/40"
+   "issue_url": "https://github.com/Rhode025/caney/issues/40",
+   "reconciliation": {
+    "status": "completed",
+    "shipped_in": "2.0",
+    "note": "riverguide/test.mjs drives six adversarial classes against the fail-closed guard."
+   }
   },
   {
    "key": "BOT-03",
@@ -704,7 +889,12 @@
    ],
    "sprint": 41,
    "issue": 41,
-   "issue_url": "https://github.com/Rhode025/caney/issues/41"
+   "issue_url": "https://github.com/Rhode025/caney/issues/41",
+   "reconciliation": {
+    "status": "partial",
+    "shipped_in": "2.1",
+    "note": "The research worker records queries, tokens and cache hits per day. Bot-side token telemetry already existed."
+   }
   },
   {
    "key": "BOT-04",
@@ -722,7 +912,12 @@
    ],
    "sprint": 42,
    "issue": 42,
-   "issue_url": "https://github.com/Rhode025/caney/issues/42"
+   "issue_url": "https://github.com/Rhode025/caney/issues/42",
+   "reconciliation": {
+    "status": "still relevant",
+    "shipped_in": "",
+    "note": ""
+   }
   },
   {
    "key": "BOT-05",
@@ -739,7 +934,12 @@
    ],
    "sprint": 43,
    "issue": 43,
-   "issue_url": "https://github.com/Rhode025/caney/issues/43"
+   "issue_url": "https://github.com/Rhode025/caney/issues/43",
+   "reconciliation": {
+    "status": "still relevant",
+    "shipped_in": "",
+    "note": ""
+   }
   },
   {
    "sprint": 44,
@@ -813,6 +1013,81 @@
    "done": [
     "The drawer passes the plan id, and the bot fetches that plan.",
     "A question about a plan whose window has passed says so rather than answering about a different one."
+   ]
+  },
+  {
+   "sprint": 49,
+   "key": "GEO-02",
+   "epic": "Wayfinding",
+   "priority": "P0",
+   "effort": "M",
+   "lane": "next",
+   "title": "Verify access coordinates — a dozen zones sit at location confidence 40",
+   "evidence": "Caney 2.1 makes geographic confidence first class and charges for it: window utility multiplies by 0.75 + 0.25 x location_confidence, so an unverified zone gives up real ground, and its tactical language is hedged rather than precise. Of 22 zones, only the Caney reaches, the Cordell Hull tailwater and the Carthage confluence carry verified access. Twelve sit at 40/100 and say so in the UI. This is the single highest-value data task in the repo.",
+   "done": [
+    "Every AccessPoint either carries a verified source or is removed.",
+    "The zones currently at 40 move to 62 or better.",
+    "docs/GEOGRAPHY.md §5's table is rewritten to match."
+   ]
+  },
+  {
+   "sprint": 50,
+   "key": "CAL-02",
+   "epic": "Model validation",
+   "priority": "P0",
+   "effort": "M",
+   "lane": "next",
+   "title": "The utility constants are priors — twenty logged trips is the threshold",
+   "evidence": "The whole 2.1 objective (peak/cubic/floor mixture, the duration saturation at 150 minutes, the 0.22-per-minute transition cost, the breadth bonus, the complexity penalty) was chosen so the four mandatory regression scenarios come out as specified. Nothing has validated any of it. The scoreboard answers every question in the brief's §51 and currently prints 'not enough trips to say' to all of them.",
+   "done": [
+    "Twenty logged plans with outcomes, across at least three species.",
+    "The arrival-residual and opportunity-band measures print figures.",
+    "Any constant moved carries its evidence in the comment above it, and PLANNER_VERSION is bumped."
+   ]
+  },
+  {
+   "sprint": 51,
+   "key": "RES-01",
+   "epic": "Research",
+   "priority": "P1",
+   "effort": "S",
+   "lane": "next",
+   "title": "Deploy the research worker and point CI at it",
+   "evidence": "research-worker/ is written, tested (no network needed) and documented, but not deployed: wrangler.toml still carries REPLACE_WITH_D1_ID and REPLACE_WITH_KV_ID. Until it exists the planner runs on the 23 seeded TWRA/TDEC claims, which is a working floor but a static one — the freshness line on every plan reads from stored evidence only.",
+   "done": [
+    "D1 and KV created, schema applied, OPENAI_API_KEY set as a secret.",
+    "/health returns enabled: true.",
+    "The CANEY_RESEARCH_ENDPOINT repository variable is set and a build shows research on."
+   ]
+  },
+  {
+   "sprint": 52,
+   "key": "MOVE-01",
+   "epic": "Model validation",
+   "priority": "P2",
+   "effort": "M",
+   "lane": "later",
+   "title": "The transition model is priors too — and it decides whether you move",
+   "evidence": "caney/planner/transitions.py holds sixteen configured routes and estimates the rest from straight-line distance times a sinuosity factor. Speeds (18 mph downstream in a boat, 32 mph on county roads) and the 14-minute trailering overhead are guesses. They directly decide whether a move is worth making, which is the most consequential new behaviour in 2.1.",
+   "done": [
+    "Time an actual Cordell Hull to Caney mouth run and a trailer reposition.",
+    "Replace the two speeds that matter with measured ones.",
+    "Segment outcomes confirm the move was worth it, or the cost goes up."
+   ]
+  },
+  {
+   "sprint": 53,
+   "key": "A11Y-08",
+   "epic": "Accessibility",
+   "priority": "P2",
+   "effort": "L",
+   "lane": "later",
+   "title": "The river pages never got the accessibility or dark-mode work",
+   "evidence": "S12-S16 and S23 were delivered on the planner, which is a different surface with its own stylesheet. The thirteen generated river pages still inline their own CSS, are light-only, and have not been through axe. They are now the drill-down layer rather than the front door, which lowers the priority but does not remove it.",
+   "done": [
+    "riverlib's shared CSS adopts the planner's token palette.",
+    "axe runs against a river page in CI.",
+    "Dark mode works on a river page."
    ]
   }
  ],
@@ -929,17 +1204,19 @@
  ],
  "method": "Measured against the live build on 23 Aug 2026 — every page loaded in headless Chromium at 390 / 768 / 1280px, contrast computed per rendered node against its resolved background, CDN failure simulated by aborting unpkg, arcgisonline and the font hosts, overflow measured as scrollWidth &gt; clientWidth.",
  "release": {
-  "name": "Caney 2.0 — the species-first oracle",
+  "name": "Caney 2.1 — the fishing-day oracle",
   "date": "2026-09-09",
-  "summary": "The homepage now asks what you want to catch. Species are behavioural profiles attached to fishing ZONES that can span river pages, safety numbers are immutable claims that generative text may quote but never restate, and unknown is structurally distinct from zero.",
+  "summary": "The planner stopped optimising the mean. It now finds the best contiguous opportunity WINDOW inside your availability, and assembles the best executable itinerary from those windows — including moving between zones when that is worth the travel. Geographic confidence became first class, research became a refreshable service, and the outcome loop became the point rather than a footnote.",
   "docs": [
-   "docs/ARCHITECTURE.md",
-   "docs/SAFETY.md",
-   "docs/SCHEMAS.md",
-   "docs/SPECIES_SCORING.md",
+   "docs/PLANNER.md",
+   "docs/GEOGRAPHY.md",
    "docs/RESEARCH.md",
-   "docs/DEVELOPMENT.md"
+   "docs/OUTCOMES.md",
+   "docs/SCORING.md",
+   "docs/ARCHITECTURE.md",
+   "docs/SCHEMAS.md",
+   "docs/SAFETY.md"
   ],
-  "addresses": "Substantially covers the Offline, Accessibility, Build & CI and RiverGuide epics below, and opens Model validation. The GitHub issue remains the system of record for whether a ticket is closed — this line is a pointer, not a state change."
+  "addresses": "Every ticket below now carries a `reconciliation` block classifying it against what 2.0 and 2.1 shipped: completed, partial, superseded or still relevant. The GitHub issue remains the system of record for whether a ticket is closed — nothing here closes one."
  }
 }

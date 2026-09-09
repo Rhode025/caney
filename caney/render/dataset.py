@@ -22,10 +22,14 @@ per-signal ages, and can be refreshed independently of the river pages that surr
 import json
 import time
 
+from ..domain.location import LocationEvidence as _LE
 from ..domain.observation import DataState
-from ..domain.zone import Craft
-from ..planner import scoring, window
+from ..domain.zone import Craft, ZoneKind as _ZK
+from ..planner import itinerary as itin_search
+from ..planner import opportunity, scoring, transitions, utility, window
+from ..planner.engine import VERDICT, hourly_scores
 from ..sources.snapshots import localize
+from ..version import versions
 from ..planner.confidence import SIGNALS, confidence, rank_key
 from ..species.profiles import (COMPONENT_LABEL, DISPLAY, MOON_MAX_SHARE, SPECIES,
                                 SPECIES_PROFILES, WEIGHTS)
@@ -69,13 +73,30 @@ def build(snaps, book, claims_by_zone_species, now=None, research_meta=None,
         "windowSearch": {"step": window.STEP, "min": window.MIN_SPAN,
                          "shortDay": window.SHORT_DAY, "gain": window.GAIN,
                          "tie": window.TIE},
-        "verdictThresholds": {"go": 68, "confident": 55, "fishable": 50,
-                              "hardComponent": 0.2},
+        "verdictThresholds": {"go": VERDICT["go"], "confident": VERDICT["confident"],
+                              "fishable": VERDICT["fishable"],
+                              "hardComponent": VERDICT["hard_component"]},
+        # §6, §7 — the window utility function's constants, published so the browser
+        # computes the identical number rather than carrying a model of its own.
+        "utility": utility.constants(),
+        "opportunity": {"gridMinutes": opportunity.GRID_MINUTES,
+                        "maxMinutes": opportunity.MAX_MINUTES,
+                        "topN": opportunity.TOP_N,
+                        "bucketMinutes": opportunity.BUCKET_MINUTES},
+        "itinerary": {"maxZones": itin_search.MAX_ZONES, "beam": itin_search.BEAM,
+                      "maxIdleMinutes": itin_search.MAX_IDLE_MINUTES},
+        "locationEvidence": {
+            "order": list(_LE.ORDER), "prior": dict(_LE.PRIOR), "label": dict(_LE.LABEL),
+            "explain": dict(_LE.EXPLAIN), "style": dict(_LE.STYLE),
+        },
+        "zoneKinds": dict(_ZK.LABEL),
+        "versions": versions(),
         "confidenceLabels": [[78, "HIGH CONFIDENCE"], [55, "MODERATE CONFIDENCE"],
                              [32, "LOW CONFIDENCE"], [0, "VERY LOW CONFIDENCE"]],
         "horizonPenalty": {"fromDays": 3, "perDay": 12, "max": 45},
         "confidenceSignals": [{"key": k, "weight": w, "label": l} for k, w, l in SIGNALS],
         "species": {}, "zones": {}, "series": {}, "statics": {}, "gates": {},
+        "hourly": {}, "transitions": {},
         "safety": book.to_json(), "claims": {}, "evidence": {}, "freshness": {},
         "confidence": {}, "weatherHours": {}, "lunar": {}, "sun": {},
         "research": research_meta or {"provider": "disabled", "enabled": False},
@@ -191,11 +212,36 @@ def build(snaps, book, claims_by_zone_species, now=None, research_meta=None,
             data["statics"][key] = {"static": st, "accessByCraft": st_by_craft,
                                     "units": units, "genKnown": gen_known}
 
+            # §4/§55 — the total weighted score at each hour. The window optimiser runs
+            # on exactly this array in both engines, so there is one canonical number per
+            # hour rather than two derivations of it.
+            data["hourly"][key] = hourly_scores(sp, z, ser, scoring.static_fits(
+                sp, z, snap, claims, Craft.ANY,
+                _dt.datetime.fromtimestamp(t0, tz).month, cfg, units, gen_known),
+                Craft.ANY)
+
             conf, rows = confidence(z, snap, claims, (t0 + 6 * 3600, t0 + 10 * 3600), 0)
             data["confidence"][key] = {"value": conf, "rows": rows}
-            data["evidence"][key] = [c.id for c in claims[:8]]
+            # The SCORED confidence is per (zone, species) — the same TWRA claim is worth
+            # more at the water it names than at the water it does not. Keying only by
+            # claim id meant the last zone written silently overwrote every earlier
+            # zone's score, which is how a 66 became a 20 in the header.
+            data["evidence"][key] = [{"id": c.id, "confidence": round(c.confidence, 4),
+                                      "geographic_match": c.geographic_match,
+                                      "seasonal_match": c.seasonal_match}
+                                     for c in claims[:8]]
             for c in claims[:8]:
-                data["claims"][c.id] = c.to_json()
+                j = c.to_json()
+                j.pop("confidence", None)      # lives in `evidence`, per zone
+                data["claims"].setdefault(c.id, j)
+
+    # §11/§12 — the transition graph, per craft. Computed once here so the browser never
+    # has to reason about whether a boat can get from one reach to another; it looks the
+    # move up and reads the minutes, the mode and the provenance.
+    zone_objs = [z for z in all_zones() if z.id in data["zones"]]
+    for c in Craft.ALL:
+        g = transitions.build_graph(zone_objs, c)
+        data["transitions"][c] = {"%s|%s" % k: v.to_json() for k, v in g.items()}
 
     return data
 

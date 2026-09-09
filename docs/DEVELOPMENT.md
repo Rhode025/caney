@@ -42,8 +42,12 @@ the files the browser runs, so the debugger shows the source you edited.
 
 ```
 web/assets/app.css        the one stylesheet — tokens, components, dark mode, a11y
-web/planner/model.js      scoring assembly, gates, window search, ranking
-web/planner/timeline.js   itinerary assembly + .ics export
+web/planner/model.js      candidate ranking, gates, the plan pipeline
+web/planner/utility.js    the window utility function — a mirror of utility.py
+web/planner/opportunity.js window discovery — a mirror of opportunity.py
+web/planner/itin.js       the itinerary beam search — a mirror of itinerary.py
+web/planner/segments.js   segment assembly — a mirror of segments.py
+web/planner/timeline.js   the .ics alarm export
 web/planner/ui.js         rendering
 web/planner/app.js        state, persistence, events, offline
 web/planner/map.js        Leaflet, from the local bundle
@@ -63,7 +67,8 @@ just run `python3 planner.py`, which copies them.
 python3 test/planner/run.py    # unit + fixtures. no network, fixed clock, instant.
 python3 test/verify.py         # static QA over the built site
 node test/planner/test_parity.mjs   # Python↔browser scoring parity
-cd riverguide && node test.mjs      # slicer, access, fail-closed guard
+cd riverguide && node test.mjs      # slicer, access, fail-closed guard, itinerary
+cd research-worker && node test.mjs # tiering, decay, normalisation, dedupe — no network
 cd test && node planner.mjs         # browser + axe accessibility
 cd test && node browser.mjs         # the river pages
 node test/planner-smoke.mjs https://caney.pages.dev    # post-deploy
@@ -80,6 +85,17 @@ ln -sf ../../test/hooks/pre-commit .git/hooks/pre-commit
 
 ## Research (optional)
 
+Preferred — the Research Intelligence worker holds the key, the cache, the decay curves and
+the spend cap:
+
+```bash
+export RESEARCH_ENABLED=1
+export CANEY_RESEARCH_ENDPOINT=https://caney-research.<subdomain>.workers.dev
+python3 planner.py
+```
+
+Direct, for a local run with the secret to hand:
+
 ```bash
 export RESEARCH_ENABLED=1
 export OPENAI_API_KEY=…
@@ -87,8 +103,25 @@ export OPENAI_RESEARCH_MODEL=gpt-4.1-mini    # optional
 python3 planner.py
 ```
 
-Without these the planner is fully deterministic and every test still passes. Set
+Without either, the planner is fully deterministic and every test still passes. Set
 `CANEY_PLANNER_FAST=1` to skip live research even when a key is present.
+
+### Deploying the research worker
+
+Independent of the static site (§75):
+
+```bash
+cd research-worker
+npx wrangler d1 create caney-research           # once — put the id in wrangler.toml
+npx wrangler kv namespace create CACHE          # once — put the id in wrangler.toml
+npx wrangler d1 execute caney-research --remote --file=./schema.sql
+npx wrangler secret put OPENAI_API_KEY
+npx wrangler deploy
+curl https://caney-research.<subdomain>.workers.dev/health
+```
+
+Then set the `CANEY_RESEARCH_ENDPOINT` repository **variable** so CI builds use it. Nothing
+about the site build depends on the worker existing.
 
 ## Deployment
 
@@ -148,3 +181,28 @@ and from `out/plan/featured/*.json` for planning questions.
 3. Add a `WEIGHTS` column summing to 100, using only components that have fit functions.
 4. Pin it in `test/planner/test_domain.py::test_weights`.
 5. Attach it to zones. `validate()` fails if a species has nowhere to fish.
+
+
+## Adding a transition route
+
+`caney/planner/transitions.py::KNOWN_ROUTES`, keyed `(from_zone, to_zone)` and asymmetric
+where the water is:
+
+```python
+("cordell_tailwater", "carthage_confluence"): (12.0, "boat_downstream",
+    "8 river miles of continuously navigable Cumberland, running downstream."),
+("carthage_confluence", "cordell_tailwater"): (16.0, "boat_upstream",
+    "8 river miles back up to the dam, against the release."),
+```
+
+Minutes are the whole move including overhead. Without an entry the model estimates from
+straight-line distance and labels the estimate as one; if no mode the craft has can make
+the move, `transition()` returns `None` and the move is never offered.
+
+## Bumping a model version
+
+`caney/version.py`. Bump the relevant one whenever you change the utility function or the
+searches (`PLANNER_VERSION`), the weights or a species rule (`SPECIES_MODEL_VERSION`), the
+zone registry or location confidence (`ZONE_MODEL_VERSION`), or the corpus, tiers or decay
+curves (`RESEARCH_VERSION`). The trip log freezes all four, and the scoreboard groups by
+`planner` — a calibration figure that silently spans a model change is worse than none.

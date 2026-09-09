@@ -162,61 +162,109 @@ function hourRange(data, g, start, end) {
   return out;
 }
 
-/**
- * §37 — the strongest slice of the requested window. Same search Python's window.py runs:
- * 30-minute steps, 90-minute minimum, longer wins on a tie.
- */
-export function bestWindow(data, zoneId, species, craft, start, end) {
-  const W = data.windowSearch;
-  const whole = score(data, zoneId, species, craft, start, end);
-  if (!whole) return null;
-  if (end - start <= W.min * W.shortDay) {
-    return { start, end, why: "the whole requested window — it is short enough to fish through",
-             score: whole.score, lines: whole.lines, fits: whole.fits };
-  }
-  let best = { start, end, score: whole.score, lines: whole.lines, fits: whole.fits };
-  for (let a = start; a + W.min <= end; a += W.step) {
-    for (let b = a + W.min; b <= end; b += W.step) {
-      const s = score(data, zoneId, species, craft, a, b);
-      if (!s) continue;
-      if (s.score > best.score + W.gain ||
-          (s.score > best.score - W.tie && (b - a) > (best.end - best.start))) {
-        best = { start: a, end: b, score: Math.max(s.score, best.score),
-                 lines: s.lines, fits: s.fits };
-      }
-    }
-  }
-  if (best.start === start && best.end === end) {
-    best.why = "the whole requested window scores as well as any slice of it";
-  } else {
-    const gain = best.score - whole.score;
-    best.why = gain > W.tie
-      ? "this " + ((best.end - best.start) / 3600).toFixed(1) +
-        "-hour slice scores " + gain.toFixed(1) + " points better than fishing the whole window"
-      : "the strongest part of the window you gave";
-  }
-  return best;
-}
+import { findWindows } from "./opportunity.js";
+import { search as itinSearch, zoneSeq } from "./itin.js";
 
-/** §30 steps 1-8. Returns {ranked:[…], rejected:[…]}. */
-export function rank(data, species, craft, start, end, month, now) {
-  const ranked = [], rejected = [];
+/**
+ * §4, §8, §30 — the 2.1 pipeline, in the browser.
+ *
+ * 2.0 asked "which zone scores highest over the whole period the user gave?" and answered
+ * with a mean. This asks "what is the best executable day inside that period?" and answers
+ * with an itinerary. The scoring, the utility constants, the transition graph and the
+ * hourly series are all Python's; what happens here is selection.
+ */
+//: How many runner-up itineraries to keep for the alternatives block (§38). Display only.
+const RUNNERS_SHOWN = 5;
+
+export function planFor(data, species, craft, start, end, now) {
+  const month = new Date(start * 1000).getMonth() + 1;
   const daysOut = daysBetween(now, start);
+  const rejected = [];
+  const candidates = [];
+  let allWindows = [];
+
   for (const [zid, z] of Object.entries(data.zones)) {
     if (!z.species_profiles || !z.species_profiles[species]) continue;
     const reason = gate(data, zid, species, craft, start, end, month);
     if (reason) { rejected.push({ zone: zid, name: z.name, reason }); continue; }
-    const w = bestWindow(data, zid, species, craft, start, end);
-    if (!w) { rejected.push({ zone: zid, name: z.name, reason: "no scoring data" }); continue; }
+
     const conf = confidenceFor(data, zid, species, daysOut);
-    ranked.push({
-      zone: zid, name: z.name, z, window: w, score: w.score, lines: w.lines,
-      fits: w.fits, confidence: conf.value, confRows: conf.rows,
-      rank: rankKey(w.score, conf.value, data.rank),
+    const loc = (z.location_confidence || {}).value || 0;
+    const stale = ["flow", "generation"].some(
+      (k) => ((z.water || {})[k] || {}).state === "stale");
+    const windows = findWindows(data, zid, species, start, end, {
+      confidence: conf.value, locationConfidence: loc, stale,
+      conditionsSummary: conditionsSummary(z),
     });
+    if (!windows.length) {
+      rejected.push({ zone: zid, name: z.name, reason: "no fishable window inside your time" });
+      continue;
+    }
+    const w = score(data, zid, species, craft, windows[0].start, windows[0].end);
+    candidates.push({
+      zone: zid, name: z.name, z, windows,
+      confidence: conf.value, confRows: conf.rows,
+      locationConfidence: loc,
+      lines: w ? w.lines : [], fits: w ? w.fits : {},
+      score: w ? w.score : 0,
+      bestUtility: windows[0].utility,
+    });
+    allWindows = allWindows.concat(windows);
   }
-  ranked.sort((a, b) => b.rank - a.rank);
-  return { ranked, rejected, daysOut };
+
+  if (!allWindows.length) return { itinerary: null, candidates, rejected, daysOut };
+
+  const seqs = itinSearch(data, allWindows, craft, species);
+  if (!seqs.length) return { itinerary: null, candidates, rejected, daysOut };
+
+  const winner = seqs[0];
+  const byZone = Object.fromEntries(candidates.map((c) => [c.zone, c]));
+  const primary = byZone[winner.windows[0].zone_id];
+  candidates.sort((a, b) => b.bestUtility - a.bestUtility);
+
+  return {
+    itinerary: winner, runners: seqs.slice(1, 1 + RUNNERS_SHOWN),
+    candidates, rejected, daysOut,
+    primary, byZone,
+    opportunity: round1(winner.parts.quality || 0),
+    confidence: Math.min(...winner.windows.map((w) => w.confidence)),
+    locationConfidence: round1(100 * Math.min(...winner.windows.map((w) => w.location_confidence))),
+    researchConfidence: researchConfidence(data, winner.windows[0].zone_id, species),
+    zoneSequence: zoneSeq(winner),
+  };
+}
+
+function conditionsSummary(z) {
+  const w = z.water || {};
+  const bits = [];
+  if ((w.flow || {}).state === "known") bits.push(Math.round(w.flow.value).toLocaleString() + " cfs");
+  if ((w.generation_on || {}).state === "known") {
+    bits.push("generation " + (w.generation_on.value ? "on" : "off"));
+  }
+  if ((w.water_temp || {}).state === "known") bits.push(Math.round(w.water_temp.value) + "°F");
+  return bits.join(" · ");
+}
+
+/** §31 — research confidence as its own number. Mirrors engine._research_confidence. */
+export function researchConfidence(data, zoneId, species) {
+  const rows = evidenceFor(data, zoneId, species);
+  if (!rows.length) return 0;
+  const top = rows.slice().sort((a, b) => b.confidence - a.confidence).slice(0, 4);
+  return round1(100 * top.reduce((a, c) => a + c.confidence, 0) / top.length);
+}
+
+/** The claim bodies, with the confidence they carry AT THIS ZONE. */
+export function evidenceFor(data, zoneId, species) {
+  const refs = data.evidence[zoneId + "|" + species] || [];
+  return refs.map((r) => {
+    const id = typeof r === "string" ? r : r.id;
+    const c = data.claims[id];
+    if (!c) return null;
+    return Object.assign({}, c, {
+      confidence: typeof r === "string" ? 0 : (r.confidence || 0),
+      geographic_match: typeof r === "string" ? null : r.geographic_match,
+    });
+  }).filter(Boolean);
 }
 
 export function daysBetween(now, then) {
@@ -226,22 +274,24 @@ export function daysBetween(now, then) {
 }
 
 /** §8 — the verdict, from the same rule as engine._verdict. */
-export function verdict(cand, data) {
+export function verdict(opportunity, confidence, lines, data) {
   const V = (data && data.verdictThresholds) ||
     { go: 68, confident: 55, fishable: 50, hardComponent: 0.2 };
-  const hard = cand.lines.filter((l) => l.known && l.earned <= l.possible * V.hardComponent);
-  if (cand.score >= V.go && cand.confidence >= V.confident && !hard.length) {
+  const hard = (lines || []).filter((l) => l.known && l.earned <= l.possible * V.hardComponent);
+  if (opportunity >= V.go && confidence >= V.confident && !hard.length) {
     return ["GO", "Good water, good window, and the numbers behind it are observed."];
   }
-  if (cand.score >= V.go && cand.confidence < V.confident) {
+  if (opportunity >= V.go && confidence < V.confident) {
     return ["CONDITIONAL",
       "The fishery reads well but too much of it is unmeasured — treat the timing as " +
       "provisional and verify the release before you commit."];
   }
-  if (cand.score >= V.fishable) {
+  if (opportunity >= V.fishable) {
     return ["CONDITIONAL", "Fishable, with a real limitation: " +
       (hard.length ? hard[0].why : "several components are only average.")];
   }
   return ["SKIP", "Nothing here scores well enough to be worth the drive: " +
     (hard.length ? hard[0].why : "every component is weak in this window.")];
 }
+
+const round1 = (x) => Math.round(x * 10) / 10;

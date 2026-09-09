@@ -156,32 +156,128 @@ def main():
 
 
 def _parity(data, now, today):
-    """Sampled (zone, species, window) → Python's score, computed FROM THE EMITTED DATASET.
+    """Canonical answers the browser engine must reproduce. §55.
 
-    Scoring through the same arrays the browser downloads is the point: if this fixture
-    were built from a separately computed series, a divergence between what Python scores
-    and what it ships would pass the test.
+    Four layers, each computed FROM THE EMITTED DATASET so the fixture proves what is
+    actually shipped rather than what Python happened to compute internally:
+
+        hourly       the weighted score at each hour of the horizon
+        window       the utility of a specific (zone, species, start, end)
+        subwindow    the best-window set the optimiser finds inside an availability
+        itinerary    the winning sequence, its zones, its times and its utility
+
+    Scoring the fixture through the same arrays the browser downloads is the point. A
+    fixture built from a separately computed series would pass while Python shipped
+    something else.
     """
-    from caney.planner import scoring
+    from caney.planner import itinerary as itin_search
+    from caney.planner import opportunity as opp
+    from caney.planner import scoring, transitions, utility as U
     from caney.render.dataset import rehydrate
-    cases = []
+    from caney.zones.registry import all_zones as _az
+
+    cases, windows, subwindows, itins = [], [], [], []
+    zone_objs = {z.id: z for z in _az()}
+
     for zid, z in data["zones"].items():
         for sp in list(z["species_profiles"])[:2]:
             key = zid + "|" + sp
-            if key not in data["series"]:
+            if key not in data["series"] or key not in data["hourly"]:
                 continue
             ser, statics = rehydrate(data, zid, sp, Craft.ANY)
-            zone = _zone(zid)
-            snap_stub = None
+            zone = zone_objs[zid]
+            hourly = data["hourly"][key]
+            conf = (data["confidence"].get(key) or {}).get("value", 0.0)
+            loc = (z.get("location_confidence") or {}).get("value", 0.0)
+
             for day, h0, h1 in ((0, 6, 10), (1, 13, 18), (1, 5, 9)):
                 d = today + dt.timedelta(days=day)
                 a, b = _ep(d, h0), _ep(d, h1)
-                v, _lines, _fits = scoring.score(sp, zone, snap_stub, [], (a, b), Craft.ANY,
-                                                 d.month, {}, None, False,
-                                                 series=ser, statics=statics)
+
+                # 1. component-weighted window score (the 2.0 contract, still pinned)
+                v, _l, _f = scoring.score(sp, zone, None, [], (a, b), Craft.ANY, d.month,
+                                          {}, None, False, series=ser, statics=statics)
                 cases.append({"zone": zid, "species": sp, "start": round(a),
                               "end": round(b), "craft": Craft.ANY, "score": v})
-    return {"built": round(now), "cases": cases}
+
+                # 2. window utility over the emitted hourly series
+                samples = U.sample_series(hourly["values"], hourly["t0"], hourly["step"], a, b)
+                if samples:
+                    util, parts = U.window_utility(samples, (b - a) / 60.0, sp, conf, loc)
+                    windows.append({"zone": zid, "species": sp, "start": round(a),
+                                    "end": round(b), "confidence": conf,
+                                    "locationConfidence": loc, "utility": util,
+                                    "quality": parts["quality"]})
+
+                # 3. the best-window set
+                ws = opp.find_windows(zid, sp, hourly["values"], hourly["t0"],
+                                      hourly["step"], a, b, confidence=conf,
+                                      location_confidence=loc)
+                subwindows.append({
+                    "zone": zid, "species": sp, "availStart": round(a), "availEnd": round(b),
+                    "confidence": conf, "locationConfidence": loc,
+                    "windows": [{"start": round(w.start), "end": round(w.end),
+                                 "utility": w.utility, "quality": w.quality} for w in ws]})
+
+    # 4. whole itineraries, for the presets the UI actually offers
+    for sp in SPECIES:
+        for craft in (Craft.ANY, Craft.POWER, Craft.WADE):
+            for day, h0, h1 in ((0, 6, 11), (1, 6, 10), (1, 13, 18)):
+                d = today + dt.timedelta(days=day)
+                a, b = _ep(d, h0), _ep(d, h1)
+                got = _itinerary_case(data, zone_objs, sp, craft, a, b, now)
+                if got:
+                    itins.append(got)
+
+    return {"built": round(now), "cases": cases, "windows": windows,
+            "subwindows": subwindows, "itineraries": itins}
+
+
+def _itinerary_case(data, zone_objs, species, craft, a, b, now):
+    """One canonical itinerary, computed exactly the way the browser will."""
+    from caney.planner import itinerary as itin_search
+    from caney.planner import opportunity as opp
+    from caney.planner import transitions
+
+    all_w = []
+    for zid, z in data["zones"].items():
+        if species not in (z.get("species_profiles") or {}):
+            continue
+        g = data["gates"].get(zid) or {}
+        if craft != Craft.ANY and craft not in (g.get("craft") or []):
+            continue
+        months = (g.get("seasons") or {}).get(species)
+        month = dt.datetime.fromtimestamp(a, CT).month
+        if months and month not in months:
+            continue
+        key = zid + "|" + species
+        hourly = data["hourly"].get(key)
+        if not hourly:
+            continue
+        conf = (data["confidence"].get(key) or {}).get("value", 0.0)
+        loc = (z.get("location_confidence") or {}).get("value", 0.0)
+        stale = any((z["water"].get(k) or {}).get("state") == "stale"
+                    for k in ("flow", "generation"))
+        all_w.extend(opp.find_windows(zid, species, hourly["values"], hourly["t0"],
+                                      hourly["step"], a, b, confidence=conf,
+                                      location_confidence=loc, stale=stale))
+    if not all_w:
+        return None
+    graph = {}
+    for k, v in (data["transitions"].get(craft) or {}).items():
+        f, t = k.split("|")
+        graph[(f, t)] = transitions.Transition(f, t, v["minutes"], v["mode"],
+                                               v["provenance"], v.get("detail", ""),
+                                               v.get("miles"))
+    cands = itin_search.search(all_w, graph, species)
+    if not cands:
+        return None
+    c = cands[0]
+    return {"species": species, "craft": craft, "start": round(a), "end": round(b),
+            "utility": c.utility,
+            "zones": [w.zone_id for w in c.windows],
+            "windows": [{"zone": w.zone_id, "start": round(w.start), "end": round(w.end)}
+                        for w in c.windows]}
 
 
 def _zone(zid):

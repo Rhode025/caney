@@ -4,6 +4,8 @@ import time
 
 from harness import check, eq, raises, section
 
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from caney.domain.claim import SourceTier, UnsourcedClaim
 from caney.research import cache
 from caney.research.corpus import claims_for, seed_claims
@@ -147,3 +149,128 @@ def test_seed_corpus():
     check("a spring-only claim is down-weighted in September",
           all(c.confidence < 0.4 for c in striper if c.valid_months == [5]) or
           not any(c.valid_months == [5] for c in striper))
+
+
+def test_research_changes_ranking():
+    """§61 — recent Tier A/B research supports a zone, without overwhelming live water."""
+    import fixtures as F
+    from caney.domain.claim import ResearchClaim, SourceTier
+    from caney.planner import scoring
+    from caney.zones.registry import zone
+
+    section("§61 — sourced research moves a candidate, within its weight cap")
+    z = zone("carthage_confluence")
+    none_fit = scoring.fit_research(z, [], "striped_bass", 9)
+    seeded = claims_for("striped_bass", month=9, zone_ids=[z.id])
+    with_fit = scoring.fit_research(z, seeded, "striped_bass", 9)
+    check("evidence raises the research component",
+          with_fit.value > none_fit.value, "%s vs %s" % (with_fit.value, none_fit.value))
+    check("and the line names its source", "TWRA" in with_fit.why or "tier" in with_fit.why,
+          with_fit.why)
+
+    section("but it cannot overwhelm live water")
+    from caney.species.profiles import weights_for
+    w = weights_for("striped_bass")
+    research_max = w["research"]
+    live_max = w["current"] + w["thermal"]
+    check("research is capped below the live-water components",
+          research_max < live_max * 0.5, "%s vs %s" % (research_max, live_max))
+    delta = (with_fit.value - none_fit.value) * research_max
+    check("the whole research swing is worth less than one live component",
+          delta < w["current"], "%.1f points vs current's %s" % (delta, w["current"]))
+
+    section("§27 — a tier clash is reported, not silently resolved")
+    agency = ResearchClaim(species="striped_bass", claim_type="forage",
+                           claim_text="Shad are the forage base on this reservoir.",
+                           source_url="https://www.tn.gov/twra/x",
+                           location_ids=[z.id])
+    forum = ResearchClaim(species="striped_bass", claim_type="forage",
+                          claim_text="Everyone says the bait has moved out of the creek.",
+                          source_url="https://www.reddit.com/r/x",
+                          location_ids=[z.id])
+    check("the agency source outranks the forum",
+          agency.source_quality > forum.source_quality * 2,
+          "%s vs %s" % (agency.source_quality, forum.source_quality))
+    eq("the forum is tier D", forum.source_tier, SourceTier.D)
+
+
+def test_stale_research():
+    """§62 — a five-year-old field report must not carry a current report's weight."""
+    section("§62 — decay by claim type")
+    from caney.domain.claim import ResearchClaim
+    fresh = ResearchClaim(species="trout", claim_type="recent_report",
+                          claim_text="The tailwater fished well this week.",
+                          source_url="https://www.tn.gov/twra/report",
+                          published_at="2026-09-02", location_ids=["caney_upper"])
+    old = ResearchClaim(species="trout", claim_type="recent_report",
+                        claim_text="The tailwater fished well this week.",
+                        source_url="https://www.tn.gov/twra/report-old",
+                        published_at="2021-09-02", location_ids=["caney_upper"])
+    f = fresh.score(month=9, zone_ids=["caney_upper"])
+    o = old.score(month=9, zone_ids=["caney_upper"])
+    check("the current report is worth more", f > o, "%s vs %s" % (f, o))
+    check("materially more, not marginally", f > o * 1.4, "%s vs %s" % (f, o))
+    check("but the old one is not worthless — it is still an agency source", o > 0.2, str(o))
+
+    section("the worker's decay curves are steeper still, per claim type")
+    import json
+    import os
+    p = os.path.join(ROOT, "research-worker", "src", "claims.js")
+    src = open(p, encoding="utf-8").read()
+    check("a weekly report has a short TTL", "recent_report:" in src and
+          "ttlSeconds: 12 * 3600" in src)
+    check("a survey has a long one", "survey:" in src and "180 * 86400" in src)
+    check("a regulation is rechecked but does not decay in influence",
+          "regulation:" in src and "floor: 0.95" in src)
+
+
+def test_research_offline():
+    """§63 — RESEARCH_ENABLED=false must still produce a valid plan."""
+    import datetime as dt
+    import fixtures as F
+    from zoneinfo import ZoneInfo
+    from caney.domain.claim import ClaimBook
+    from caney.domain.zone import Craft
+    from caney.planner.engine import Request, plan
+    from caney.sources.registry import water_for
+    from caney.sources.snapshots import _mint_safety_claims
+    from caney.zones.registry import ZONES, all_zones
+
+    section("§63 — the planner is unaffected when research is off")
+    p = build_provider({"RESEARCH_ENABLED": "false", "OPENAI_API_KEY": "sk-x"})
+    check("the provider is the null one", isinstance(p, NullProvider))
+
+    snaps = {}
+    for z in all_zones():
+        rid = z.hydrology_river
+        if rid == "caney":
+            s = F.with_arrival(F.snapshot(z.id, rid, flow=280, temp_f=56, generation=250,
+                                          forecast=F.GOLDEN_RELEASES["single_afternoon"]),
+                               z.mfd or 6.0)
+        else:
+            s = F.snapshot(z.id, rid, flow=600, temp_f=70, flow_trend="steady",
+                           model_confidence="reported")
+        snaps[z.id] = s
+    book = ClaimBook()
+    tz = ZoneInfo("America/Chicago")
+    for zid, s in snaps.items():
+        cfg = water_for(ZONES[zid].hydrology_river)
+        _mint_safety_claims(ZONES[zid], s, {"cfg": cfg, "release_rows": [], "alerts": []},
+                            cfg, F.at(6), F.at(6) + 3 * 86400, tz, book)
+
+    req = Request("trout", F.at(6), F.at(11), Craft.WADE, now=F.at(5))
+    # NO research claims at all — the offline case, exactly.
+    got = plan(req, snaps, book, {z.id: [] for z in all_zones()})
+    check("a plan is still produced", bool(got.primary_candidate), got.verdict_why)
+    check("it still has an itinerary", got.itinerary is not None and
+          len(got.itinerary.segments) >= 3)
+    check("it still carries safety claims", len(got.safety) > 0)
+    eq("research confidence is honestly zero", got.research_confidence, 0.0)
+    check("opportunity is unaffected by the absence", got.opportunity > 0)
+    check("and the research component scores its no-evidence default, not zero",
+          any(l.key == "research" and l.earned > 0 for l in got.score_breakdown),
+          str([(l.key, l.earned) for l in got.score_breakdown if l.key == "research"]))
+
+    section("the UI is told, so it can say so")
+    check("research metadata records that it is disabled",
+          getattr(p, "reason", None) is not None)

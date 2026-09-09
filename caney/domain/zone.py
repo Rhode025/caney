@@ -21,6 +21,9 @@ says "the dam downstream to the Caney Fork mouth" becomes a corridor, never a fa
 from dataclasses import dataclass, field, asdict
 from typing import Dict, List, Optional
 
+from .location import (LocationConfidence, LocationEvidence, Verification,
+                       derived_holding_water, phrase_for, phrase_parts)
+
 
 class Craft:
     ANY = "any"
@@ -32,6 +35,41 @@ class Craft:
     ALL = (ANY, WADE, KAYAK, DRIFT, POWER)
     LABEL = {ANY: "Any", WADE: "Wade", KAYAK: "Kayak", DRIFT: "Drift boat",
              POWER: "Power boat / jet"}
+
+
+class ZoneKind:
+    """§36 — not every fishing opportunity is a river reach.
+
+    Largemouth in particular live in water the river model has no vocabulary for, and
+    forcing a creek arm to describe itself as a reach is how the 2.0 zone set ended up
+    with almost no cover water in it.
+    """
+    RIVER_REACH = "river_reach"
+    TAILRACE = "tailrace"
+    CONFLUENCE = "confluence"
+    RESERVOIR_ARM = "reservoir_arm"
+    CREEK_ARM = "creek_arm"
+    BACKWATER = "backwater"
+    FLAT = "flat"
+    POINT = "point"
+    SHOAL = "shoal"
+    LEDGE = "ledge"
+    BANK = "bank"
+    RIPRAP = "riprap"
+    GRASS_BED = "grass_bed"
+
+    ALL = (RIVER_REACH, TAILRACE, CONFLUENCE, RESERVOIR_ARM, CREEK_ARM, BACKWATER, FLAT,
+           POINT, SHOAL, LEDGE, BANK, RIPRAP, GRASS_BED)
+
+    LABEL = {
+        RIVER_REACH: "River reach", TAILRACE: "Tailrace", CONFLUENCE: "Confluence",
+        RESERVOIR_ARM: "Reservoir arm", CREEK_ARM: "Creek arm", BACKWATER: "Backwater",
+        FLAT: "Flat", POINT: "Point", SHOAL: "Shoal", LEDGE: "Ledge", BANK: "Bank",
+        RIPRAP: "Riprap", GRASS_BED: "Grass bed",
+    }
+
+    #: Zones whose fishing is driven by cover and level rather than by current.
+    STILLWATER = (RESERVOIR_ARM, CREEK_ARM, BACKWATER, FLAT, POINT, GRASS_BED, RIPRAP)
 
 
 class GeometryKind:
@@ -47,6 +85,8 @@ class Geometry:
     verified: bool = False
     source: str = ""
     note: str = ""
+    #: §32 — how confidently this shape may be drawn. Defaults from `verified` when unset.
+    evidence: str = ""
 
     def centroid(self):
         if not self.points:
@@ -54,9 +94,21 @@ class Geometry:
         return [round(sum(p[0] for p in self.points) / len(self.points), 6),
                 round(sum(p[1] for p in self.points) / len(self.points), 6)]
 
+    @property
+    def evidence_level(self):
+        if self.evidence:
+            return self.evidence
+        if self.verified:
+            return (LocationEvidence.VERIFIED_ACCESS if self.kind == GeometryKind.POINT
+                    else LocationEvidence.VERIFIED_ZONE)
+        return LocationEvidence.MODELED_HABITAT
+
     def to_json(self):
         d = asdict(self)
         d["centroid"] = self.centroid()
+        d["evidence"] = self.evidence_level
+        d["style"] = LocationEvidence.STYLE.get(self.evidence_level)
+        d["evidence_label"] = LocationEvidence.LABEL.get(self.evidence_level)
         return d
 
 
@@ -72,12 +124,25 @@ class AccessPoint:
     source: str = ""                                    # who verified the coordinates
     verified: bool = False
     river_miles_from_dam: Optional[float] = None        # mfd, for arrival routing
+    #: §29 — how well we know this point is where we say it is.
+    evidence: str = ""
+
+    @property
+    def evidence_level(self):
+        if self.evidence:
+            return self.evidence
+        return (LocationEvidence.VERIFIED_ACCESS if self.verified
+                else LocationEvidence.UNVERIFIED_CANDIDATE)
 
     def serves(self, craft):
         return craft == Craft.ANY or craft in self.craft
 
     def to_json(self):
-        return asdict(self)
+        d = asdict(self)
+        d["evidence"] = self.evidence_level
+        d["evidence_label"] = LocationEvidence.LABEL.get(self.evidence_level)
+        d["style"] = LocationEvidence.STYLE.get(self.evidence_level)
+        return d
 
 
 @dataclass
@@ -122,6 +187,10 @@ class FishingZone:
     regs: str = ""
     hazards: List[str] = field(default_factory=list)
     notes: str = ""
+    #: §36
+    kind: str = ZoneKind.RIVER_REACH
+    #: §28 — geographic confidence, first class. Derived from the parts when not set.
+    location: Optional[LocationConfidence] = None
 
     # ── eligibility (§6, §30 step 2) ────────────────────────────────────────
     def craft_options(self):
@@ -140,6 +209,35 @@ class FishingZone:
 
     def access_for(self, craft):
         return [a for a in self.access if a.serves(craft)]
+
+    # ── geographic confidence (§28-§33) ─────────────────────────────────────
+    def location_confidence(self):
+        """The zone's LocationConfidence, derived from its parts when not declared."""
+        if self.location is not None:
+            return self.location
+        best_access = min(
+            (a.evidence_level for a in self.access),
+            key=lambda lv: LocationEvidence.ORDER.index(lv),
+            default=LocationEvidence.UNVERIFIED_CANDIDATE)
+        reach = self.geometry.evidence_level if self.geometry \
+            else LocationEvidence.UNVERIFIED_CANDIDATE
+        return LocationConfidence(access=best_access, reach=reach,
+                                  holding_water=derived_holding_water(reach))
+
+    def holds_parts(self, species):
+        """§30 — (instruction, rationale), graded to what we know about WHERE."""
+        ref = self.species_profiles.get(species)
+        lc = self.location_confidence()
+        between = None
+        if self.geometry and len(self.geometry.points) >= 2 and len(self.access) >= 2:
+            between = (self.access[0].name, self.access[-1].name)
+        return phrase_parts(lc.tactical_level, ref.holds if ref else "", self.name,
+                            (ref.habitat if ref else None) or self.habitat, between)
+
+    def holds_phrase(self, species):
+        """The two parts as one sentence, for consumers that want one string."""
+        return phrase_for(*[], **{}) if False else " ".join(
+            x for x in self.holds_parts(species) if x)
 
     def supports_species(self, species, month=None):
         p = self.species_profiles.get(species)
@@ -161,4 +259,10 @@ class FishingZone:
             "detail_page": self.detail_page, "regs": self.regs, "hazards": self.hazards,
             "notes": self.notes,
             "craft": self.craft_options(),
+            "kind": self.kind,
+            "kind_label": ZoneKind.LABEL.get(self.kind, self.kind),
+            "stillwater": self.kind in ZoneKind.STILLWATER,
+            "location_confidence": self.location_confidence().to_json(),
+            "holds_phrase": {sp: self.holds_phrase(sp) for sp in self.species_profiles},
+            "holds_parts": {sp: list(self.holds_parts(sp)) for sp in self.species_profiles},
         }

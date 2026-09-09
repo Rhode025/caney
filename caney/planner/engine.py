@@ -21,12 +21,16 @@ from zoneinfo import ZoneInfo
 
 from ..domain.claim import SafetyKind
 from ..domain.observation import DataState
+from ..domain.opportunity import FishingItinerary, SegmentType
 from ..domain.plan import (FishingPlan, ScoreLine, Technique, Verdict)
 from ..domain.zone import Craft
 from ..species.profiles import DISPLAY, profile
 from ..sources.snapshots import localize
+from ..version import (PLANNER_VERSION, RESEARCH_VERSION, SPECIES_MODEL_VERSION,
+                       ZONE_MODEL_VERSION)
 from ..zones.registry import ZONES, zones_for_species
-from . import scoring, timeline
+from . import itinerary as itin_search
+from . import opportunity, scoring, segments, timeline, transitions, utility
 from .confidence import confidence, confidence_label, rank_key
 from .window import best_window
 
@@ -153,6 +157,14 @@ def _unsafe(zone, snap, req):
 
 
 def candidates(req, snaps, book, claims_by_zone):
+    """Step 1-8. Each entry carries its OPPORTUNITY WINDOWS, not one averaged score.
+
+    The 2.0 pipeline scored a zone once, over the user's whole availability, and ranked on
+    that mean. §3 is the argument against it and §57 is the fixture: a candidate that peaks
+    at 96 for ninety minutes must not lose to one that sits at 77 all morning. So a
+    candidate is now a set of windows, each with its own quality, duration and utility, and
+    the ranking is over windows rather than over averages.
+    """
     zones, rejected = eligible(req, snaps)
     scored = []
     req_date = _dt.datetime.fromtimestamp(req.start, req.tz).date()
@@ -162,34 +174,99 @@ def candidates(req, snaps, book, claims_by_zone):
         cfg = _cfg(z)
         units, gen_known = _units(snap, cfg)
         claims = claims_by_zone.get(z.id) or []
-        # Compute the hourly series and the static fits ONCE per candidate; the window
-        # search then costs arithmetic instead of a rescore per candidate window.
+        # Compute the hourly series and the static fits ONCE per candidate; everything
+        # downstream is arithmetic over them.
         series = scoring.hourly_series(req.species, z, snap, claims, req.craft, req.month,
                                        cfg, units, gen_known, req.start - 3600,
                                        req.end + 3600)
         statics = scoring.static_fits(req.species, z, snap, claims, req.craft, req.month,
                                       cfg, units, gen_known)
+        hourly = hourly_scores(req.species, z, series, statics, req.craft)
+
         win, win_why = best_window(req, z, snap, claims, cfg, units, gen_known,
                                    series=series, statics=statics)
         sc, lines, fits = scoring.score(req.species, z, snap, claims, win, req.craft,
                                         req.month, cfg, units, gen_known,
                                         series=series, statics=statics)
         conf, conf_rows = confidence(z, snap, claims, win, req.days_out)
+        loc = z.location_confidence()
+        stale = snap.flow.state == DataState.STALE or \
+            snap.generation.state == DataState.STALE
+
+        windows = opportunity.find_windows(
+            z.id, req.species, hourly["values"], hourly["t0"], hourly["step"],
+            req.start, req.end, confidence=conf, location_confidence=loc.value,
+            stale=stale, conditions_summary=_conditions_summary(snap),
+            reasons=[l.why for l in sorted(lines, key=lambda x: -x.earned)[:2]])
+
         scored.append({"zone": z, "snap": snap, "score": sc, "lines": lines, "fits": fits,
                        "confidence": conf, "conf_rows": conf_rows, "window": win,
                        "window_why": win_why, "claims": claims, "cfg": cfg,
                        "units": units, "gen_known": gen_known,
-                       "series": series, "statics": statics,
+                       "series": series, "statics": statics, "hourly": hourly,
+                       "location": loc, "windows": windows,
+                       "best_utility": max((w.utility for w in windows), default=-1e9),
                        "rank": rank_key(sc, conf)})
-    scored.sort(key=lambda c: -c["rank"])
+    scored.sort(key=lambda c: -c["best_utility"])
     return scored, rejected
 
 
+def hourly_scores(species, zone, series, statics, craft):
+    """The zone's total weighted score at each hour of the series.
+
+    This is the input to the window optimiser, and it is the SAME arithmetic the window
+    score uses — one hour is just the shortest possible window. Emitted to the browser so
+    both engines optimise over identical numbers.
+    """
+    from ..species.profiles import weights_for
+    w = weights_for(species)
+    t0, step, n = series["t0"], series["step"], series["hours"]
+    static_total = 0.0
+    for key, weight in w.items():
+        if key in scoring.DYNAMIC:
+            continue
+        if key == "access":
+            fit = statics.get(key)
+        else:
+            fit = statics.get(key)
+        static_total += (fit.value if fit is not None else scoring.NEUTRAL) * weight
+    values = []
+    for i in range(n):
+        total = static_total
+        for key in w:
+            if key not in scoring.DYNAMIC:
+                continue
+            vals = series["values"].get(key)
+            total += (vals[i] if vals and i < len(vals) else scoring.NEUTRAL) * w[key]
+        values.append(round(total, 4))
+    return {"t0": t0, "step": step, "values": values}
+
+
+def _conditions_summary(snap):
+    bits = []
+    if snap.flow.ok:
+        bits.append("%s cfs" % scoring._n(snap.flow.value))
+    if snap.generation_on.ok:
+        bits.append("generation " + ("on" if snap.generation_on.value else "off"))
+    if snap.water_temp.ok:
+        bits.append("%d°F" % round(snap.water_temp.value))
+    return " · ".join(bits)
+
+
 def plan(req, snaps, book, claims_by_zone):
-    """The FishingPlan for the winner, with alternatives and their losing reasons."""
+    """The FishingPlan for the best ITINERARY, with alternatives and losing reasons.
+
+    §9-§14. The winner is no longer "the highest-scoring zone"; it is the highest-utility
+    executable sequence of opportunity windows, which may span two or three zones joined by
+    transitions the chosen craft can actually make.
+    """
     scored, rejected = candidates(req, snaps, book, claims_by_zone)
     p = FishingPlan(species=req.species, craft=req.craft,
                     requested_window=req.to_json(), created_at=req.now)
+    p.planner_version = PLANNER_VERSION
+    p.species_model_version = SPECIES_MODEL_VERSION
+    p.zone_model_version = ZONE_MODEL_VERSION
+    p.research_version = RESEARCH_VERSION
 
     if not scored:
         p.best_window = {"start": round(req.start), "end": round(req.end),
@@ -203,28 +280,60 @@ def plan(req, snaps, book, claims_by_zone):
         p.limitations.append("No candidate survived the eligibility gates.")
         return p
 
-    best = scored[0]
-    z, snap = best["zone"], best["snap"]
-    prof = profile(req.species)
+    by_id = {c["zone"].id: c for c in scored}
+    zones = {c["zone"].id: c["zone"] for c in scored}
+    snaps_by_id = {c["zone"].id: c["snap"] for c in scored}
+    statics_by_id = {c["zone"].id: {"units": c["units"], "gen_known": c["gen_known"]}
+                     for c in scored}
+
+    all_windows = [w for c in scored for w in c["windows"]]
+    graph = transitions.build_graph(list(zones.values()), req.craft)
+    winner, runners = itin_search.best_itinerary(all_windows, graph, req.species, req.craft,
+                                                 req.start, req.end)
+
+    if winner is None:
+        p.verdict = Verdict.SKIP
+        p.verdict_why = "No fishable window survived inside the time you gave."
+        p.best_window = {"start": round(req.start), "end": round(req.end),
+                         "why": "no window scored well enough to name"}
+        p.alternatives = [r.to_json() for r in rejected[:6]]
+        return p
+
+    primary = by_id[winner.windows[0].zone_id]
+    z, snap = primary["zone"], primary["snap"]
+
+    segs = segments.build(winner, zones, snaps_by_id, req.species, req.craft, req.tz,
+                          book, claims_by_zone, statics_by_id, req)
+    itin = _itinerary(winner, segs, req, zones)
+    p.itinerary = itin
+
     p.primary_candidate = z.id
-    p.score = best["score"]
-    p.confidence = best["confidence"]
-    p.score_breakdown = best["lines"]
-    p.best_window = {"start": round(best["window"][0]), "end": round(best["window"][1]),
-                     "why": best["window_why"]}
-    p.verdict, p.verdict_why = _verdict(best, req, snap)
+    # §31/§65 — OPPORTUNITY is the itinerary's own quality, not a synthetic blend.
+    p.score = round(winner.parts.get("quality", primary["score"]), 1)
+    p.opportunity = p.score
+    p.confidence = primary["confidence"]
+    p.location_confidence = round(itin.location_confidence, 1)
+    p.research_confidence = _research_confidence(primary["claims"], z.id)
+    p.utility = round(winner.utility, 2)
+    p.score_breakdown = primary["lines"]
+    p.best_window = {"start": round(winner.windows[0].start),
+                     "end": round(winner.windows[-1].end),
+                     "why": _window_why(winner, req)}
+    p.availability = {"start": round(req.start), "end": round(req.end)}
+    p.verdict, p.verdict_why = _verdict(primary, req, snap, winner)
+    p.why_this_won = _why_this_won(winner, scored, zones, req, graph)
 
     p.location = {
         "zone_id": z.id, "name": z.name, "waterbody": ", ".join(z.waterbody_names),
-        "drive": z.drive, "detail_page": z.detail_page,
+        "drive": z.drive, "detail_page": z.detail_page, "kind": z.kind,
         "geometry": z.geometry.to_json() if z.geometry else None,
         "habitat": z.habitat, "hazards": z.hazards, "regs": z.regs,
         "pattern": (z.species_profiles.get(req.species).pattern
                     if z.species_profiles.get(req.species) else ""),
-        "holds": (z.species_profiles.get(req.species).holds
-                  if z.species_profiles.get(req.species) else ""),
+        "holds": z.holds_phrase(req.species),
+        "location_confidence": z.location_confidence().to_json(),
     }
-    launch = timeline._pick_launch(z, req.craft)
+    launch = segments.pick_access(z, req.craft)
     p.access = {
         "launch": launch,
         "takeout": _takeout(z, req.craft, launch),
@@ -233,10 +342,9 @@ def plan(req, snaps, book, claims_by_zone):
         "all": [a.to_json() for a in z.access],
         "verified": bool((launch or {}).get("verified")),
     }
-    p.timeline = timeline.build(z, snap, prof, req.species, best["window"], req.craft,
-                                req.tz, book, best["claims"], best["units"],
-                                best["gen_known"])
-    p.technique = technique(req.species, z, snap, best, req)
+    p.timeline = segments.to_timeline(segs, req.tz)
+    p.technique = technique(req.species, z, snap, primary, req, winner.windows[0])
+    p.backup_plan = _backup_plan(winner, scored, zones, graph, req, book)
 
     p.water = {"flow": snap.flow, "stage": snap.stage, "flow_trend": snap.flow_trend,
                "stage_trend": snap.stage_trend, "generation": snap.generation,
@@ -244,26 +352,189 @@ def plan(req, snaps, book, claims_by_zone):
                "generation_forecast": snap.generation_forecast,
                "water_temp": snap.water_temp, "lake_elevation": snap.lake_elevation,
                "clarity": snap.clarity}
-    p.weather = _weather_summary(snap, best["window"])
+    p.weather = _weather_summary(snap, (winner.windows[0].start, winner.windows[-1].end))
     p.lunar = snap.lunar
-    p.biological_context = _bio(z, prof, req, best["claims"])
-    p.evidence = [c.to_json() for c in best["claims"][:8]]
+    p.biological_context = _bio(z, profile(req.species), req, primary["claims"])
+    p.evidence = [c.to_json() for c in primary["claims"][:8]]
     p.safety = [c.to_json() for c in book.for_zone(z.id)]
-    p.data_freshness = best["conf_rows"]
+    for w in winner.windows[1:]:
+        p.safety.extend(c.to_json() for c in book.for_zone(w.zone_id))
+    p.data_freshness = primary["conf_rows"]
 
-    p.alternatives = [_alt(c, best) for c in scored[1:4]] + \
-                     [r.to_json() for r in rejected[:3]]
-
-    p.limitations = _limitations(best, req, snap)
+    p.alternatives = _alternatives(winner, runners, scored, zones, req) + \
+        [r.to_json() for r in rejected[:3]]
+    p.limitations = _limitations(primary, req, snap, winner)
     return p
+
+
+def _itinerary(winner, segs, req, zones):
+    itin = FishingItinerary(
+        species=req.species, craft=req.craft,
+        requested_start=req.start, requested_end=req.end,
+        segments=segs, windows=list(winner.windows),
+        total_fishing_minutes=sum(w.duration_minutes for w in winner.windows),
+        total_transition_minutes=sum(t.minutes for t in winner.transitions),
+        utility_score=winner.utility, utility_parts=winner.parts,
+        confidence=min(w.confidence for w in winner.windows),
+        location_confidence=round(
+            100.0 * min(w.location_confidence for w in winner.windows), 1),
+        primary_zone=winner.windows[0].zone_id,
+        zone_sequence=[w.zone_id for w in winner.windows])
+    itin.why = [s.reason for s in segs if s.type == SegmentType.MOVE]
+    return itin
+
+
+def _window_why(winner, req):
+    avail = (req.end - req.start) / 60.0
+    fished = sum(w.duration_minutes for w in winner.windows)
+    if fished >= avail - 20:
+        return "the whole period you gave is worth fishing"
+    if len(winner.windows) > 1:
+        return ("the two strongest stretches inside your %d-hour window, with the move "
+                "between them costing %d minutes"
+                % (round(avail / 60), round(winner.parts.get("travelMinutes", 0))))
+    return ("the strongest %d minutes of the %d you have — the rest of your window does "
+            "not score well enough to be worth fishing"
+            % (round(fished), round(avail)))
+
+
+def _why_this_won(winner, scored, zones, req, graph):
+    """§67 — a short, concrete explanation, before the deep evidence drawer."""
+    out = []
+    w0 = winner.windows[0]
+    out.append("Best %d-minute stretch of any candidate: peaks at %.0f, floor %.0f."
+               % (round(w0.duration_minutes), w0.peak_score, w0.floor_score))
+    primary = next(c for c in scored if c["zone"].id == w0.zone_id)
+    top = sorted(primary["lines"], key=lambda l: -(l.earned / max(1, l.possible)))[:3]
+    for l in top:
+        if l.earned >= l.possible * 0.75:
+            out.append("%s: %s" % (l.label, l.why))
+    if len(winner.windows) > 1:
+        nxt = winner.windows[1]
+        out.append("A %d-minute move extends the bite another %d minutes at %s."
+                   % (round(winner.parts.get("travelMinutes", 0)),
+                      round(nxt.duration_minutes), zones[nxt.zone_id].name))
+    lc = zones[w0.zone_id].location_confidence()
+    rows = lc.rows()
+    out.append("Location confidence %.0f: the access is %s, the reach is %s."
+               % (lc.score, rows[0]["level_label"].lower(), rows[1]["level_label"].lower()))
+    return out[:6]
+
+
+def _alternatives(winner, runners, scored, zones, req):
+    """§38 — the runner-up ITINERARIES, and why each lost."""
+    out = []
+    seen = {tuple(w.zone_id for w in winner.windows)}
+    for c in runners:
+        key = tuple(w.zone_id for w in c.windows)
+        if key in seen:
+            continue
+        seen.add(key)
+        gap = winner.utility - c.utility
+        z0 = zones[c.windows[0].zone_id]
+        if len(c.windows) < len(winner.windows):
+            why = ("Staying put scores %.1f against the winner's %.1f — the move is worth "
+                   "more than the simplicity." % (c.utility, winner.utility))
+        elif len(c.windows) > len(winner.windows):
+            why = ("Adding a third zone costs %.0f minutes of travel for %.1f points less "
+                   "utility." % (c.parts.get("travelMinutes", 0), gap))
+        else:
+            c_peak = max(w.peak_score for w in c.windows)
+            w_peak = max(w.peak_score for w in winner.windows)
+            c_conf = min(w.confidence for w in c.windows)
+            w_conf = min(w.confidence for w in winner.windows)
+            c_loc = min(w.location_confidence for w in c.windows)
+            w_loc = min(w.location_confidence for w in winner.windows)
+            if c_peak > w_peak and (c_conf < w_conf or c_loc < w_loc):
+                # §31/§60 made visible: it fishes better on paper and still lost, so name
+                # the number that beat it rather than quoting a peak it actually won on.
+                bits = []
+                if c_conf < w_conf - 1:
+                    bits.append("forecast confidence %.0f against %.0f" % (c_conf, w_conf))
+                if c_loc < w_loc - 0.01:
+                    bits.append("location confidence %.0f against %.0f"
+                                % (c_loc * 100, w_loc * 100))
+                why = ("Peaks higher (%.0f against %.0f) and still lost by %.1f: %s."
+                       % (c_peak, w_peak, gap, " and ".join(bits)))
+            else:
+                why = ("%.1f points behind: peak %.0f against %.0f, over %d minutes "
+                       "against %d." % (gap, c_peak, w_peak,
+                                        round(sum(w.duration_minutes for w in c.windows)),
+                                        round(sum(w.duration_minutes for w in winner.windows))))
+        out.append({
+            "zone_id": z0.id,
+            "name": " → ".join(zones[w.zone_id].name for w in c.windows),
+            "waterbody": ", ".join(z0.waterbody_names),
+            "score": round(c.parts.get("quality", 0), 1),
+            "utility": round(c.utility, 1),
+            "confidence": round(min(w.confidence for w in c.windows), 1),
+            "location_confidence": round(
+                100 * min(w.location_confidence for w in c.windows), 1),
+            "window": {"start": round(c.windows[0].start), "end": round(c.windows[-1].end)},
+            "drive": z0.drive, "detail_page": z0.detail_page,
+            "why": why, "what_would_flip_it": why, "lost_on": [], "eliminated": False,
+        })
+        if len(out) >= 4:
+            break
+    return out
+
+
+def _backup_plan(winner, scored, zones, graph, req, book):
+    """§39 — what to do when the main plan falls apart."""
+    primary_ids = set(w.zone_id for w in winner.windows)
+    fallback = None
+    for c in scored:
+        if c["zone"].id in primary_ids or not c["windows"]:
+            continue
+        fallback = c
+        break
+
+    branches = []
+    z0 = zones[winner.windows[0].zone_id]
+    gen_stop = next((c for c in book.for_zone(z0.id)
+                     if c.kind == SafetyKind.GENERATION_STOP), None)
+    if z0.tailwater:
+        if len(winner.windows) > 1:
+            nxt = zones[winner.windows[1].zone_id]
+            branches.append({
+                "if": "generation is cancelled, or ends before you get on the water",
+                "then": ("Skip %s entirely and run straight to %s — without current the "
+                         "first zone is the weakest water in the plan, not the strongest."
+                         % (z0.name, nxt.name))})
+        elif fallback is not None:
+            branches.append({
+                "if": "generation is cancelled",
+                "then": ("%s is current-driven — without the release it is the weakest "
+                         "water in the plan. Fish %s instead."
+                         % (z0.name, fallback["zone"].name))})
+    if fallback is not None:
+        branches.append({
+            "if": "the primary zone is blown out, crowded, or simply dead after an hour",
+            "then": "%s is the next-best water for this species in your window (%s)."
+                    % (fallback["zone"].name, fallback["zone"].drive or "same trip")})
+    branches.append({
+        "if": "weather turns unsafe — lightning, or wind you cannot fish",
+        "then": "Abort. Nothing in this plan is worth a thunderstorm on open water."})
+    return {"branches": branches,
+            "fallback_zone": fallback["zone"].id if fallback else None}
+
+
+def _research_confidence(claims, zone_id):
+    """§31 — research confidence as its own number, 0..100."""
+    rel = [c for c in claims if (not c.location_ids or zone_id in c.location_ids)]
+    if not rel:
+        return 0.0
+    rel = sorted(rel, key=lambda c: -c.confidence)[:4]
+    return round(100.0 * sum(c.confidence for c in rel) / len(rel), 1)
 
 
 #: Published to the browser as `verdictThresholds`; §8's GO / CONDITIONAL / SKIP.
 VERDICT = {"go": 68, "confident": 55, "fishable": 50, "hard_component": 0.2}
 
 
-def _verdict(best, req, snap):
-    sc, conf = best["score"], best["confidence"]
+def _verdict(best, req, snap, winner=None):
+    sc = round(winner.parts.get("quality", best["score"]), 1) if winner else best["score"]
+    conf = best["confidence"]
     hard = [c for c in best["fits"].values()
             if c.value <= VERDICT["hard_component"] and c.known]
     if sc >= VERDICT["go"] and conf >= VERDICT["confident"] and not hard:
@@ -310,7 +581,7 @@ def _alt(c, best):
             "lost_on": gaps, "what_would_flip_it": flip, "eliminated": False}
 
 
-def technique(species, zone, snap, best, req):
+def technique(species, zone, snap, best, req, window=None):
     """§35 — what to tie on NOW, chosen from the water actually in front of you."""
     prof = profile(species)
     units, gen_known = best["units"], best["gen_known"]
@@ -402,8 +673,24 @@ def _bio(zone, prof, req, claims):
     }
 
 
-def _limitations(best, req, snap):
+def _limitations(best, req, snap, winner=None):
     out = []
+    if winner is not None:
+        # §5 — a session shorter than the species minimum is still offered, because the
+        # reader asked, but it must say what it is: a short session, not a plan.
+        fished = sum(w.duration_minutes for w in winner.windows)
+        floor = utility.min_duration(req.species)
+        if fished < floor:
+            out.append(
+                "You have %d minutes. The practical minimum for this species is about %d — "
+                "this is a short session, not a plan, and the score is penalised "
+                "accordingly." % (round(fished), floor))
+        lc = min(w.location_confidence for w in winner.windows)
+        if lc < 0.66:
+            out.append(
+                "Location confidence is %.0f/100. The species and habitat evidence supports "
+                "this reach, but the exact holding water has not been field verified — "
+                "read the water yourself rather than trusting a pin." % (lc * 100))
     for line in best["lines"]:
         if "(unknown" in (line.why or ""):
             out.append("%s is unknown: %s" % (line.label, line.why.split(" (unknown")[0]))

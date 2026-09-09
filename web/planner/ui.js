@@ -5,7 +5,7 @@
  * Every string that could contain data goes through esc(); every href through safeUrl().
  */
 import { ago, esc, hm, num, obs, safeUrl, whenLabel, countdown, dayLabel } from "./format.js";
-import { confidenceLabel } from "./model.js";
+import { confidenceLabel, evidenceFor } from "./model.js";
 import * as TL from "./timeline.js";
 
 const TIER_LABEL = {
@@ -19,88 +19,197 @@ const DATA_REF = { d: null };
 
 export function renderPlan(root, data, ctx) {
   DATA_REF.d = data;
-  const { cand, species, craft, steps, alternatives, verdict, verdictWhy } = ctx;
-  const z = cand.z;
-  const sp = data.species[species];
-  const launch = TL.pickLaunch(z, craft);
-  const takeout = (z.access || []).filter((a) => !launch || a.id !== launch.id)
-    .find((a) => craft === "any" || (a.craft || []).includes(craft));
-  const ref = z.species_profiles[species] || {};
 
+  // §69 — the order IS the argument. Verdict, then the day, then where, then how, then
+  // why, and only then the dashboard. The 2.0 page put conditions before the plan and made
+  // the reader do the interpreting; that is the job we are supposed to be doing for them.
   root.innerHTML =
-    section(header(sp, z, cand, verdict, verdictWhy)) +
-    section(instructions(z, ref, launch, takeout, steps, species)) +
-    section(conditionsStrip(data, z, cand)) +
-    section(bestTime(data, cand, species, craft)) +
-    section(itinerary(steps)) +
-    section(technique(data, sp, cand, species)) +
-    safetyBlock(data, z, cand, steps) +
-    section(scoreBreakdown(cand)) +
-    evidenceDrawer(data, cand, species, sp) +
-    freshnessDrawer(cand, data, z) +
-    mapBlock(z, launch, takeout) +
-    section(alternativesBlock(alternatives, data)) +
-    section(askBlock(ctx)) +
-    section(tripBlock(ctx)) +
-    section(limitations(ctx));
+    header(data, ctx) +
+    availabilityStrip(ctx) +
+    itineraryBlock(data, ctx) +
+    whereBlock(data, ctx) +
+    techniqueBlock(data, ctx) +
+    whyThisWon(ctx) +
+    backupBlock(ctx) +
+    bestTime(data, ctx) +
+    conditionsStrip(data, ctx) +
+    safetyBlock(data, ctx) +
+    scoreBreakdown(ctx) +
+    researchStatus(data, ctx) +
+    evidenceDrawer(data, ctx) +
+    locationDrawer(data, ctx) +
+    freshnessDrawer(ctx) +
+    mapBlock(data, ctx) +
+    alternativesBlock(ctx, data) +
+    askBlock(ctx) +
+    tripBlock(ctx) +
+    limitations(ctx);
 }
 
-function section(html) { return html || ""; }
-
-function header(sp, z, cand, verdict, why) {
-  const w = cand.window;
+/** §65 — four numbers, none of which implies the others. */
+function header(data, ctx) {
+  const sp = data.species[ctx.species];
+  const p = ctx.plan;
+  const wins = p.itinerary.windows;
+  const title = p.zoneSequence.map((z) => data.zones[z].name).join(" → ");
   return `<div class="card">
     <div class="eyebrow">${esc(sp.display.full)}</div>
     <div class="placehead">
-      <div class="zone">${esc(z.name)}</div>
-      <div class="when" data-clock>${esc(whenLabel(w.start, w.end))}</div>
+      <div class="planlabel">BEST PLAN</div>
+      <div class="when" data-clock>${esc(whenLabel(wins[0].start, wins[wins.length - 1].end))}</div>
+      <div class="zone">${esc(title)}</div>
     </div>
     <div class="verdict" style="margin-top:14px">
-      <div class="badge ${esc(verdict)}">${esc(verdict)}</div>
-      <div class="nums">
-        <div class="score">${cand.score.toFixed(0)} <span>/ 100</span></div>
-        <div class="conf">${esc(confidenceLabel(cand.confidence, DATA_REF.d))} · ${cand.confidence.toFixed(0)}/100</div>
-      </div>
+      <div class="badge ${esc(ctx.verdict)}">${esc(ctx.verdict)}</div>
     </div>
-    <p class="small" style="margin:12px 0 0">${esc(why)}</p>
-    <p class="tiny" style="margin:6px 0 0">Window chosen because ${esc(w.why)}.</p>
+    <div class="scores">
+      ${scoreCell("Opportunity", p.opportunity, "How good the fishing looks in this window.")}
+      ${scoreCell("Forecast conf.", p.confidence, "How much of it we actually measured.")}
+      ${scoreCell("Location conf.", p.locationConfidence, "How well we know WHERE.", "loc")}
+      ${scoreCell("Research", p.researchConfidence, "How well sourced the biology is.")}
+    </div>
+    <p class="small" style="margin:12px 0 0">${esc(ctx.verdictWhy)}</p>
   </div>`;
 }
 
-function instructions(z, ref, launch, takeout, steps, species) {
-  const move = steps.find((s) => /^Move toward/.test(s.title));
-  const stop = steps.find((s) => s.kind === TL.KINDS.SAFETY) ||
-               steps.find((s) => s.title === "Primary window ends");
-  const rows = [
-    ["Launch", launch
-      ? `<b>${esc(launch.name)}</b><br><span class="small">${esc(launch.note || "")}</span>` +
-        (launch.verified ? "" : ` <span class="tiny">(coordinates not verified to RIVER_SPEC §2)</span>`)
-      : `<span class="state-unknown">no verified access for this craft</span>`],
-    ["Start", `<b>${esc(z.name)}</b> — ${esc(ref.pattern || "")}`],
-    ["Fish", esc(ref.holds || (z.habitat || []).join(", "))],
-    ["Move", move ? `<b>${esc(move.title.replace(/^Move toward /, ""))}</b> at about ${esc(hm(move.at))}` +
-      `<br><span class="small">${esc(move.detail)}</span>`
-      : `<span class="small">One zone plan — nothing better to shift to inside this window.</span>`],
-    ["Stop", stop ? `<b>${esc(hm(stop.at))}</b> — ${esc(stop.detail)}` : "—"],
-  ];
-  if (takeout) rows.splice(1, 0, ["Take out", esc(takeout.name)]);
-  return `<div class="card"><div class="instr">` +
-    rows.map(([k, v]) => `<div class="row"><div class="k">${esc(k)}</div><div class="v">${v}</div></div>`).join("") +
-    `</div></div>`;
+function scoreCell(label, value, help, id) {
+  const v = value === null || value === undefined ? "—" : Math.round(value);
+  return `<div class="scorecell" title="${esc(help)}"${id ? ` data-score="${esc(id)}"` : ""}>
+    <div class="n">${esc(String(v))}</div>
+    <div class="l">${esc(label)}</div></div>`;
 }
 
-function conditionsStrip(data, z, cand) {
-  const w = z.water || {};
-  const hours = (data.weatherHours[z.river] || [])
-    .filter((h) => h.epoch >= cand.window.start && h.epoch <= cand.window.end);
+/** §8, §68 — availability is a constraint, not an instruction. */
+function availabilityStrip(ctx) {
+  const p = ctx.plan;
+  const wins = p.itinerary.windows;
+  const fishing = Math.round(p.itinerary.parts.fishingMinutes || 0);
+  const avail = Math.round((ctx.end - ctx.start) / 60);
+  return `<div class="availbar">
+    <div class="ab"><div class="l">You can fish</div>
+      <div class="v" data-clock>${esc(hm(ctx.start))} – ${esc(hm(ctx.end))}</div></div>
+    <div class="arrow" aria-hidden="true">→</div>
+    <div class="ab"><div class="l">Best fishing</div>
+      <div class="v hi" data-clock>${esc(hm(wins[0].start))} – ${esc(hm(wins[wins.length - 1].end))}</div></div>
+    <div class="note">${fishing} of your ${avail} minutes are worth fishing${
+      wins.length > 1 ? `, across ${wins.length} zones` : ""}.</div>
+  </div>`;
+}
+
+/** §66 — the itinerary IS the product. It comes before the dashboard. */
+function itineraryBlock(data, ctx) {
+  return `<h2>Your ${partOfDay(ctx.start)}</h2><div class="card"><ol class="steps">` +
+    ctx.segments.map((s) => {
+      const cls = s.type === "safety_exit" ? "safety"
+        : s.type === "fish" ? "fish" : s.type === "move" ? "move" : "";
+      const range = s.end > s.start + 60 ? `${hm(s.start)}–${hm(s.end)}` : hm(s.start);
+      const trig = (s.triggers || []).filter((t) => t.then).slice(0, 3);
+      return `<li class="${cls}">
+        <div class="t">${esc(range)}</div>
+        <div>
+          <div class="ttl">${esc(s.instructions)}
+            <span class="kind ${esc(s.kind || "heuristic")}">${esc(String(s.type).replace(/_/g, " "))}</span></div>
+          ${s.reason ? `<div class="dt">${esc(s.reason)}</div>` : ""}
+          ${s.expected_score !== null && s.expected_score !== undefined
+            ? `<div class="unc">expected ${Math.round(s.expected_score)} / 100 across this stretch</div>` : ""}
+          ${s.technique ? techniqueLine(s.technique) : ""}
+          ${trig.length ? trig.map((t) =>
+            `<div class="branch"><b>If ${esc(t.if)}:</b> ${esc(t.then)}</div>`).join("") : ""}
+        </div></li>`;
+    }).join("") + `</ol>
+  <p class="tiny" style="margin-top:12px">Times come from the release feed, the sun and the
+  hourly forecast. Steps tagged <b>safety exit</b> use the conservative bound, never the
+  typical one.</p></div>`;
+}
+
+function techniqueLine(t) {
+  return `<div class="segtech"><b>${esc(t.primary_fly)}</b> ${esc(t.primary_size)} ·
+    ${esc(t.primary_color)} · ${esc(t.line)}
+    <span class="tiny">${esc(t.presentation)}, ${esc(t.depth)}</span></div>`;
+}
+
+function partOfDay(start) {
+  const h = new Date(start * 1000).getHours();
+  if (h < 11) return "morning";
+  if (h < 16) return "afternoon";
+  if (h < 21) return "evening";
+  return "session";
+}
+
+/** §30, §72 — WHERE, in language graded to how well we know it. */
+function whereBlock(data, ctx) {
+  const zone = data.zones[ctx.plan.zoneSequence[0]];
+  const launch = ctx.segments.find((s) => s.type === "launch");
+  const lc = zone.location_confidence || {};
+  return `<h2>Where</h2><div class="card"><div class="instr">
+    ${row("Launch", launch
+      ? `<b>${esc(String(launch.instructions).replace(/^Launch at /, ""))}</b>` +
+        (launch.reason ? `<br><span class="small">${esc(launch.reason)}</span>` : "")
+      : `<span class="state-unknown">no verified access for this craft</span>`)}
+    ${row("Water", `<b>${esc(zone.name)}</b> · ${esc(zone.kind_label || "")}` +
+      (zone.drive ? ` <span class="small">${esc(zone.drive)}</span>` : ""))}
+    ${row("Fish", esc((zone.holds_phrase || {})[ctx.species] || ""))}
+    ${row("Confidence", `<b>${Math.round(lc.score || 0)}/100</b> —
+      <span class="small">${esc((lc.rows || []).map((r) => r.label.toLowerCase() + ": " +
+        r.level_label.toLowerCase()).join(" · "))}</span>`)}
+  </div></div>`;
+}
+
+function techniqueBlock(data, ctx) {
+  const first = ctx.segments.find((s) => s.type === "fish" && s.technique);
+  if (!first) return "";
+  const t = first.technique;
+  const b = t.backup_presentation || {};
+  return `<h2>Tie this on</h2><div class="card"><div class="instr">
+    ${row("Primary", `<b>${esc(t.primary_fly)}</b> ${esc(t.primary_size)} · ${esc(t.primary_color)}`)}
+    ${row("Line", esc(t.line))}
+    ${row("Leader", esc(t.leader))}
+    ${row("Present", esc(t.presentation))}
+    ${row("Depth", esc(t.depth))}
+    ${row("Retrieve", esc(t.retrieve))}
+    ${row("Backup", `${esc(b.fly || t.backup_fly)} ${esc(b.size || t.backup_size)}` +
+      (b.line ? ` · ${esc(b.line)}` : ""))}
+    ${row("Switch when", `<span class="small">${esc(t.switch_trigger || "")}</span>`)}
+    ${row("Why", `<span class="small">${esc(t.why)}</span>`)}
+  </div></div>`;
+}
+
+/** §67 — a concise explanation, before the deep evidence drawer. */
+function whyThisWon(ctx) {
+  if (!ctx.whyThisWon || !ctx.whyThisWon.length) return "";
+  return `<h2>Why this won</h2><div class="card flat"><ul class="whylist">` +
+    ctx.whyThisWon.map((w) => `<li>${esc(w)}</li>`).join("") + `</ul></div>`;
+}
+
+/** §39 */
+function backupBlock(ctx) {
+  const b = ctx.backupPlan;
+  if (!b || !(b.branches || []).length) return "";
+  return `<h2>If it falls apart</h2><div class="card flat">` +
+    b.branches.map((x) =>
+      `<div class="branch"><b>If ${esc(x.if)}:</b> ${esc(x.then)}</div>`).join("") + `</div>`;
+}
+
+function row(k, v) {
+  return `<div class="row"><div class="k">${esc(k)}</div><div class="v">${v}</div></div>`;
+}
+
+/** §36, §70 — glanceable conditions, AFTER the decision (§69). */
+function conditionsStrip(data, ctx) {
+  const zone = data.zones[ctx.plan.zoneSequence[0]];
+  const w = zone.water || {};
+  const wins = ctx.plan.itinerary.windows;
+  const start = wins[0].start, end = wins[wins.length - 1].end;
+  const hours = (data.weatherHours[zone.river] || [])
+    .filter((h) => h.epoch >= start && h.epoch <= end);
   const mean = (k) => {
     const v = hours.map((h) => h[k]).filter((x) => x !== null && x !== undefined);
     return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
   };
-  const sun = data.sun[z.river + "|" + isoDate(cand.window.start)] || {};
-  const moon = data.lunar[z.river + "|" + isoDate(cand.window.start)] || {};
+  const sun = data.sun[zone.river + "|" + isoDate(start)] || {};
+  const moon = data.lunar[zone.river + "|" + isoDate(start)] || {};
   const flow = obs(w.flow);
-  const gen = w.generation_on && w.generation_on.state === "known"
+  const gen = (w.generation_on || {}).state === "known"
     ? (w.generation_on.value ? "generation ON" : "generation off")
     : "generation unknown";
   const wind = mean("wind_speed"), cloud = mean("cloud_cover"), temp = mean("air_temperature");
@@ -112,28 +221,32 @@ function conditionsStrip(data, z, cand) {
        <div class="lbl">${esc(lbl)}</div>
        <div class="big${big === "unknown" ? " state-unknown" : ""}">${esc(big)}</div>
        <div class="sub">${esc(sub)}</div>
-     </button><div class="tiny" id="strip-${esc(id)}" hidden style="grid-column:1/-1;padding:2px 4px 8px">${detail}</div>`;
+     </button><div class="tiny" id="strip-${esc(id)}" hidden
+          style="grid-column:1/-1;padding:2px 4px 8px">${detail}</div>`;
 
   return `<h2>Conditions</h2><div class="strip">` +
     cell("water", "Water", flow.text,
-         gen + (w.flow_trend && w.flow_trend.state === "known" ? " · " + w.flow_trend.value : ""),
+         gen + ((w.flow_trend || {}).state === "known" ? " · " + w.flow_trend.value : ""),
          `${esc((w.flow || {}).source || "—")} · ${esc((w.flow || {}).age || "unknown")}. ` +
          `Release: ${esc((w.generation || {}).source || "—")} · ${esc((w.generation || {}).age || "unknown")}.` +
-         (z.generationForecast && z.generationForecast.state !== "known"
-           ? ` <span class="state-unknown">Release forecast ${esc(z.generationForecast.state)}: ${esc(z.generationForecast.note || "")}</span>` : "")) +
+         (zone.generationForecast && zone.generationForecast.state !== "known"
+           ? ` <span class="state-unknown">Release forecast ${esc(zone.generationForecast.state)}: ${esc(zone.generationForecast.note || "")}</span>` : "")) +
     cell("weather", "Weather", temp === null ? "unknown" : Math.round(temp) + "°F",
          (wind === null ? "wind unknown" : Math.round(wind) + " mph " + dir) +
          (cloud === null ? "" : " · " + Math.round(cloud) + "% cloud"),
-         "Open-Meteo hourly, evaluated across your window — not a daily average.") +
+         "Open-Meteo hourly, evaluated across the plan window — not a daily average.") +
     cell("light", "Light", sun.sunrise ? "sunrise " + hm(sun.sunrise) : "unknown",
          sun.sunset ? "sunset " + hm(sun.sunset) : "",
          "Astronomical, exact for this date and location.") +
-    cell("moon", "Moon", moon.known ? moon.illumination + "% " + (moon.waxing ? "waxing" : "waning") : "unknown",
+    cell("moon", "Moon",
+         moon.known ? moon.illumination + "% " + (moon.waxing ? "waxing" : "waning") : "unknown",
          maj ? "major " + hm(maj.start) + "–" + hm(maj.end) : "",
-         `${esc(moon.phase || "")}. ${esc(moon.source || "")} A weak secondary signal, capped at ` +
-         `${data.moonMaxShare * 100}% of the score by design.`) +
+         `${esc(moon.phase || "")} ${esc(moon.source || "")} <b>A weak secondary signal</b>, ` +
+         `capped at ${data.moonMaxShare * 100}% of the score by design — shown because it is ` +
+         `worth knowing, not because it decides anything.`) +
     `</div>`;
 }
+
 
 /**
  * §37 — the day as an opportunity timeline.
@@ -144,7 +257,12 @@ function conditionsStrip(data, z, cand) {
  * to see that 6-9am really does beat 2-5pm, and equally that some days it does not.
  * Hours with no data are drawn as an outline, never as a bar.
  */
-export function bestTime(data, cand, species, craft) {
+export function bestTime(data, ctx) {
+  const species = ctx.species;
+  const wins = ctx.plan.itinerary.windows;
+  const cand = { zone: ctx.plan.zoneSequence[0],
+                 z: data.zones[ctx.plan.zoneSequence[0]],
+                 window: { start: wins[0].start, end: wins[wins.length - 1].end } };
   const series = data.series[cand.zone + "|" + species];
   const g = data.gates[cand.zone];
   if (!series) return "";
@@ -214,84 +332,44 @@ export function bestTime(data, cand, species, craft) {
     </div>`;
 }
 
-function itinerary(steps) {
-  return `<h2>The plan</h2><div class="card"><ol class="steps">` + steps.map((s) => {
-    const branches = (s.branches || []).map((b) =>
-      `<div class="branch"><b>If ${esc(b.if)}:</b> ${esc(b.then)}</div>`).join("");
-    return `<li class="${s.kind === TL.KINDS.SAFETY ? "safety" : ""}">
-      <div class="t">${esc(s.at === null ? "—" : hm(s.at))}</div>
-      <div>
-        <div class="ttl">${esc(s.title)}<span class="kind ${esc(s.kind)}">${esc(s.kind)}</span></div>
-        <div class="dt">${esc(s.detail)}</div>
-        ${s.uncertainty ? `<div class="unc">${esc(s.uncertainty)}</div>` : ""}
-        ${branches}
-      </div></li>`;
-  }).join("") + `</ol>
-  <p class="tiny" style="margin-top:12px">Each step says where its timing came from.
-  <b>deterministic</b> and <b>safety</b> steps come from instrument feeds through a fixed
-  claim; <b>heuristic</b> steps are guide craft and are not verified.</p></div>`;
+/**
+ * §37 — the technique for a segment, read from what Python already chose.
+ *
+ * 2.0 picked the presentation in the browser from the fit values. 2.1 does it per SEGMENT
+ * in caney/planner/segments.py, where the zone kind, the units turning and the light are
+ * all in scope — so this only reads the answer.
+ */
+export function pickTechnique(sp, ctx) {
+  const seg = (ctx.segments || []).find((s) => s.type === "fish" && s.technique);
+  if (seg) return seg.technique;
+  return Object.assign({ why: "the standard read for these conditions" },
+                       sp.techniques.default);
 }
 
-function technique(data, sp, cand, species) {
-  const t = pickTechnique(sp, cand);
-  return `<h2>Tie this on</h2><div class="card"><div class="instr">
-    ${row("Primary", `<b>${esc(t.primary_fly)}</b> ${esc(t.primary_size)} · ${esc(t.primary_color)}`)}
-    ${row("Backup", `${esc(t.backup_fly)} ${esc(t.backup_size)}`)}
-    ${row("Line", esc(t.line))}
-    ${row("Leader", esc(t.leader))}
-    ${row("Present", esc(t.presentation))}
-    ${row("Depth", esc(t.depth))}
-    ${row("Retrieve", esc(t.retrieve))}
-    ${row("Why", `<span class="small">${esc(t.why)}</span>`)}
-  </div></div>`;
-}
 
-function row(k, v) {
-  return `<div class="row"><div class="k">${esc(k)}</div><div class="v">${v}</div></div>`;
-}
-
-/** §35 — chosen from the water in front of you, from Python's technique table. */
-export function pickTechnique(sp, cand) {
-  const st = cand.statics || {};
-  const units = st.units, genKnown = st.genKnown;
-  const light = cand.fits.light;
-  const clarity = cand.fits.clarity;
-  let key = "default";
-  const why = [];
-  if (genKnown && units >= 2) {
-    key = "heavy_current"; why.push(units + " units of push means depth and a big profile");
-  } else if (genKnown && units === 0 && sp.key === "striped_bass") {
-    key = "slack"; why.push("no generation — you have to go find them deep instead of on a seam");
-  } else if (light && light.v >= 0.8 && /low-light/.test(light.why || "")) {
-    key = "low_light"; why.push("low light is the window, so fish the top of the column");
-  }
-  if (clarity && /muddy/.test(clarity.why || "")) {
-    why.push("muddy water — go bigger and darker than the size below suggests");
-  }
-  const t = Object.assign({}, sp.techniques[key] || sp.techniques.default);
-  t.why = why.join("; ") || "the standard read for these conditions";
-  return t;
-}
-
-function safetyBlock(data, z, cand, steps) {
-  const claims = data.safety.filter((c) => c.zone_id === cand.zone);
+function safetyBlock(data, ctx) {
+  const zones = ctx.plan.zoneSequence;
+  const claims = data.safety.filter((c) => zones.includes(c.zone_id));
   const exit = claims.filter((c) => ["safe_exit", "wade_cutoff", "release_arrival",
                                      "weather_hazard"].includes(c.kind));
-  if (!exit.length && !(z.hazards || []).length) return "";
+  const hazards = zones.flatMap((z) => (data.zones[z].hazards || []));
+  if (!exit.length && !hazards.length) return "";
   return `<div class="card safety-card">
     <h3>Safety</h3>
     <ul style="margin:6px 0 0;padding-left:18px">
       ${exit.map((c) => `<li><b>${esc(c.text)}</b>
         <span class="tiny">${esc(c.source || "")}${c.bound === "earliest" ? " · conservative bound" : ""}</span></li>`).join("")}
-      ${(z.hazards || []).map((h) => `<li>${esc(h)}</li>`).join("")}
+      ${hazards.map((h) => `<li>${esc(h)}</li>`).join("")}
     </ul>
-    <p class="tiny" style="margin:10px 0 0">These sentences are fixed claims generated from
-    instrument data. Nothing in this app — including the chat assistant — may restate,
-    round or infer one.</p>
+    <p class="tiny" style="margin:10px 0 0">§45: these are fixed claims generated from
+    instrument data. Nothing in this app — including the chat assistant and any research
+    source — may restate, round, infer or override one.</p>
   </div>`;
 }
 
-function scoreBreakdown(cand) {
+function scoreBreakdown(ctx) {
+  const cand = ctx.primary;
+  if (!cand || !cand.lines || !cand.lines.length) return "";
   return `<h2>Why this score</h2><div class="card bars">` + cand.lines.map((l) => {
     const pct = l.possible ? (l.earned / l.possible) * 100 : 0;
     return `<div class="bar${l.known ? "" : " unknown"}">
@@ -300,20 +378,25 @@ function scoreBreakdown(cand) {
       <div class="track"><div class="fill" style="width:${Math.max(0, Math.min(100, pct)).toFixed(0)}%"></div></div>
       <div class="why">${esc(l.why)}</div>
     </div>`;
-  }).join("") + `<p class="tiny" style="margin-top:10px">Weights are published config, not
-  code — see docs/SPECIES_SCORING.md. Hatched bars are components with no data: they score
-  neutral and are charged against confidence instead.</p></div>`;
+  }).join("") + `<p class="tiny" style="margin-top:10px">These are the component weights for
+  the primary zone's opening window. Weights are published config, not code — see
+  docs/SCORING.md. Hatched bars are components with no data: they score neutral and are
+  charged against confidence instead.</p></div>`;
 }
 
-function evidenceDrawer(data, cand, species, sp) {
-  const ids = data.evidence[cand.zone + "|" + species] || [];
-  const claims = ids.map((i) => data.claims[i]).filter(Boolean);
-  const z = cand.z;
-  const ref = z.species_profiles[species] || {};
+function evidenceDrawer(data, ctx) {
+  const species = ctx.species;
+  const sp = data.species[species];
+  const zoneId = ctx.plan.zoneSequence[0];
+  const z = data.zones[zoneId];
+  const claims = evidenceFor(data, zoneId, species);
+  const ref = (z.species_profiles || {})[species] || {};
+  const conflict = disagreement(claims);
+  const it = ctx.plan.itinerary;
   return `<details class="drawer"><summary>Why this plan? <span class="tiny">sources, biology, model</span></summary>
     <div class="body">
       <h3>Live data</h3>
-      <div class="fresh">${(data.freshness[cand.zone] || []).map((r) =>
+      <div class="fresh">${(data.freshness[zoneId] || []).map((r) =>
         `<div class="r"><span class="l">${esc(r.label)}${r.source ? " · " + esc(r.source) : ""}</span>
          <span class="v state-${esc(r.state)}">${esc(r.age)}</span></div>`).join("") ||
         `<div class="tiny">No live signals recorded for this water.</div>`}</div>
@@ -328,30 +411,105 @@ function evidenceDrawer(data, cand, species, sp) {
         : "This zone's species pattern is backed by the sourced claims below."}</p>
 
       <h3>Recent research</h3>
+      ${conflict ? `<div class="banner warn">${esc(conflict)}</div>` : ""}
       ${claims.length ? claims.map((c) => `<div class="cite">
         <span class="tier ${esc(c.source_tier)}">TIER ${esc(c.source_tier)}</span>
         ${esc(c.claim_text)}<br>
         <a href="${esc(safeUrl(c.source_url))}" target="_blank" rel="noopener">${esc(c.source_title || c.source_domain)}</a>
-        <span class="tiny">${esc(TIER_LABEL[c.source_tier] || "")}${c.published_at ? " · " + esc(c.published_at) : ""}
+        <span class="tiny">${esc(TIER_LABEL[c.source_tier] || "")} · ${esc(claimAge(c))}
         · confidence ${(c.confidence || 0).toFixed(2)}${c.safety_sensitive ? " · flagged safety-sensitive: numbers in it are NOT used" : ""}</span>
       </div>`).join("") : `<p class="tiny">No sourced claim mentions this water for this species.</p>`}
-      <p class="tiny">Research provider: ${esc(data.research.provider)}
-      ${data.research.enabled ? "" : "(disabled — the plan above is fully deterministic)"}.
-      ${data.research.refreshedAt ? "Last refreshed " + esc(ago(data.research.refreshedAt)) + "." : ""}</p>
 
       <h3>Model</h3>
       <p class="small">Routing confidence: <b>${esc(z.modelConfidence)}</b>.
       ${esc(z.modelNote || "")} ${esc((z.arrival && z.arrival.note) || "")}</p>
       ${z.arrival && z.arrival.first ? `<p class="tiny">Arrival at ${esc(z.mfd)} miles below
       ${esc(z.dam || "the dam")}: earliest ${z.arrival.first.earliest_h} h, typical
-      ${z.arrival.first.typical_h} h, later edge ${z.arrival.first.latest_h} h.
-      ${esc(z.arrival.source || "")}</p>` : ""}
+      ${z.arrival.first.typical_h} h, later edge ${z.arrival.first.latest_h} h.</p>` : ""}
+      <p class="tiny">planner ${esc((data.versions || {}).planner || "?")} ·
+      species ${esc((data.versions || {}).species_model || "?")} ·
+      zones ${esc((data.versions || {}).zone_model || "?")} ·
+      research ${esc((data.versions || {}).research || "?")} ·
+      utility ${(it.utility || 0).toFixed(1)} =
+      quality ${(it.parts.quality || 0).toFixed(1)}
+      × duration ${(it.parts.duration_factor || 0).toFixed(2)}
+      × confidence ${(it.parts.confidence_factor || 0).toFixed(2)}
+      × location ${(it.parts.location_factor || 0).toFixed(2)}
+      − travel ${(it.parts.transition || 0).toFixed(1)}
+      ${it.parts.breadth ? "+ breadth " + it.parts.breadth.toFixed(1) : ""}
+      ${it.parts.complexity ? "− complexity " + it.parts.complexity.toFixed(1) : ""}.</p>
     </div></details>`;
 }
 
-function freshnessDrawer(cand, data, z) {
+/** §27 — conflicting sources are surfaced, not silently resolved. */
+export function disagreement(claims) {
+  const byType = {};
+  for (const c of claims) (byType[c.claim_type] = byType[c.claim_type] || []).push(c);
+  for (const [type, list] of Object.entries(byType)) {
+    if (list.length < 2) continue;
+    const tiers = new Set(list.map((c) => c.source_tier));
+    if (tiers.size > 1 && (tiers.has("C") || tiers.has("D"))) {
+      return "Research confidence reduced: sources of different authority disagree about " +
+             type.replace(/_/g, " ") + " on this water. The agency source is weighted higher.";
+    }
+  }
+  return "";
+}
+
+function claimAge(c) {
+  if (c.published_at) return ago(Date.parse(c.published_at) / 1000);
+  if (c.retrieved_at) return "retrieved " + ago(c.retrieved_at);
+  return "undated";
+}
+
+/** §71 — compact research status, including when it is unavailable. */
+function researchStatus(data, ctx) {
+  const r = data.research || {};
+  const claims = evidenceFor(data, ctx.plan.zoneSequence[0], ctx.species);
+  const primary = claims.filter((c) => c.source_tier === "A" || c.source_tier === "B");
+  const newest = claims.map((c) => c.published_at ? Date.parse(c.published_at) / 1000
+                                                  : c.retrieved_at)
+    .filter(Boolean).sort((a, b) => b - a)[0];
+  if (!r.enabled) {
+    return `<div class="card flat"><div class="k2">Research</div>
+      <p class="small">Current web research is temporarily unavailable. This plan is based on
+      live water, weather and ${primary.length} stored
+      ${primary.length === 1 ? "source" : "sources"} of fishery evidence.</p>
+      ${newest ? `<p class="tiny">Newest stored source: ${esc(ago(newest))}.</p>` : ""}</div>`;
+  }
+  return `<div class="card flat"><div class="k2">Research</div>
+    <p class="small">${primary.length} current primary
+    ${primary.length === 1 ? "source" : "sources"} for this water.</p>
+    <p class="tiny">${newest ? "Newest: " + esc(ago(newest)) + "." : ""}
+    ${r.refreshedAt ? " Last refreshed " + esc(ago(r.refreshedAt)) + "." : ""}
+    Provider: ${esc(r.provider || "none")}.</p></div>`;
+}
+
+/** §72 — tapping location confidence explains what it is made of. */
+function locationDrawer(data, ctx) {
+  const zoneId = ctx.plan.zoneSequence[0];
+  const lc = data.zones[zoneId].location_confidence || {};
+  const rows = lc.rows || [];
+  return `<details class="drawer" id="locdrawer"><summary>Location confidence
+    <span class="tiny">${Math.round(lc.score || 0)}/100 — what we know about WHERE</span></summary>
+    <div class="body">
+      ${rows.map((r) => `<div class="cite">
+        <b>${esc(r.label)}:</b> ${esc(r.level_label)}
+        <span class="tiny">(prior ${r.prior})</span><br>
+        <span class="small">${esc(r.detail)}</span></div>`).join("")}
+      ${lc.verification && lc.verification.source ? `<p class="tiny">Verification:
+        ${esc(lc.verification.status)}${lc.verification.verified_at ? " · " + esc(lc.verification.verified_at) : ""}
+        · ${esc(lc.verification.source)}. ${esc(lc.verification.notes || "")}</p>` : ""}
+      <p class="tiny">These are <b>initial priors, not calibrated measurements</b>. They are
+      ordered correctly and they cost a candidate real utility, which is what stops a
+      beautiful-looking reach nobody has stood in from beating a verified one.</p>
+    </div></details>`;
+}
+
+function freshnessDrawer(ctx) {
+  const rows = (ctx.primary && ctx.primary.confRows) || [];
   return `<details class="drawer"><summary>Data freshness <span class="tiny">per signal</span></summary>
-    <div class="body"><div class="fresh">${cand.confRows.map((r) =>
+    <div class="body"><div class="fresh">${rows.map((r) =>
       `<div class="r"><span class="l">${esc(r.label)}</span>
        <span class="v state-${esc(r.state)}">${esc(r.state)}</span></div>
        <div class="tiny" style="margin:-2px 0 4px">${esc(r.detail || "")}</div>`).join("")}
@@ -361,25 +519,35 @@ function freshnessDrawer(cand, data, z) {
     are not the same kind of fresh.</p></div></details>`;
 }
 
-function mapBlock(z, launch, takeout) {
-  const geom = z.geometry;
-  if (!geom || !geom.points || !geom.points.length) return "";
-  return `<h2>Where</h2>
-    <div id="map" data-geometry='${esc(JSON.stringify({
-      geom, launch, takeout, name: z.name, access: z.access,
-    }))}' role="region"
-         aria-label="Map of ${esc(z.name)} — launch, target zone and access points"></div>
+/** §32, §73 — the map: itinerary numbered, geometry styled by how well we know it. */
+function mapBlock(data, ctx) {
+  const zones = ctx.plan.zoneSequence.map((z) => data.zones[z]);
+  if (!zones.some((z) => z.geometry && (z.geometry.points || []).length)) return "";
+  const launchSeg = ctx.segments.find((s) => s.type === "launch") || {};
+  const payload = {
+    sequence: zones.map((z, i) => ({
+      n: i + 1, id: z.id, name: z.name, geometry: z.geometry, access: z.access,
+      launch: i === 0 ? launchSeg.access_id : null,
+    })),
+  };
+  return `<h2>On the map</h2>
+    <div id="map" data-geometry='${esc(JSON.stringify(payload))}'
+         role="region" aria-label="Map of ${esc(zones.map((z) => z.name).join(" then "))} — launch, target zones and access points"></div>
     <div class="maplegend">
       <span><i style="background:var(--go)"></i>launch</span>
-      <span><i style="background:var(--accent)"></i>primary zone</span>
-      <span><i style="background:var(--cond)"></i>other access</span>
+      <span><i style="background:var(--accent)"></i>zone 1</span>
+      <span><i style="background:var(--cond)"></i>zone 2+</span>
+      <span><i class="lg-dash"></i>agency-described reach</span>
+      <span><i class="lg-dot"></i>modelled habitat, not field verified</span>
     </div>
-    <p class="tiny">${esc(geom.verified ? "Verified geometry: " : "Unverified geometry: ")}
-    ${esc(geom.source || "")}. ${esc(geom.note || "")}
-    ${geom.kind === "corridor" ? "This source describes a reach, so it is drawn as a corridor — not as a pin on a spot that no source named." : ""}</p>`;
+    <p class="tiny">Solid shapes are verified geometry. Dashed shapes are reaches an agency
+    described without naming a spot. Dotted areas are modelled from habitat — drawn
+    differently because they are known differently.</p>`;
 }
 
-function alternativesBlock(alts, data) {
+/** §38 — the runner-up itineraries, and why each lost. */
+function alternativesBlock(ctx, data) {
+  const alts = ctx.alternatives || [];
   if (!alts.length) return "";
   return `<h2>Alternatives</h2><div class="card">` + alts.map((a) => {
     if (a.eliminated) {
@@ -387,36 +555,48 @@ function alternativesBlock(alts, data) {
         <div class="sc">out</div></div><div class="why">${esc(a.reason)}</div></div>`;
     }
     return `<div class="alt"><div class="h"><div class="nm">${esc(a.name)}</div>
-      <div class="sc">${a.score.toFixed(0)} / ${a.confidence.toFixed(0)} conf</div></div>
+      <div class="sc">${Math.round(a.score)} opp · ${Math.round(a.confidence)} conf</div></div>
       <div class="why">${esc(a.why)}</div>
       ${a.detail_page ? `<div class="tiny"><a href="${esc(a.detail_page)}">Full river page →</a></div>` : ""}
       </div>`;
   }).join("") + `</div>`;
 }
 
-/** §46 — a research box, deliberately secondary to the planner. */
+
+/**
+ * §46, §47 — a research box, deliberately secondary to the planner.
+ *
+ * It sits inside a finished plan, and the questions it offers are ABOUT that plan. The
+ * homepage is not a chatbot: the graphical flow is the product and this explains it.
+ */
 function askBlock(ctx) {
+  const primary = ctx.plan.zoneSequence[0];
+  const alt = (ctx.alternatives || []).find((a) => !a.eliminated);
+  const moved = ctx.plan.zoneSequence.length > 1;
   const qs = [
-    "Why " + ctx.cand.name + " instead of " + ((ctx.alternatives[0] || {}).name || "the alternative") + "?",
-    "Where do they move if generation stops?",
-    "Why did you pick this window?",
-  ];
+    alt ? `Why ${DATA_REF.d.zones[primary].name} instead of ${alt.name}?` : null,
+    moved ? "Why is the move worth it?" : "Why not move somewhere else?",
+    "Where do they go if generation stops?",
+    "Why did you pick this window and not the whole morning?",
+  ].filter(Boolean);
   return `<details class="drawer"><summary>Ask about this plan…
     <span class="tiny">answers come from this plan's own data</span></summary>
     <div class="body">
       <p class="small">RiverGuide answers from the exact plan above — the same zones, the
-      same claim book, the same sources. It explains the recommendation; it does not make
-      one of its own, and a deterministic verifier removes any water number it cannot
-      trace to a claim.</p>
+      same claim book, the same sources, the same itinerary. It explains the
+      recommendation; it does not make one of its own, and a deterministic verifier removes
+      any water number it cannot trace to a claim.</p>
       <div class="chips">${qs.map((q) =>
         `<a class="chip" href="https://t.me/share/url?url=${encodeURIComponent(q)}"
             target="_blank" rel="noopener">${esc(q)}</a>`).join("")}</div>
-      <p class="tiny">Opens RiverGuide on Telegram. The plan is at
-      <code>${esc(ctx.cand.zone)}</code> — mention it and the bot will pull this exact plan.</p>
+      <p class="tiny">Opens RiverGuide on Telegram. This plan is
+      <code>${esc(ctx.plan.zoneSequence.join(" → "))}</code> for
+      <code>${esc(ctx.species)}</code> — mention the water and the bot pulls this exact
+      itinerary.</p>
     </div></details>`;
 }
 
-/** §43 — freeze the prediction now; record the outcome later. */
+
 function tripBlock(ctx) {
   return `<details class="drawer" id="tripdrawer"><summary>Log this trip
     <span class="tiny">prediction → outcome → calibration</span></summary>
@@ -435,13 +615,20 @@ function tripBlock(ctx) {
     </div></details>`;
 }
 
-/** §44 — model performance, shown rather than buried in a footer. */
+/** §44, §51 — model performance, shown rather than buried in a footer. */
 export function renderScoreboard(sb) {
   const pct = (v) => (v === null || v === undefined ? "—" : Math.round(v * 100) + "%");
   const n = (v, d = 1) => (v === null || v === undefined ? "—" : Number(v).toFixed(d));
+  const band = (rows, key, unit) => `<div class="fresh">${rows.map((b) =>
+    `<div class="r"><span class="l">${esc(b.band || b.key)} (n=${b.n})</span>
+     <span class="v">${unit === "pct" ? pct(b[key]) : n(b[key], 2)}</span></div>`).join("")}</div>`;
+
   return `<div class="card flat" style="margin-top:12px">
     <h3 style="margin-top:0">Model scoreboard</h3>
-    <p class="tiny">${sb.fished} fished trip(s) of ${sb.trips} logged.</p>
+    <p class="tiny">${sb.fished} fished trip(s) of ${sb.trips} logged${
+      sb.versions.length ? " · " + sb.versions.map((v) => v.version + " (" + v.n + ")").join(", ") : ""}.
+      Every measure below refuses to print a figure until it has enough data — a model
+      whose validation is one trip should say so.</p>
 
     <h3>Water-arrival residual</h3>
     <div class="fresh">
@@ -457,54 +644,118 @@ export function renderScoreboard(sb) {
     <p class="small">${esc(sb.arrival.verdict)}</p>
     <p class="tiny">${esc(sb.arrival.safetyNote)}</p>
 
-    <h3>Score vs how the day actually was</h3>
-    <div class="fresh"><div class="r"><span class="l">Correlation (n=${sb.rating.n})</span>
-      <span class="v">${n(sb.rating.correlation, 2)}</span></div></div>
-    <p class="small">${esc(sb.rating.verdict)}</p>
+    <h3>Does a 90 outperform an 80?</h3>
+    ${band(sb.opportunity.bands, "meanRating")}
+    <p class="small">Correlation ${n(sb.opportunity.correlation, 2)} (n=${sb.opportunity.n}).
+    ${esc(sb.opportunity.verdict)}</p>
 
-    <h3>Species recommendation</h3>
-    <div class="fresh"><div class="r"><span class="l">Caught the target species (n=${sb.species.n})</span>
-      <span class="v">${pct(sb.species.hitRate)}</span></div></div>
+    <h3>Does high confidence mean higher accuracy?</h3>
+    ${band(sb.calibration.bands, "meanRating")}
+    <p class="small">${esc(sb.calibration.verdict)}</p>
+
+    <h3>Does location confidence predict the right place?</h3>
+    ${band(sb.location.bands, "rightPlace", "pct")}
+    <p class="small">${esc(sb.location.verdict)}</p>
+
+    <h3>Which species model performs best?</h3>
+    ${band(sb.species.rows, "meanRating")}
     ${sb.species.verdict ? `<p class="small">${esc(sb.species.verdict)}</p>` : ""}
 
-    <h3>Confidence calibration</h3>
-    <div class="fresh">${sb.calibration.bands.map((b) =>
-      `<div class="r"><span class="l">${esc(b.band)} confidence (n=${b.n})</span>
-       <span class="v">${n(b.meanRating, 2)} mean rating</span></div>`).join("")}</div>
-    <p class="small">${esc(sb.calibration.verdict)}</p>
-    <p class="tiny">Weakly validated numbers are shown here, not hidden. A measure with
-    too few trips says so instead of printing a figure.</p>
+    <h3>Which zones are poorly calibrated?</h3>
+    <div class="fresh">${sb.zones.rows.map((z) =>
+      `<div class="r"><span class="l">${esc(z.key)} (n=${z.n})</span>
+       <span class="v">gap ${n(z.gap, 2)}</span></div>`).join("") ||
+      `<div class="tiny">No rated trips yet.</div>`}</div>
+    <p class="tiny">Gap = predicted opportunity (rescaled to 1–5) minus the rating you gave.
+    A large positive gap means the model was more optimistic than the day.</p>
+
+    <h3>Does the itinerary optimiser beat a single zone?</h3>
+    <div class="fresh">
+      <div class="r"><span class="l">Multi-zone plans (n=${sb.itinerary.multiN})</span>
+        <span class="v">${n(sb.itinerary.multiMean, 2)}</span></div>
+      <div class="r"><span class="l">Single-zone plans (n=${sb.itinerary.singleN})</span>
+        <span class="v">${n(sb.itinerary.singleMean, 2)}</span></div>
+    </div>
+    <p class="small">${esc(sb.itinerary.verdict)}</p>
+
+    <h3>Does research improve results?</h3>
+    <div class="fresh">
+      <div class="r"><span class="l">With ≥2 sourced claims (n=${sb.research.withN})</span>
+        <span class="v">${n(sb.research.withMean, 2)}</span></div>
+      <div class="r"><span class="l">With fewer (n=${sb.research.withoutN})</span>
+        <span class="v">${n(sb.research.withoutMean, 2)}</span></div>
+    </div>
+    ${sb.research.verdict ? `<p class="small">${esc(sb.research.verdict)}</p>` : ""}
+
+    <h3>Segment-level</h3>
+    <div class="fresh"><div class="r">
+      <span class="l">Expected segment score vs fish caught (n=${sb.segments.fished})</span>
+      <span class="v">${n(sb.segments.correlation, 2)}</span></div></div>
+    <p class="small">${esc(sb.segments.verdict)}</p>
   </div>`;
 }
 
-/** The outcome form for one logged trip. */
-export function renderTrips(trips, fields) {
+/** §48, §49 — the low-friction outcome form, then the optional detail, then segments. */
+export function renderTrips(trips, quickFields, detailFields, segmentFields) {
   if (!trips.length) return `<p class="tiny">Nothing logged yet on this device.</p>`;
   return trips.slice(0, 8).map((t) => {
     const p = t.prediction;
     const done = t.outcome && t.outcome.recordedAt;
+    const zones = (p.zoneSequence || [p.zone]).join(" → ");
     return `<div class="alt">
-      <div class="h"><div class="nm">${esc(p.zoneName)} · ${esc(p.species)}</div>
-        <div class="sc">${p.score} / ${Math.round(p.confidence)} conf</div></div>
+      <div class="h"><div class="nm">${esc(p.zoneName || zones)} · ${esc(p.species)}</div>
+        <div class="sc">${Math.round(p.opportunity !== undefined ? p.opportunity : p.score)} opp
+          · ${Math.round(p.confidence)} conf · ${Math.round(p.locationConfidence || 0)} loc</div></div>
       <div class="why">Predicted ${esc(p.verdict)} for ${esc(hm(p.window.start))}–${esc(hm(p.window.end))}${
         p.predictedArrival ? ` · water typical ${esc(hm(p.predictedArrival.typical))}` : ""}</div>
-      ${done ? `<div class="tiny">Outcome recorded: rating ${esc(t.outcome.rating || "—")},
-        ${esc(t.outcome.count || 0)} fish${t.outcome.fly_that_worked
+      ${done ? `<div class="tiny">Recorded: fished ${esc(t.outcome.fished || "—")},
+        rating ${esc(String(t.outcome.rating || "—"))}, right place
+        ${esc(t.outcome.right_place || "—")}${t.outcome.fly_that_worked
           ? ", " + esc(t.outcome.fly_that_worked) : ""}</div>`
         : `<form class="tripform" data-trip="${esc(t.id)}" style="margin-top:8px">
-             ${fields.map((f) => fieldHtml(f, t.id)).join("")}
-             <button class="btn" type="submit" style="margin-top:8px">Save outcome</button>
+             <div class="quickgrid">${quickFields.map((f) => fieldHtml(f, t.id)).join("")}</div>
+             <details class="drawer" style="margin:10px 0"><summary>Add detail
+               <span class="tiny">optional</span></summary>
+               <div class="body">${detailFields.map((f) => fieldHtml(f, t.id)).join("")}</div>
+             </details>
+             <button class="btn primary" type="submit">Save</button>
            </form>`}
+      ${done && (p.segments || []).some((s) => s.type === "fish")
+        ? segmentForms(t, segmentFields) : ""}
     </div>`;
   }).join("");
 }
 
+function segmentForms(t, fields) {
+  const fishSegs = (t.prediction.segments || []).filter((s) => s.type === "fish");
+  const recorded = t.segmentOutcomes || {};
+  return `<details class="drawer" style="margin-top:8px"><summary>Per-stretch outcomes
+    <span class="tiny">calibrates the itinerary, not just the day</span></summary>
+    <div class="body">${fishSegs.map((s) => recorded[s.i]
+      ? `<div class="cite"><b>${esc(hm(s.start))}–${esc(hm(s.end))} ${esc(s.zone)}</b> —
+          ${esc(String(recorded[s.i].caught || 0))} fish${recorded[s.i].fly
+            ? " on " + esc(recorded[s.i].fly) : ""}</div>`
+      : `<form class="segform" data-trip="${esc(t.id)}" data-seg="${s.i}">
+          <div class="tiny">${esc(hm(s.start))}–${esc(hm(s.end))} · ${esc(s.zone)}
+            · expected ${s.expected === null ? "—" : Math.round(s.expected)}</div>
+          <div class="quickgrid">${fields.map((f) => fieldHtml(f, t.id + "-" + s.i)).join("")}</div>
+          <button class="btn" type="submit" style="margin-top:6px">Save stretch</button>
+        </form>`).join("")}</div></details>`;
+}
+
 function fieldHtml(f, id) {
   const fid = "f-" + id + "-" + f.key;
-  if (f.type === "bool") {
-    return `<div class="field"><label for="${fid}">${esc(f.label)}</label>
-      <select id="${fid}" name="${esc(f.key)}"><option value="">—</option>
-      <option value="1">Yes</option><option value="0">No</option></select></div>`;
+  if (f.type === "choice") {
+    return `<fieldset class="choice"><legend>${esc(f.label)}</legend>
+      ${f.options.map(([v, l], i) =>
+        `<label><input type="radio" name="${esc(f.key)}" value="${esc(v)}"
+           id="${esc(fid)}-${i}"><span>${esc(l)}</span></label>`).join("")}</fieldset>`;
+  }
+  if (f.type === "rating") {
+    return `<fieldset class="choice rating"><legend>${esc(f.label)}</legend>
+      ${[1, 2, 3, 4, 5].map((v) =>
+        `<label><input type="radio" name="${esc(f.key)}" value="${v}"
+           id="${esc(fid)}-${v}"><span>${v}</span></label>`).join("")}</fieldset>`;
   }
   if (f.type === "select") {
     return `<div class="field"><label for="${fid}">${esc(f.label)}</label>
@@ -521,49 +772,81 @@ function fieldHtml(f, id) {
       ${f.min !== undefined ? `min="${f.min}"` : ""} ${f.max !== undefined ? `max="${f.max}"` : ""}></div>`;
 }
 
+
 function limitations(ctx) {
   if (!ctx.limitations.length) return "";
   return `<h2>Limitations</h2><div class="card flat"><ul style="margin:0;padding-left:18px">` +
     ctx.limitations.map((l) => `<li class="small">${esc(l)}</li>`).join("") + `</ul></div>`;
 }
 
-/** §40 — on-water mode: NOW / NEXT / WATER / FLY, big enough to read one-handed. */
+/** §40 — on-water mode: NOW / NEXT / ALARM / WATER / FLY, readable one-handed. */
 export function renderOnWater(root, data, ctx, now) {
-  const { cand, species, steps } = ctx;
-  const sp = data.species[species];
-  const past = steps.filter((s) => s.at !== null && s.at <= now);
-  const nowStep = past.length ? past[past.length - 1] : steps[0];
-  const next = steps.find((s) => s.at !== null && s.at > now);
-  const safety = steps.find((s) => s.kind === TL.KINDS.SAFETY && s.at > now);
-  const t = pickTechnique(sp, cand);
-  const change = data.safety.filter((c) => c.zone_id === cand.zone &&
-    ["generation_start", "generation_stop", "release_arrival"].includes(c.kind) &&
-    (c.at || 0) > now).sort((a, b) => a.at - b.at)[0];
+  const segs = ctx.segments;
+  const past = segs.filter((s) => s.start <= now);
+  const nowSeg = past.length ? past[past.length - 1] : segs[0];
+  const next = segs.find((s) => s.start > now);
+  const safety = segs.find((s) => s.type === "safety_exit" && s.start > now);
+  const t = (segs.find((s) => s.type === "fish" && s.start <= now && s.end > now) ||
+             segs.find((s) => s.type === "fish") || {}).technique || {};
+  const zones = ctx.plan.zoneSequence;
+  const change = data.safety.filter((c) => zones.includes(c.zone_id) &&
+      ["generation_start", "generation_stop", "release_arrival"].includes(c.kind) &&
+      (c.at || 0) > now).sort((a, b) => a.at - b.at)[0];
+  const delta = ctx.delta;
 
   root.innerHTML = `
+    ${delta ? deltaBlock(delta) : ""}
     <div class="ow-block"><div class="k">Now</div>
-      <div class="v">${esc(nowStep ? nowStep.title : cand.z.name)}</div>
-      <div class="s">${esc(nowStep ? nowStep.detail : "")}</div></div>
+      <div class="v">${esc(nowSeg ? nowSeg.instructions : ctx.plan.zoneSequence[0])}</div>
+      <div class="s">${esc(nowSeg ? nowSeg.reason : "")}</div></div>
     <div class="ow-block"><div class="k">Next</div>
-      <div class="v">${next ? esc(next.title) : "Window complete"}</div>
-      <div class="s">${next ? esc(hm(next.at)) + " · in " + esc(countdown(next.at, now)) : ""}</div></div>
+      <div class="v">${next ? esc(next.instructions) : "Window complete"}</div>
+      <div class="s">${next ? esc(hm(next.start)) + " · in " + esc(countdown(next.start, now)) : ""}</div></div>
     ${safety ? `<div class="ow-block safety"><div class="k">Alarm — safe exit</div>
-      <div class="v">${esc(hm(safety.at))}</div>
-      <div class="s">${esc(countdown(safety.at, now))} from now. ${esc(safety.detail)}</div></div>` : ""}
+      <div class="v">${esc(hm(safety.start))}</div>
+      <div class="s">${esc(countdown(safety.start, now))} from now. ${esc(safety.instructions)}</div></div>` : ""}
     <div class="ow-block"><div class="k">Water</div>
       <div class="v">${change ? "changes in " + esc(countdown(change.at, now)) : "no change forecast"}</div>
       <div class="s">${change ? esc(change.text) : "Inside the planning horizon nothing is scheduled to change."}</div></div>
     <div class="ow-block"><div class="k">Fly</div>
-      <div class="v">${esc(t.primary_fly)}</div>
-      <div class="s">${esc(t.primary_size)} · ${esc(t.primary_color)} · ${esc(t.line)}</div></div>
+      <div class="v">${esc(t.primary_fly || "—")}</div>
+      <div class="s">${esc([t.primary_size, t.primary_color, t.line].filter(Boolean).join(" · "))}</div>
+      ${t.switch_trigger ? `<div class="s">${esc(t.switch_trigger)}</div>` : ""}</div>
     <div class="ow-block"><div class="k">Map</div>
-      <div class="s"><a href="${esc(mapsUrl(cand.z, ctx.craft))}" target="_blank" rel="noopener">Open the launch in Maps →</a></div></div>
-    <button class="btn" id="ow-exit" style="margin-top:20px">Leave on-water mode</button>`;
+      <div class="s"><a href="${esc(mapsUrl(data, ctx))}" target="_blank" rel="noopener">Open the next launch in Maps →</a></div></div>
+    <div class="chips" style="margin-top:20px">
+      <button class="btn primary" id="ow-recheck" type="button">RECHECK PLAN</button>
+      <button class="btn" id="ow-exit" type="button">Leave on-water mode</button>
+    </div>`;
 }
 
-function mapsUrl(z, craft) {
-  const a = TL.pickLaunch(z, craft);
-  if (!a || a.lat === null || a.lat === undefined) return "";
+/** §41 — what CHANGED, and nothing else. */
+export function deltaBlock(delta) {
+  if (!delta) return "";
+  if (!delta.changed) {
+    return `<div class="banner ok">PLAN UNCHANGED — rechecked ${esc(ago(delta.at))}. ` +
+           `Live water and weather still match the plan you started.</div>`;
+  }
+  return `<div class="banner bad"><b>PLAN CHANGED</b></div>
+    <div class="card flat"><div class="k2">What changed</div>
+    ${delta.rows.map((r) => `<div class="deltarow">
+      <div class="dk">${esc(r.label)}</div>
+      <div class="dv"><span class="was">was ${esc(r.was)}</span>
+        <span class="now">now ${esc(r.now)}</span></div>
+      ${r.detail ? `<div class="tiny">${esc(r.detail)}</div>` : ""}
+    </div>`).join("")}
+    <p class="small" style="margin-top:10px">${esc(delta.advice)}</p>
+    <p class="tiny">The original plan is preserved for the trip log — recalibration needs
+    what we predicted, not what we later wished we had predicted.</p></div>`;
+}
+
+function mapsUrl(data, ctx) {
+  const now = Date.now() / 1000;
+  const seg = ctx.segments.find((s) => s.type === "fish" && s.end > now) ||
+              ctx.segments.find((s) => s.type === "fish");
+  const zone = data.zones[(seg || {}).zone_id || ctx.plan.zoneSequence[0]];
+  const a = (zone.access || []).find((x) => x.lat !== null && x.lat !== undefined);
+  if (!a) return "";
   return "https://www.google.com/maps/search/?api=1&query=" + a.lat + "," + a.lon;
 }
 

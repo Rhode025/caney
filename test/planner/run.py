@@ -18,6 +18,7 @@ import harness                                   # noqa: E402
 import test_architecture as A                    # noqa: E402
 import test_domain as D                          # noqa: E402
 import test_golden as G                          # noqa: E402
+import test_opportunity as O                     # noqa: E402
 import test_research as R                        # noqa: E402
 import test_species as S                         # noqa: E402
 import test_zones as Z                           # noqa: E402
@@ -27,10 +28,14 @@ if __name__ == "__main__":
         D.test_observations, D.test_claims, D.test_weights,
         Z.test_registry, Z.test_carthage_zone, Z.test_craft_gating,
         G.test_golden_releases, G.test_warmwater_bands, G.test_wade_gate,
+        O.test_peak_beats_average, O.test_minimum_durations, O.test_move_beats_stay,
+        O.test_move_not_worth_it, O.test_location_confidence, O.test_transitions,
+        O.test_safety_overrides_opportunity, O.test_zone_kinds,
         S.test_carthage_stripers, S.test_caney_trout_wade, S.test_trout_power_boat,
         S.test_smallmouth_bands, S.test_largemouth_can_win, S.test_confidence_beats_score,
         R.test_provider_is_optional, R.test_query_generation, R.test_claim_extraction,
-        R.test_cache, R.test_seed_corpus,
+        R.test_cache, R.test_seed_corpus, R.test_research_changes_ranking,
+        R.test_stale_research, R.test_research_offline,
         A.test_no_unknown_as_zero, A.test_no_inline_assets,
         A.test_browser_engine_holds_no_model, A.test_layering, A.test_repo_hygiene,
         A.test_observability,

@@ -69,7 +69,10 @@ def zones_for(P, river_id):
                       for sp, pr in (z.get("species_profiles") or {}).items()},
             "pattern": {sp: pr.get("pattern") or ""
                         for sp, pr in (z.get("species_profiles") or {}).items()},
-            "evidence": {sp: (P.get("evidence") or {}).get(zid + "|" + sp, [])
+            # `evidence` rows are {id, confidence} — the confidence is per zone, because
+            # a claim is worth more at the water it names than at the water it does not.
+            "evidence": {sp: [(r["id"] if isinstance(r, dict) else r)
+                              for r in (P.get("evidence") or {}).get(zid + "|" + sp, [])]
                          for sp in (z.get("species_profiles") or {})},
         })
     return out

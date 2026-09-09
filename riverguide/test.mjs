@@ -202,11 +202,31 @@ console.log("\n── §45: planning questions go to the planner, not to a secon
   if (fs.existsSync(p)) {
     const plan = JSON.parse(fs.readFileSync(p, "utf8"));
     const pay = planPayload(plan);
-    is("the plan payload carries the verdict and both numbers",
+    is("the plan payload carries the verdict and its numbers",
        ["GO", "CONDITIONAL", "SKIP"].includes(pay.verdict) &&
-       typeof pay.score === "number" && typeof pay.confidence === "number",
-       JSON.stringify([pay.verdict, pay.score, pay.confidence]));
+       typeof pay.opportunity === "number" && typeof pay.confidence === "number",
+       JSON.stringify([pay.verdict, pay.opportunity, pay.confidence]));
     is("the plan payload carries a timeline", (pay.timeline || []).length > 0);
+    // §46, §83 — the bot must describe THE SAME itinerary the graphical planner shows.
+    is("the plan payload carries the ITINERARY, not just a summary",
+       pay.itinerary && Array.isArray(pay.itinerary.segments) &&
+       pay.itinerary.segments.length >= 3, JSON.stringify(pay.itinerary || {}).slice(0, 90));
+    is("its zone sequence matches the plan's",
+       JSON.stringify(pay.itinerary.zones) === JSON.stringify(plan.itinerary.zone_sequence));
+    is("every segment carries its own time and instruction",
+       pay.itinerary.segments.every((s) => s.when && s.instructions));
+    is("a fishing segment carries its technique",
+       pay.itinerary.segments.filter((s) => s.type === "fish").every((s) => s.technique));
+    is("the four confidences travel separately (§31)",
+       ["opportunity", "confidence", "locationConfidence", "researchConfidence"]
+         .every((k) => typeof pay[k] === "number"), JSON.stringify(Object.keys(pay)));
+    is("the backup plan travels (§39)",
+       pay.backupPlan && (pay.backupPlan.branches || []).length > 0);
+    is("the model versions travel (§53)",
+       pay.versions && pay.versions.planner, JSON.stringify(pay.versions));
+    is("why-this-won travels (§67)", (pay.whyThisWon || []).length > 0);
+    is("the payload stays affordable", JSON.stringify(pay).length / 4 < 4500,
+       String(Math.round(JSON.stringify(pay).length / 4)));
     is("the plan payload carries its score breakdown", (pay.scoreBreakdown || []).length > 0);
     is("the plan payload carries its safety claim book", Array.isArray(pay.safetyClaims));
     is("plan zones are resolvable for guard scoping", planZones(plan).length > 0,

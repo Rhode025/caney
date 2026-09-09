@@ -112,6 +112,80 @@ moon of one specific local date.
 
 ---
 
+## OpportunityWindow — `caney/domain/opportunity.py`
+
+One contiguous fishable stretch of one zone, for one species. The unit the 2.1 planner
+ranks.
+
+```
+zone_id, species, start, end, duration_minutes
+samples[]              the 15-minute score samples the utility was computed from
+peak_score, mean_score, floor_score, quality
+confidence             forecast confidence, 0..100
+location_confidence    0..1
+transition_cost_before / _after   minutes
+utility, parts{}       quality · duration_factor · confidence_factor · location_factor ·
+                       transition · staleness · utility
+conditions_summary, reasons[], stale
+```
+
+---
+
+## FishingSegment / FishingItinerary — `caney/domain/opportunity.py`
+
+```
+FishingSegment
+  type          launch | fish | move | wait | change_technique | safety_exit |
+                optional_backup | end
+  start, end, zone_id, zone_name, access_id
+  instructions  what to do
+  reason        WHY — for a move, what changes and what it costs (§15)
+  expected_score, confidence, location_confidence, location_evidence
+  technique{}   primary + backup presentation + switch_trigger (§37)
+  triggers[]    {if, then, at, kind, claim_ids, changes_technique}   (§38)
+  claim_ids[], kind, uncertainty
+
+FishingItinerary
+  id, created_at, species, craft, requested_start, requested_end
+  segments[], windows[]
+  total_fishing_minutes, total_transition_minutes
+  utility_score, utility_parts{}, confidence, location_confidence
+  primary_zone, zone_sequence[], backup_plan{}, why[]
+```
+
+---
+
+## LocationConfidence — `caney/domain/location.py`
+
+```
+access          LocationEvidence.*     weighted 0.40
+reach           LocationEvidence.*     weighted 0.35
+holding_water   LocationEvidence.*     weighted 0.25
+verification    {status, verified_by, verified_at, source, notes}
+value           0..1        score  0..100
+tactical_level  precise | corridor | hedged        →  drives the prose (§30)
+rows()          the three parts, each with its prior and an explanation (§72)
+```
+
+`LocationEvidence`: `VERIFIED_ACCESS` 0.98 · `VERIFIED_ZONE` 0.95 ·
+`AGENCY_DESCRIBED_REACH` 0.85 · `MODELED_HABITAT` 0.65 · `UNVERIFIED_CANDIDATE` 0.40.
+**Initial priors, not calibrated.** See [GEOGRAPHY.md](GEOGRAPHY.md).
+
+---
+
+## Transition — `caney/planner/transitions.py`
+
+```
+from_zone, to_zone, minutes, mode, provenance, detail, miles
+provenance ∈ known | estimated | unknown
+mode       ∈ boat_downstream | boat_upstream | drift_downstream |
+             paddle_downstream | paddle_upstream | wade_bank | road
+```
+
+`None` rather than a Transition means the move is impossible for that craft (§12).
+
+---
+
 ## FishingPlan — `caney/domain/plan.py`
 
 The canonical answer object.
@@ -119,8 +193,17 @@ The canonical answer object.
 ```
 id, created_at, species, requested_window{start,end,iso,tz,days_out}, craft
 verdict            GO | CONDITIONAL | SKIP        + verdict_why
-score              0..100
-confidence         0..100   (a SEPARATE number)
+score / opportunity   0..100   the itinerary's own quality
+confidence            0..100   forecast confidence
+location_confidence   0..100   how well we know WHERE          (§31, §65)
+research_confidence   0..100   how well sourced the biology is
+utility               the optimiser's objective, for audit
+itinerary             FishingItinerary — THE ANSWER
+availability          {start, end} — what you asked for (§68)
+why_this_won[]        the concise explanation (§67)
+backup_plan           {branches[], fallback_zone}  (§39)
+versions              planner · species_model · zone_model · research (§53)
+shadow                a candidate scorer's ranking, stored, never shown (§54)
 primary_candidate  zone id
 alternatives[]     scored losers with lost_on[] and what_would_flip_it,
                    plus eliminated candidates with their reason

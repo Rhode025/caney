@@ -216,7 +216,14 @@ function isoDate(epoch) {
   return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate());
 }
 
-/** §41 — one .ics per alarm-worthy step. Safety alarms use the conservative time. */
+/**
+ * §41 — one .ics per alarm-worthy SEGMENT. Safety alarms use the conservative time.
+ *
+ * Expanded for 2.1: an itinerary has more moments worth an alarm than a single-zone plan
+ * did — the launch, every move, every technique switch, and the safe exit. A phone alarm
+ * is the only mechanism that rings with no signal, a locked screen and the browser closed,
+ * which is all three conditions at the river.
+ */
 export function icsFor(steps, title) {
   const pad = (n) => String(n).padStart(2, "0");
   const stamp = (t) => {
@@ -227,20 +234,27 @@ export function icsFor(steps, title) {
   const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Caney//Planner//EN",
                  "CALSCALE:GREGORIAN", "METHOD:PUBLISH"];
   let n = 0;
+  const ALARMED = ["launch", "move", "safety_exit", "change_technique", "fish"];
   for (const s of steps) {
-    if (s.at === null || s.at === undefined) continue;
-    if (![KINDS.SAFETY, KINDS.DETERMINISTIC].includes(s.kind) &&
-        !/^(Launch|Move|Solunar|Sunrise)/.test(s.title)) continue;
+    const at = s.at !== undefined ? s.at : s.start;
+    if (at === null || at === undefined) continue;
+    const kind = s.type || s.kind;
+    const label = s.instructions || s.title || "";
+    if (!ALARMED.includes(kind) && ![KINDS.SAFETY, KINDS.DETERMINISTIC].includes(kind) &&
+        !/^(Launch|Move|Solunar|Sunrise)/.test(label)) continue;
     n++;
+    // Safety gets a longer lead: ten minutes is not enough warning to walk out of a river.
+    const lead = kind === "safety_exit" || kind === KINDS.SAFETY ? "-PT25M" : "-PT10M";
     lines.push("BEGIN:VEVENT",
-      "UID:caney-" + Math.round(s.at) + "-" + n + "@caney.pages.dev",
+      "UID:caney-" + Math.round(at) + "-" + n + "@caney.pages.dev",
       "DTSTAMP:" + stamp(Date.now() / 1000),
-      "DTSTART:" + stamp(s.at),
-      "DTEND:" + stamp(s.at + 900),
-      "SUMMARY:" + ics(title + " — " + s.title),
-      "DESCRIPTION:" + ics(s.detail + (s.uncertainty ? " (" + s.uncertainty + ")" : "")),
-      "BEGIN:VALARM", "TRIGGER:-PT10M", "ACTION:DISPLAY",
-      "DESCRIPTION:" + ics(s.title), "END:VALARM", "END:VEVENT");
+      "DTSTART:" + stamp(at),
+      "DTEND:" + stamp((s.end && s.end > at ? s.end : at + 900)),
+      "SUMMARY:" + ics(title + " — " + label),
+      "DESCRIPTION:" + ics((s.reason || s.detail || "") +
+                           (s.uncertainty ? " (" + s.uncertainty + ")" : "")),
+      "BEGIN:VALARM", "TRIGGER:" + lead, "ACTION:DISPLAY",
+      "DESCRIPTION:" + ics(label), "END:VALARM", "END:VEVENT");
   }
   lines.push("END:VCALENDAR");
   return lines.join("\r\n");

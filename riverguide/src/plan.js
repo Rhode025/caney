@@ -74,14 +74,46 @@ export async function fetchPlan(req, fetchImpl = fetch, site = SITE) {
   }
 }
 
-/** The model's view of a plan: the decision and its reasons, not the whole object. */
+/**
+ * The model's view of a plan: the decision, the ITINERARY and the reasons — not the whole
+ * object. §46: RiverGuide explains this plan; it does not build a competing one, and the
+ * itinerary it describes has to be the same one the graphical planner shows.
+ */
 export function planPayload(plan) {
   if (!plan) return null;
+  const it = plan.itinerary || null;
   return {
     verdict: plan.verdict,
     why: plan.verdict_why,
-    score: plan.score,
+    // §31, §65 — four numbers, and the bot must not collapse them into one either.
+    opportunity: plan.opportunity !== undefined ? plan.opportunity : plan.score,
     confidence: plan.confidence,
+    locationConfidence: plan.location_confidence,
+    researchConfidence: plan.research_confidence,
+    whyThisWon: plan.why_this_won || [],
+    availability: plan.availability || null,
+    // THE ANSWER. Everything below is supporting detail for this.
+    itinerary: it ? {
+      zones: it.zone_sequence,
+      fishingMinutes: it.total_fishing_minutes,
+      transitionMinutes: it.total_transition_minutes,
+      utility: it.utility_score,
+      segments: (it.segments || []).map((s) => ({
+        type: s.type, when: s.start, until: s.end,
+        zone: s.zone_name || s.zone_id,
+        instructions: s.instructions,
+        reason: (s.reason || "").slice(0, 260),
+        expected: s.expected_score,
+        technique: s.technique ? {
+          fly: s.technique.primary_fly, size: s.technique.primary_size,
+          color: s.technique.primary_color, line: s.technique.line,
+          presentation: s.technique.presentation, depth: s.technique.depth,
+          switchWhen: s.technique.switch_trigger,
+        } : null,
+        triggers: (s.triggers || []).map((t) => ({ if: t.if, then: t.then })),
+      })),
+    } : null,
+    backupPlan: plan.backup_plan || null,
     species: plan.species,
     craft: plan.craft,
     zone: plan.location && plan.location.name,
@@ -101,6 +133,7 @@ export function planPayload(plan) {
     technique: plan.technique,
     scoreBreakdown: (plan.score_breakdown || []).map((l) =>
       ({ what: l.label, got: l.earned, of: l.possible, why: l.why })),
+    versions: plan.versions || null,
     alternatives: (plan.alternatives || []).slice(0, 4).map((a) =>
       ({ name: a.name, score: a.score, why: a.what_would_flip_it || a.reason })),
     evidence: (plan.evidence || []).map((c) =>

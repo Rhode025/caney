@@ -90,13 +90,25 @@ class FishingPlan:
 
     verdict: str = Verdict.SKIP
     verdict_why: str = ""
-    score: float = 0.0                 # 0..100
-    confidence: float = 0.0            # 0..100, deliberately a SEPARATE number (§31)
+
+    # §31/§65 — four numbers, none of which implies the others. A high opportunity on
+    # unverified geography is a different thing from a high opportunity on a mapped ramp,
+    # and collapsing them into one figure is how a planner starts lying.
+    score: float = 0.0                 # kept as the headline; == opportunity
+    opportunity: float = 0.0           # 0..100, the itinerary's own quality
+    confidence: float = 0.0            # 0..100, forecast confidence
+    location_confidence: float = 0.0   # 0..100, how well we know WHERE
+    research_confidence: float = 0.0   # 0..100, how well sourced the biology is
+    utility: float = 0.0               # the optimiser's objective, for audit
 
     primary_candidate: str = ""
     alternatives: List[Dict[str, Any]] = field(default_factory=list)
 
     best_window: Dict[str, Any] = field(default_factory=dict)        # {start,end,why}
+    availability: Dict[str, Any] = field(default_factory=dict)       # §68 — what you asked
+    itinerary: Any = None                                            # FishingItinerary
+    why_this_won: List[str] = field(default_factory=list)            # §67
+    backup_plan: Optional[Dict[str, Any]] = None                     # §39
     location: Dict[str, Any] = field(default_factory=dict)
     access: Dict[str, Any] = field(default_factory=dict)
 
@@ -115,6 +127,14 @@ class FishingPlan:
     data_freshness: List[Dict[str, Any]] = field(default_factory=list)
     limitations: List[str] = field(default_factory=list)
 
+    # §53 — every plan states which models produced it, so a result stored today is still
+    # interpretable after the weights move.
+    planner_version: str = ""
+    species_model_version: str = ""
+    zone_model_version: str = ""
+    research_version: str = ""
+    shadow: Optional[Dict[str, Any]] = None                          # §54
+
     def to_json(self):
         def obs(d):
             return {k: (v.to_json() if isinstance(v, Observation) else v)
@@ -123,10 +143,19 @@ class FishingPlan:
             "id": self.id, "created_at": self.created_at, "species": self.species,
             "requested_window": self.requested_window, "craft": self.craft,
             "verdict": self.verdict, "verdict_why": self.verdict_why,
-            "score": round(self.score, 1), "confidence": round(self.confidence, 1),
+            "score": round(self.score, 1),
+            "opportunity": round(self.opportunity or self.score, 1),
+            "confidence": round(self.confidence, 1),
+            "location_confidence": round(self.location_confidence, 1),
+            "research_confidence": round(self.research_confidence, 1),
+            "utility": round(self.utility, 2),
             "primary_candidate": self.primary_candidate,
             "alternatives": self.alternatives,
             "best_window": self.best_window,
+            "availability": self.availability,
+            "itinerary": self.itinerary.to_json() if self.itinerary else None,
+            "why_this_won": self.why_this_won,
+            "backup_plan": self.backup_plan,
             "location": self.location, "access": self.access,
             "timeline": [s.to_json() for s in self.timeline],
             "technique": self.technique.to_json() if self.technique else None,
@@ -136,4 +165,11 @@ class FishingPlan:
             "score_breakdown": [s.to_json() for s in self.score_breakdown],
             "safety": self.safety, "data_freshness": self.data_freshness,
             "limitations": self.limitations,
+            "versions": {
+                "planner": self.planner_version,
+                "species_model": self.species_model_version,
+                "zone_model": self.zone_model_version,
+                "research": self.research_version,
+            },
+            "shadow": self.shadow,
         }

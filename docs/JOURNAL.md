@@ -4,6 +4,132 @@ Newest first. Read the top entry at the start of a session; append a new one at 
 
 ---
 
+## 2026-09-09 (later) — Caney 2.1: from species planner to fishing-day oracle
+
+**The change in one line.** 2.0 asked "which zone scores highest over the period you gave?"
+and answered with a mean. 2.1 asks "what is the best executable day inside that period?"
+and answers with an itinerary.
+
+### The bug at the heart of 2.0
+
+The brief put it better than I would have:
+
+```
+Candidate A   6:30 96  7:00 95  7:30 92  8:00 63  8:30 57  9:00 55  9:30 52
+Candidate B   6:30 77  7:00 77  7:30 78  8:00 76  8:30 77  9:00 76  9:30 75
+```
+
+A mean prefers B. **The user's availability is a constraint, not a requirement to fish
+every minute of it.** So the unit of the planner is now an `OpportunityWindow`, scored by a
+utility function that is peak-weighted with an explicit floor term and a duration factor
+that SATURATES:
+
+```
+U = Q × D × C × L − transition − staleness
+Q = 0.50·peak + 0.28·cubic_mean + 0.22·floor
+D = 0.72 + 0.28·min(1, minutes/150)   × 0.35 below the species minimum
+```
+
+The floor term is what stops one great hour being averaged with three dead ones and still
+winning. The saturating duration is what stops the optimiser padding a peak to farm time.
+`docs/PLANNER.md` §2 states the whole thing.
+
+### Getting §57, §58 and §59 to come out at once
+
+These pull against each other: §57 wants short-and-great to beat long-and-mixed; §58 wants
+long-across-two-zones to beat short-and-great; §59 wants no move for +4 over 35 minutes of
+travel. Three things resolved it, and each was arrived at by watching a fixture fail:
+
+1. **Evaluate a whole day as ONE pseudo-window** over its concatenated samples, rather than
+   summing per-window utilities. Summing rewards adding segments; averaging rewards
+   padding; this rewards a day whose fished time is uniformly good.
+2. **A breadth bonus** (`6.0 × (segments−1) × mean_quality/100`), because the duration
+   factor deliberately saturates and without this the optimiser could never say that ninety
+   minutes at 95 *and* two hours at 90 beats either alone.
+3. **A complexity penalty** of 1.5 per extra zone, which is §14's thumb on the scale.
+
+### The bug that cost me the most time
+
+Window pruning. Keeping the best four windows per zone by standalone utility **deletes the
+tight peak window that is only worth fishing as the first leg of a circuit** — the longer
+window that runs into the zone's collapse scores higher on its own. The itinerary search
+then has nothing early-ending to build on and can never find the move. The keep-set is now
+diverse by construction: best-ending-in-each-hour, best-starting-in-each-hour, plus the
+global best. `caney/planner/opportunity.py::_prune` carries the comment.
+
+### The Python/browser split, extended
+
+Same contract as 2.0, one layer deeper. Python owns every number; the browser runs the
+identical scan and the identical beam over Python's windows, Python's transition graph and
+Python's constants — which §56 permits as "selecting from precomputed opportunities".
+
+`out/plan/parity.json` now pins **four layers**: component scores, window utilities,
+best-subwindow sets, and complete itineraries including their zones and times.
+**405 checks, all exact.** If a threshold leaks into `web/planner/`, one of them disagrees.
+
+### Geographic confidence became first class
+
+`LocationEvidence` (VERIFIED_ACCESS 0.98 → UNVERIFIED_CANDIDATE 0.40) does three jobs:
+multiplies window utility by `0.75 + 0.25·conf` so weak geography loses real ground (§60),
+grades the tactical language (precise / corridor / hedged), and styles the map (solid /
+dashed / dotted). A zone whose tactical level is `hedged` **must not** emit precise
+tactical prose, and `verify.py` checks that structurally for every zone and species.
+
+Twelve of 22 zones sit at 40/100 and say so. That is honest, and it is now the highest-value
+data task in the repo — verifying them against the TWRA access layer would move a dozen
+zones and change rankings.
+
+### Research became a service
+
+`research-worker/` — a Cloudflare Worker with D1 + KV. It holds the key, does the searching,
+normalises findings into sourced claims, decays them **by claim type** (a weekly report has
+a 12-hour TTL and a 5-day half-life; a survey 180 days and 1800; a regulation does not decay
+in influence but must be rechecked weekly), dedupes, keeps an audit trail of what it asked
+and what it rejected and why, and caps its own spend.
+
+D1 rather than KV because every question we ask of this data is a query. The rationale is
+in `research-worker/README.md` and `docs/RESEARCH.md` §9.
+
+It is written, tested and documented but **not deployed** — `wrangler.toml` still carries
+`REPLACE_WITH_D1_ID`. Until it is, the planner runs on 23 seeded TWRA/TDEC claims, which is
+a working floor.
+
+### Domain expansion
+
+* **Largemouth got somewhere to be.** The 2.0 zone set was river-shaped, so largemouth were
+  competing inside current-oriented reaches. Five new stillwater zones — Old Hickory creek
+  arms and lower embayments, Percy Priest creek arms, Center Hill shoreline, Cordell Hull
+  reservoir arms — all TWRA-described, all `ZoneKind.STILLWATER`, all cover habitat.
+* **Stripers stopped being only Carthage.** Eight zones across four systems, covering every
+  month: winter below Old Hickory and in its lower embayments, spring in the Cordell Hull
+  creeks from Granville to Gainesboro, summer in the tailwaters and the cold Caney plume.
+
+22 zones now, from 17.
+
+### Numbers
+
+* 761 Python planner checks · 405 parity checks · research-worker suite · RiverGuide ·
+  browser suite over the seven §83 scenarios · **axe 0 violations**
+* `planner.py`: ~6 s cold, ~2 s warm, 1.1 MB dataset, 200 pre-built plans
+* the four mandatory scenarios (§57, §58, §59, §60) all pass as written
+
+### Open threads
+
+1. **Fish it and log trips.** Everything below is gated on this. The scoreboard now answers
+   every question in §51 and prints "not enough trips to say" to all of them. Twenty logged
+   plans across three species is the threshold.
+2. **Deploy the research worker** (RES-01) — half an hour of wrangler commands.
+3. **Verify the access coordinates** (GEO-02) — the highest-value data work in the repo.
+4. **The transition model is priors too** (MOVE-01), and it decides whether you move. Time
+   an actual Cordell-to-Caney run and a trailer reposition.
+5. **The river pages never got the accessibility or dark-mode work** (A11Y-08). It was
+   delivered on the planner, which is a different surface with its own stylesheet.
+6. Roadmap tickets now carry a `reconciliation` block classifying each against what shipped.
+   **Nothing was closed on GitHub** — that is the user's call, and the issue is the system
+   of record. Nine are marked `completed` and are ready to close.
+
+---
+
 ## 2026-09-09 — Caney 2.0: the species-first oracle
 
 **The frame changed.** The product is no longer a collection of river dashboards. It is a

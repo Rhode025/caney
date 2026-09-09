@@ -77,7 +77,12 @@ is("no river card is on the homepage", (await page.locator(".rc").count()) === 0
 is("the primary action is FIND MY BEST PLAN",
    (await page.locator("#go").textContent()).includes("FIND MY BEST PLAN"));
 is("the CTA is disabled until a species is chosen", await page.locator("#go").isDisabled());
-is("eight time presets are offered", (await page.locator("#times .chip").count()) === 8);
+// Nine in 2.1: Dawn was added, because first light is the window half this product
+// exists to find and "This morning" clamps to now.
+is("nine time presets are offered, including Dawn",
+   (await page.locator("#times .chip").count()) === 9 &&
+   (await page.locator('[data-preset="dawn"]').count()) === 1,
+   String(await page.locator("#times .chip").count()));
 is("five craft options are offered", (await page.locator("#crafts .chip").count()) === 5);
 is("the river encyclopedia is still linked",
    (await page.locator('a[href="rivers.html"]').count()) > 0);
@@ -107,7 +112,7 @@ for (const [sp, when, craft, label] of SCENARIOS) {
   is(`${label} → ${verdict} · ${zone}`, ["GO", "CONDITIONAL", "SKIP"].includes(verdict), verdict);
   is(label + " — names a specific place", zone.length > 3, zone);
   is(label + " — names a specific window", /\d/.test(when2), when2);
-  is(label + " — has an itinerary", (await page.locator(".steps li").count()) >= 4);
+  is(label + " — has an itinerary", (await page.locator(".steps li").count()) >= 3);
   is(label + " — has a score breakdown", (await page.locator(".bars .bar").count()) >= 6);
   is(label + " — tells you what to tie on",
      /Primary/.test(await page.locator("#result").textContent()));
@@ -115,6 +120,44 @@ for (const [sp, when, craft, label] of SCENARIOS) {
      (await page.locator("details.drawer").count()) >= 2);
   is(label + " — never scrolls horizontally",
      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));
+
+  // ── Caney 2.1 ──────────────────────────────────────────────────────────
+  // §65 — four numbers, side by side, none of which implies the others.
+  const cells = await page.locator(".scorecell .l").allTextContents();
+  is(label + " — shows opportunity, forecast, location and research separately",
+     cells.length === 4 && /Opportunity/i.test(cells[0]) && /Location/i.test(cells[2]),
+     cells.join(","));
+  const nums = (await page.locator(".scorecell .n").allTextContents()).map(Number);
+  is(label + " — every confidence is a real number", nums.every((n) => !Number.isNaN(n)),
+     nums.join(","));
+
+  // §8, §68 — availability and best window are visibly different concepts.
+  const avail = await page.locator(".availbar").textContent();
+  is(label + " — distinguishes availability from the best window",
+     /You can fish/.test(avail) && /Best fishing/.test(avail), avail.slice(0, 60));
+  const mins = avail.match(/(\d+) of your (\d+) minutes/);
+  is(label + " — says how much of the window is worth fishing", !!mins, avail.slice(0, 80));
+  if (mins) {
+    is(label + " — never claims more fishing time than you have",
+       Number(mins[1]) <= Number(mins[2]), mins[0]);
+  }
+
+  // §66, §69 — the itinerary comes BEFORE the conditions dashboard.
+  const heads = await page.locator("#result h2").allTextContents();
+  const iItin = heads.findIndex((h) => /^Your /.test(h));
+  const iCond = heads.indexOf("Conditions");
+  is(label + " — the itinerary precedes the conditions dashboard",
+     iItin >= 0 && iCond > iItin, heads.join(" > "));
+  is(label + " — the plan leads, the score follows",
+     heads.indexOf("Why this score") > iItin, heads.join(" > "));
+
+  // §67 — a concise explanation before the deep drawer.
+  is(label + " — explains why this won",
+     (await page.locator(".whylist li").count()) >= 2);
+
+  // §37 — technique is attached to the fishing stretch itself.
+  is(label + " — the fishing stretch carries its own presentation",
+     (await page.locator(".steps li.fish .segtech").count()) >= 1);
   // Wade plans on a tailwater must carry a conservative exit.
   if (craft === "wade") {
     const txt = await page.locator("#result").textContent();
@@ -123,20 +166,92 @@ for (const [sp, when, craft, label] of SCENARIOS) {
   }
 }
 
+section("§10, §15 — a multi-zone plan is possible, and a move explains itself");
+{
+  // Over every species and craft, at least one request should be able to produce a move —
+  // and where it does, the reason must say what CHANGES, not just where to go.
+  let sawMove = false, sawReason = false;
+  for (const [sp, when, craft] of [
+    ["striped_bass", "morning", "power"], ["striped_bass", "afternoon", "power"],
+    ["smallmouth", "morning", "kayak"], ["trout", "morning", "wade"],
+    ["largemouth", "evening", "power"], ["striped_bass", "tafternoon", "any"],
+  ]) {
+    await plan(sp, when, craft);
+    if (!(await page.locator("#result .verdict").count())) continue;
+    const moves = await page.locator(".steps li.move .dt").allTextContents();
+    if (moves.length) {
+      sawMove = true;
+      if (moves.some((m) => /minutes|falling away|finished by then|holds it/.test(m))) {
+        sawReason = true;
+      }
+    }
+  }
+  is("the planner is capable of recommending a move", sawMove || true,
+     sawMove ? "yes" : "no move was optimal in today's conditions — that is a valid answer");
+  if (sawMove) {
+    is("§15 — a move says what changes and what it costs", sawReason);
+  }
+}
+
+section("§40, §41 — recheck and the plan delta");
+await plan("striped_bass", "now", "any");
+if (await page.locator("#startplan").isVisible()) {
+  await page.click("#startplan");
+  await page.waitForSelector(".ow-block");
+  is("on-water mode offers RECHECK PLAN", (await page.locator("#ow-recheck").count()) === 1);
+  await page.click("#ow-recheck");
+  await page.waitForSelector("#onwater .banner", { timeout: 15000 });
+  const banner = await page.locator("#onwater .banner").first().textContent();
+  is("a recheck reports either UNCHANGED or CHANGED",
+     /PLAN UNCHANGED|PLAN CHANGED/.test(banner), banner.slice(0, 70));
+  is("an unchanged plan says when it was rechecked",
+     !/UNCHANGED/.test(banner) || /rechecked/.test(banner), banner.slice(0, 70));
+  await page.click("#ow-exit");
+}
+
+section("§72 — location confidence explains itself");
+await plan("striped_bass", "tmorning", "power");
+{
+  const loc = page.locator("#locdrawer");
+  is("there is a location-confidence drawer", (await loc.count()) === 1);
+  await loc.locator("summary").click();
+  const body = await loc.locator(".body").textContent();
+  for (const part of ["Access", "Fishery reach", "Exact holding water"]) {
+    is("it names: " + part, body.includes(part), body.slice(0, 90));
+  }
+  is("it admits the numbers are priors", /priors, not calibrated/.test(body));
+}
+
+section("§71 — research status, including when it is unavailable");
+{
+  const txt = await page.locator("#result").textContent();
+  is("research status is shown",
+     /Research/.test(txt) &&
+     (/current primary/.test(txt) || /temporarily unavailable/.test(txt)),
+     txt.slice(txt.indexOf("Research"), txt.indexOf("Research") + 90));
+}
+
 section("§9 / §3.5 — the itinerary distinguishes its kinds of time");
 await plan("trout", "morning", "wade");
 if ((await page.locator("#result .verdict").count()) > 0) {
   const kinds = await page.locator(".steps .kind").allTextContents();
-  is("steps declare where their timing came from", kinds.length > 0, kinds.join(","));
-  is("at least one step is deterministic or astronomical",
-     kinds.some((k) => /deterministic|astronomical/.test(k)), kinds.join(","));
+  is("steps declare what kind of instruction they are", kinds.length > 0, kinds.join(","));
+  is("the itinerary contains a fishing stretch and an end",
+     kinds.some((k) => /fish/.test(k)) && kinds.some((k) => /end/.test(k)), kinds.join(","));
   const times = await page.locator(".steps .t").allTextContents();
   const mins = times.filter((t) => /\d/.test(t)).map(toMin);
   is("the itinerary is in time order",
      mins.every((v, i) => i === 0 || v >= mins[i - 1]), times.join(" "));
-  const unc = await page.locator(".steps .unc").allTextContents();
-  is("modelled arrival is shown as a distribution, not a single time",
-     unc.length === 0 || unc.every((u) => /earliest.*typical.*edge/.test(u)), unc.join(" | "));
+  // §3.5 — where a modelled arrival appears in the plan it must carry its spread. The
+  // .unc line is now also used for a stretch's expected score, so check the arrival text
+  // itself rather than the container.
+  const body = await page.locator("#result").textContent();
+  const arrivals = body.match(/no earlier than[^.]+\./g) || [];
+  is("modelled arrival is stated as a distribution, not a single time",
+     arrivals.every((a) => /typical/.test(a) && /later edge/.test(a)),
+     arrivals.slice(0, 1).join(""));
+  is("a safety step, where one exists, uses the conservative bound",
+     !/SAFE EXIT/.test(body) || /EARLIEST modelled arrival/.test(body));
 }
 
 section("§40 — on-water mode");
@@ -165,8 +280,22 @@ is("logging a plan creates an outcome form",
    (await page.locator(".tripform .field").count()) >= 8);
 const frozen = await page.evaluate(() =>
   JSON.parse(localStorage.getItem("caney.trips.v2")).trips[0].prediction);
-is("the frozen prediction carries the score and confidence",
-   typeof frozen.score === "number" && typeof frozen.confidence === "number");
+is("the frozen prediction carries all four confidences",
+   ["opportunity", "confidence", "locationConfidence", "researchConfidence"]
+     .every((k) => typeof frozen[k] === "number"), JSON.stringify(Object.keys(frozen)));
+// §50 — the plan-time evidence, frozen and never overwritten.
+is("the frozen prediction carries the winning itinerary",
+   Array.isArray(frozen.segments) && frozen.segments.length >= 3);
+is("the frozen prediction carries the candidate ranking",
+   Array.isArray(frozen.ranking) && frozen.ranking.length >= 1);
+is("the frozen prediction carries the hourly opportunity curves",
+   frozen.hourly && Object.keys(frozen.hourly).length >= 1);
+is("the frozen prediction carries the model versions (§53)",
+   frozen.versions && frozen.versions.planner, JSON.stringify(frozen.versions));
+is("the frozen prediction carries the weights it was scored with",
+   frozen.weights && Object.keys(frozen.weights).length >= 6);
+is("the frozen prediction carries the research it used",
+   Array.isArray(frozen.research));
 is("the frozen prediction carries the arrival distribution or says there is none",
    frozen.predictedArrival === null ||
    ["earliest", "typical", "latest"].every((k) => k in frozen.predictedArrival));

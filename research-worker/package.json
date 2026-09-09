@@ -1,0 +1,6 @@
+{
+  "name": "caney-research-worker",
+  "private": true,
+  "type": "module",
+  "description": "Research Intelligence service. Turns web search into sourced, normalised ResearchClaims and stores them. Never returns freeform fishing advice."
+}

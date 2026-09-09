@@ -200,11 +200,75 @@ def allowed_domains():
     return PRIMARY_DOMAINS + extra
 
 
+class HttpResearchProvider(ResearchProvider):
+    """The Research Intelligence worker (research-worker/). §16, §44.
+
+    Preferred over calling OpenAI directly, because the worker owns the key, the cache, the
+    decay curves, the dedupe, the audit trail and the spend cap — one place rather than one
+    per caller. Python asks it for EVIDENCE and gets normalised claims back.
+
+    It never raises and never returns an error to the planner: research failing must not
+    take the plan with it (§43, §58, §63).
+    """
+
+    name = "worker"
+    enabled = True
+
+    def __init__(self, endpoint, timeout=25):
+        self.endpoint = endpoint.rstrip("/")
+        self.timeout = timeout
+
+    def _post(self, path, body):
+        import urllib.request
+        req = urllib.request.Request(
+            self.endpoint + path, data=json.dumps(body).encode("utf-8"),
+            headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as r:
+                return json.loads(r.read().decode("utf-8", "replace")), None
+        except Exception as e:                       # noqa: BLE001
+            return None, "%s: %s" % (type(e).__name__, e)
+
+    def claims_for_zone(self, species, zone_id, date_iso, context=None, force=False):
+        """([finding dicts], meta) — the worker's own normalised claims, adapted."""
+        data, err = self._post("/refresh" if force else "/research", {
+            "species": species, "zone_ids": [zone_id], "date": date_iso,
+            "context": context or {}})
+        if data is None:
+            return [], {"error": err, "degraded": True}
+        out = []
+        for c in data.get("claims") or []:
+            out.append({"url": c.get("source_url"), "title": c.get("source_title"),
+                        "text": c.get("claim"), "published": c.get("published_at"),
+                        "where": c.get("geographic_description"),
+                        "valid_months": c.get("valid_months") or [],
+                        "_tier": c.get("source_tier"),
+                        "_confidence": c.get("combined_confidence")})
+        meta = dict(data.get("meta") or {})
+        meta["disagreements"] = data.get("disagreements") or []
+        return out, meta
+
+    def search_primary(self, query, domains=None, max_results=6):
+        return [], "the worker provider is queried per zone, not per free-text query"
+
+    def search_secondary(self, query, max_results=6):
+        return [], "the worker provider is queried per zone, not per free-text query"
+
+
 def build_provider(env=None):
-    """The optionality gate. Never raises; research is always allowed to be absent."""
+    """The optionality gate. Never raises; research is always allowed to be absent.
+
+    Order of preference:
+      1. CANEY_RESEARCH_ENDPOINT — the worker, which holds the key and the cache.
+      2. OPENAI_API_KEY direct — for a local run or a CI build with the secret.
+      3. NullProvider — and the planner is completely unaffected.
+    """
     env = env if env is not None else os.environ
     if str(env.get("RESEARCH_ENABLED", "")).lower() not in ("1", "true", "yes", "on"):
         return NullProvider()
+    endpoint = env.get("CANEY_RESEARCH_ENDPOINT")
+    if endpoint:
+        return HttpResearchProvider(endpoint)
     key = env.get("OPENAI_API_KEY")
     if not key:
         return NullProvider()
@@ -286,12 +350,35 @@ def to_claims(findings, species, zone, month):
 
 def research_zone(provider, species, zone, when, month, snapshot=None, max_queries=3):
     """Cached, provider-optional research for one zone. Returns ([claims], meta)."""
+    import datetime as _dt
     meta = {"provider": provider.name, "enabled": provider.enabled, "queries": [],
             "cached": 0, "fetched": 0, "errors": [], "refreshed_at": None,
-            "latency_s": 0.0}
+            "latency_s": 0.0, "disagreements": []}
     if not provider.enabled:
         meta["errors"].append(getattr(provider, "reason", "research disabled"))
         return [], meta
+
+    # The worker answers per zone and has already done the normalisation, the decay and the
+    # dedupe. Asking it query-by-query would duplicate all three badly.
+    if isinstance(provider, HttpResearchProvider):
+        t0 = time.time()
+        ctx = {}
+        if snapshot is not None:
+            if getattr(snapshot, "water_temp", None) is not None and snapshot.water_temp.ok:
+                ctx["water_temp_f"] = float(snapshot.water_temp.value)
+            if getattr(snapshot, "generation_on", None) is not None and \
+                    snapshot.generation_on.ok:
+                ctx["generation"] = "on" if snapshot.generation_on.value else "off"
+        date_iso = _dt.datetime.fromtimestamp(when).date().isoformat()
+        findings, wmeta = provider.claims_for_zone(species, zone.id, date_iso, ctx)
+        meta["latency_s"] = time.time() - t0
+        meta["fetched"] = int(wmeta.get("searched") or 0)  # not a measurement (a count)
+        meta["cached"] = 1 if wmeta.get("cached") else 0
+        meta["disagreements"] = wmeta.get("disagreements") or []
+        meta["refreshed_at"] = wmeta.get("newestRetrievedAt")
+        if wmeta.get("error"):
+            meta["errors"].append(str(wmeta["error"]))
+        return to_claims(findings, species, zone, month), meta
 
     claims = []
     for spec in queries_for(species, zone, when, snapshot)[:max_queries]:

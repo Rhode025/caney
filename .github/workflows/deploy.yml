@@ -76,6 +76,10 @@ jobs:
           # §17 — optional. With neither set the planner is fully deterministic and every
           # check below still passes; the research drawer simply says research is off.
           RESEARCH_ENABLED: ${{ vars.RESEARCH_ENABLED }}
+          # Preferred: the Research Intelligence worker holds the key, the cache, the decay
+          # curves and the spend cap. Falls back to a direct OpenAI call when only the
+          # secret is set, and to no research at all when neither is (§17, §63).
+          CANEY_RESEARCH_ENDPOINT: ${{ vars.CANEY_RESEARCH_ENDPOINT }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_RESEARCH_MODEL: ${{ vars.OPENAI_RESEARCH_MODEL }}
 
@@ -107,7 +111,10 @@ jobs:
       - name: Python↔browser scoring parity
         run: node test/planner/test_parity.mjs
 
-      - name: RiverGuide (slicer, access, fail-closed guard, planner integration)
+      - name: Research worker (tiering, decay, normalisation, dedupe)
+        run: cd research-worker && node test.mjs
+
+      - name: RiverGuide (slicer, access, fail-closed guard, itinerary integration)
         run: cd riverguide && node test.mjs
 
       - name: Runtime QA — river pages

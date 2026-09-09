@@ -110,6 +110,40 @@ WATER = {
         "usgs": "03604000", "usgs_label": "Buffalo River near Lobelville (USGS 03604000)",
         "lat": 35.66, "lon": -87.81, "tz": CT,
     },
+    # ── stillwater (§35, §36) ───────────────────────────────────────────────
+    # Reservoirs, added for the largemouth and reservoir-striper zones. They carry NO
+    # gauge on purpose: a reservoir's fishing is driven by level, cover and temperature,
+    # and the river gauge downstream of the dam says nothing about any of them. Flow,
+    # stage and generation stay UNKNOWN here, the confidence model charges for it, and the
+    # plan says so — which is the honest answer, not a borrowed number.
+    "oldhickory_lake": {
+        "name": "Old Hickory Reservoir", "dam": "Old Hickory Dam", "tailwater": False,
+        "cwms_actual": None, "cwms_forecast": None, "usgs": None,
+        "lat": 36.32, "lon": -86.50, "tz": CT,
+        "note": ("22,500-acre Cumberland impoundment. No flow gauge applies to the creek "
+                 "arms — level and cover drive this fishery, not discharge."),
+    },
+    "priest_lake": {
+        "name": "J. Percy Priest Reservoir", "dam": "J. Percy Priest Dam", "tailwater": False,
+        "cwms_actual": None, "cwms_forecast": None, "usgs": None,
+        "lat": 36.07, "lon": -86.52, "tz": CT,
+        "note": ("The Stones River gauge sits BELOW the dam and in Cheatham backwater; it "
+                 "describes neither the reservoir's level nor its arms."),
+    },
+    "centerhill_lake": {
+        "name": "Center Hill Reservoir", "dam": "Center Hill Dam", "tailwater": False,
+        "cwms_actual": None, "cwms_forecast": None, "usgs": None,
+        "lat": 36.02, "lon": -85.79, "tz": CT,
+        "note": ("Deep, clear highland impoundment above the Caney Fork tailwater. The "
+                 "release feed describes what leaves the dam, not the lake."),
+    },
+    "cordell_lake": {
+        "name": "Cordell Hull Reservoir", "dam": "Cordell Hull Dam", "tailwater": False,
+        "cwms_actual": None, "cwms_forecast": None, "usgs": None,
+        "lat": 36.31, "lon": -85.72, "tz": CT,
+        "note": "The reservoir above the dam — the release feed is about the tailwater.",
+    },
+
     "harpeth": {
         "name": "Harpeth River", "dam": None, "tailwater": False,
         "usgs": "03434500", "usgs_label": "Harpeth near Kingston Springs (USGS 03434500)",

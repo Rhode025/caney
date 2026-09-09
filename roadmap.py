@@ -147,6 +147,15 @@ code{font-family:var(--mono);font-size:12.5px;background:var(--card2);border:1px
 .chip[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:#fff}
 #q{flex:1;min-width:170px;font:inherit;font-size:14px;padding:8px 12px;border:1px solid var(--line);
  border-radius:8px;background:var(--card2);color:var(--ink)}
+/* Caney 2.1 (§80): every pre-existing ticket carries a reconciliation against what 2.0
+   and 2.1 actually shipped. The GitHub issue is still what decides whether a ticket is
+   closed — this only says what we believe, and why. */
+.rec{font:600 12.5px/1.5 -apple-system,sans-serif;border-radius:9px;padding:8px 11px;margin:0 0 12px}
+.rec b{letter-spacing:.06em}
+.rec-completed{background:#e7f6ed;color:#12723e}
+.rec-partial{background:#fdf3e0;color:#87590a}
+.rec-superseded{background:#eef1f6;color:#4a5a6a}
+.rec-still-relevant{background:#f5f7fa;color:#5a6b7c}
 .tks{display:flex;flex-direction:column;gap:8px}
 .tk{background:var(--card);border:1px solid var(--line);border-radius:11px;overflow:hidden}
 .tk>summary{display:grid;grid-template-columns:56px 50px 1fr auto;gap:13px;align-items:center;
@@ -281,6 +290,10 @@ function renderList(){
    +'<span class="tt"><span class="kk">'+esc(t.epic)+' · '+t.key+'</span>'+esc(t.title)+'</span>'
    +(t.issue_url?'<a class="gh" href="'+t.issue_url+'" target="_blank" rel="noopener">#'+t.issue+' ↗</a>':'<span class="gh">'+t.effort+'</span>')
    +'</summary><div class="tb">'
+   +(t.reconciliation?'<div class="rec rec-'+t.reconciliation.status.replace(/ /g,"-")+'">'
+      +'<b>'+esc(t.reconciliation.status.toUpperCase())+'</b>'
+      +(t.reconciliation.shipped_in?' in '+esc(t.reconciliation.shipped_in):'')
+      +(t.reconciliation.note?' — '+esc(t.reconciliation.note):'')+'</div>':'')
    +'<h4>Evidence</h4><div class="ev"><p>'+t.evidence+'</p></div>'
    +'<h4>Done means</h4><ul>'+t.done.map(a=>'<li>'+a+'</li>').join('')+'</ul>'
    +'</div></details>').join('');

@@ -30,7 +30,10 @@ python3 test/qc_rivers.py
 echo "▶ Python↔browser scoring parity…"
 node test/planner/test_parity.mjs
 
-echo "▶ RiverGuide (slicer, access policy, fail-closed guard, planner integration)…"
+echo "▶ research worker (tiering, decay, normalisation, dedupe — no network)…"
+( cd research-worker && node test.mjs )
+
+echo "▶ RiverGuide (slicer, access policy, fail-closed guard, itinerary integration)…"
 ( cd riverguide && node test.mjs )
 
 echo "▶ runtime checks — river pages (browser.mjs)…"

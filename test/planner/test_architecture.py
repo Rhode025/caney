@@ -111,8 +111,11 @@ def test_browser_engine_holds_no_model():
     src = _read("web", "planner", "model.js")
     # Numeric literals that would be a threshold or a coefficient. The ones that are
     # allowed are the window-search geometry (which Python publishes too) and 0/1/100.
-    ALLOWED = {"0", "1", "2", "3", "4", "10", "100", "1800", "5400", "3600", "0.35",
-               "0.05", "1000", "86400000", "0.2", "68", "55", "50", "32", "78", "45", "12"}
+    # 0/1/2/3/4 are indices and lengths; 100 and 1000 are unit conversions; 3600 and
+    # 86400000 are time; the rest are named display constants declared at the top of the
+    # file. Anything else in model.js is a threshold, and a threshold is a model.
+    ALLOWED = {"0", "1", "2", "3", "4", "5", "10", "100", "1000", "3600", "86400000",
+               "0.05", "0.2", "0.35", "12", "32", "45", "50", "55", "68", "78"}
     bad = []
     for n, line in enumerate(src.splitlines(), 1):
         st = line.strip()

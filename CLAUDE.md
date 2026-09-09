@@ -1,10 +1,15 @@
 # Caney — agent orientation
 
-Personal river-fishing tool. **Species-first planner** (`out/index.html`): you pick a fish
-and a time window, it returns one evidence-backed plan — where, when, launch, itinerary,
-water, weather, moon, flies, conditional moves, safety, score, confidence and citations.
-Behind it sit the original per-river planning pages built by Python generators, and the
-board that ranks them (`out/rivers.html`). Not a product (but see `PRODUCT_STRATEGY.md`).
+Personal river-fishing tool. **A fishing-day oracle** (`out/index.html`): you pick a
+species, a time window and a craft, and it runs your day — the best contiguous window
+inside your availability, the zone or zones to fish, when to move and why, what to tie on
+at each stretch, the conditions that would change the plan, and the evidence behind all of
+it. Behind that sit the original per-river planning pages built by Python generators, and
+the board that ranks them (`out/rivers.html`). Not a product (but see
+`PRODUCT_STRATEGY.md`).
+
+**The central idea:** your availability is a CONSTRAINT, not an instruction to fish every
+minute of it. A 95 for ninety minutes beats a 76 for four hours, and the plan says so.
 
 **Read `docs/ARCHITECTURE.md` before changing anything in `caney/` or `web/`.**
 
@@ -27,10 +32,12 @@ that happens to `~/.claude`.
 
 | Path | What |
 |---|---|
-| `caney/` | the 2.0 package — domain, species, zones, research, sources, planner, render |
+| `caney/` | the planner package — domain, species, zones, research, sources, planner, render |
+| `research-worker/` | Cloudflare Worker: web search → sourced ResearchClaims, D1 + KV |
 | `planner.py` | builds the species-first homepage + `out/plan/*` (runs after `hq.py`) |
 | `web/` | the shared frontend — one stylesheet, ES modules, no build step |
 | `docs/ARCHITECTURE.md` | how the two halves fit together. Start here. |
+| `docs/PLANNER.md` | the window utility function and the itinerary search |
 | `briefing.py` | Caney Fork — the deepest page (dam routing, generation timing) |
 | `duck.py` `elk.py` `elktn.py` `stones.py` `cumberland.py` | the other single-river pages |
 | `cumbnash.py` `cheatham.py` `cordell.py` | the three Cumberland mainstem tailraces |
@@ -111,8 +118,26 @@ never fire. Do not remove it.
 - **Species live in zones, not on pages.** A page's `species` line is a description. The
   model is `caney/zones/registry.py`, and a zone may span pages.
 - **Weights are config.** `caney/species/profiles.py::WEIGHTS`, pinned by a test. Never put
-  a threshold in `caney/planner/scoring.py` — and never in `web/planner/model.js`, which
-  assembles and does not model (`test/planner/test_parity.mjs` enforces it).
+  a threshold in `caney/planner/scoring.py` — and never anywhere in `web/planner/`, which
+  assembles and does not model. `test/planner/test_parity.mjs` replays Python's own answers
+  at four layers (component scores, window utilities, best-subwindow sets and whole
+  itineraries) through the browser engine; a leaked constant makes one of them disagree.
+- **Never optimise the mean.** A window's score is peak-weighted with an explicit floor
+  term (`caney/planner/utility.py`), and the duration factor SATURATES — both exist to stop
+  the optimiser padding a peak with dead hours. `docs/PLANNER.md` §2.
+- **Every constant in the utility function is published to the browser** in `data.utility`,
+  for the same reason `DATA.mph` exists.
+- **A move must be paid for, and must be possible.** `caney/planner/transitions.py` returns
+  `None` when a craft cannot make a move — which removes it from the search rather than
+  pricing it — and every offered move declares whether its cost is `known`, `estimated` or
+  `unknown`.
+- **Geography has confidence, and it costs.** `caney/domain/location.py`. Weak geography
+  loses real utility AND gets hedged language: a zone whose tactical level is `hedged` must
+  never emit precise tactical prose, which `verify.py` checks structurally.
+- **Model versions are frozen into every plan** (`caney/version.py`). Bump the relevant one
+  when you change the utility function, the weights, the zone registry or the corpus — the
+  scoreboard groups by version, and a calibration figure spanning a model change is worse
+  than none.
 - **No build-time relative time** (`RIVER_SPEC.md` §0) — every day row ships `iso`, every page
   ships `todayIso`, and `Today`/`Tomorrow` are stamped client-side from the reader's clock by
   `riverlib.DAYLABEL_JS`. Never select a day by index (`week[0]`, `di===0`); select by `isToday`.

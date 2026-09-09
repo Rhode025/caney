@@ -43,6 +43,12 @@ T_BUFFALO = "TDEC — Buffalo State Scenic River"
 S_ADVISORY = ("https://www.tn.gov/environment/news/2026/8/21/"
               "tdec-issues-precautionary-fish-consumption-advisory.html")
 T_ADVISORY = "TDEC — Precautionary Fish Consumption Advisories"
+S_PRIEST = ("https://www.tn.gov/twra/fishing/where-to-fish/middle-tennessee-r2/"
+            "percy-priest-reservoir.html")
+T_PRIEST = "TWRA — J. Percy Priest Reservoir, Where to Fish"
+S_CENTERHILL = ("https://www.tn.gov/twra/fishing/where-to-fish/cumberland-plateau-r3/"
+                "center-hill-reservoir.html")
+T_CENTERHILL = "TWRA — Center Hill Reservoir, Where to Fish"
 
 ALL_MONTHS = list(range(1, 13))
 
@@ -149,6 +155,71 @@ def seed_claims():
                        "flats in 2–8 feet of water, with success year round; “a good "
                        "forage base of gizzard and threadfin shad has helped sustain this "
                        "LMB fishery through the years.” Spawn at 68–72 F."),
+           source_url=S_CORDELL, source_title=T_CORDELL),
+
+        # ── §35 · stillwater largemouth, and §34 · stripers beyond Carthage ─
+        _c(species="largemouth", claim_type="habitat",
+           location_ids=["oldhickory_creek_arms", "oldhickory_embayments"],
+           geographic_description=("Bledsoe, Spencer, Station Camp, Drakes Creek and "
+                                   "Shutes Branch embayments, Old Hickory Reservoir"),
+           valid_months=ALL_MONTHS, season="all",
+           claim_text=("TWRA: Old Hickory is a 22,500-acre Cumberland impoundment; Bledsoe, "
+                       "Spencer and Station Camp Creek embayments sit in the middle section "
+                       "near Gallatin, Drakes Creek and Shutes Branch downstream. As the "
+                       "level drops, the matted tops of the grass patches reappear in the "
+                       "3-5 ft zone around the bank and in the pockets — target hard "
+                       "structure mixed into the grass, or the hard grass lines. TWRA "
+                       "maintains forty fish-attractor sites on the reservoir. Largemouth "
+                       "carry a 14-inch minimum here."),
+           source_url=S_OLD_HICKORY, source_title=T_OLD_HICKORY),
+
+        _c(species="striped_bass", claim_type="seasonal_distribution",
+           location_ids=["oldhickory_embayments"],
+           geographic_description="lower Old Hickory Reservoir embayments",
+           valid_months=[12, 1, 2, 3], season="winter",
+           claim_text=("TWRA: striped bass concentrate in the lower-reservoir embayments "
+                       "starting in December and through the winter months."),
+           source_url=S_OLD_HICKORY, source_title=T_OLD_HICKORY),
+
+        _c(species="largemouth", claim_type="habitat",
+           location_ids=["priest_creek_arms"],
+           geographic_description=("Spring, Fall, Stewart and Suggs Creek embayments, "
+                                   "J. Percy Priest Reservoir"),
+           valid_months=ALL_MONTHS, season="all",
+           claim_text=("TWRA: the productive largemouth areas on J. Percy Priest are the "
+                       "Spring and Fall Creek embayments in the upper reservoir, Stewart "
+                       "Creek near mid-lake and Suggs Creek in the lower reservoir. April "
+                       "is a peak month, with fish shallow to spawn and catchable lake-wide "
+                       "on gently sloping banks. Largemouth use the roughly 132 TWRA fish "
+                       "attractors year round, hardest from late November through April in "
+                       "6-15 ft."),
+           source_url=S_PRIEST, source_title=T_PRIEST),
+
+        _c(species="smallmouth", claim_type="habitat",
+           location_ids=["centerhill_shoreline"],
+           geographic_description="Center Hill Reservoir main lake",
+           valid_months=ALL_MONTHS, season="all",
+           claim_text=("TWRA: Center Hill hosts great smallmouth habitat — miles of rocky "
+                       "shoreline, points and bluff areas — and largemouth fishing "
+                       "opportunities exist year round."),
+           source_url=S_CENTERHILL, source_title=T_CENTERHILL),
+
+        _c(species="largemouth", claim_type="habitat",
+           location_ids=["centerhill_shoreline"],
+           geographic_description="Center Hill Reservoir main lake",
+           valid_months=ALL_MONTHS, season="all",
+           claim_text=("TWRA: fishing opportunities for largemouth bass exist year round at "
+                       "Center Hill Reservoir."),
+           source_url=S_CENTERHILL, source_title=T_CENTERHILL),
+
+        _c(species="striped_bass", claim_type="seasonal_distribution",
+           location_ids=["cordell_granville_reach"],
+           geographic_description=("major creeks from Granville to Gainesboro, Cordell Hull "
+                                   "Reservoir; and around Celina in summer"),
+           valid_months=[3, 4, 5, 6], season="spring",
+           claim_text=("TWRA: striped bass use the major creeks from Granville to Gainesboro "
+                       "during spring, and concentrate around Celina because of the cooler "
+                       "water temperatures."),
            source_url=S_CORDELL, source_title=T_CORDELL),
 
         # ── Caney Fork trout ────────────────────────────────────────────────

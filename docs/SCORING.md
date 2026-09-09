@@ -1,4 +1,10 @@
-# Species scoring, ranking and confidence
+# Scoring, ranking and confidence
+
+> **2.1.** The species weight table below still produces the hourly component scores. What
+> changed is what is done with them: a window's score is no longer the mean across the
+> user's whole availability. See [PLANNER.md](PLANNER.md) for the window utility function,
+> the itinerary objective and the transition model. This document covers the components
+> that feed them.
 
 ## 1. Weights are config, not logic
 
@@ -173,3 +179,62 @@ The evidence for a recalibration is `docs/` plus the trip log: the model scorebo
 (§44, `web/planner/trip.js::scoreboard`) reports the water-arrival residual, score-vs-rating
 correlation, species hit rate and confidence calibration, each with its sample size and
 each refusing to print a figure until there is enough data.
+
+
+---
+
+## 11. What 2.1 changed
+
+The weight table is unchanged. Three things around it are new.
+
+### The hourly total is now a first-class artefact
+
+`engine.hourly_scores()` produces the total weighted score at each hour of the horizon —
+static components plus the dynamic ones — and emits it as `data.hourly[zone|species]`. The
+window optimiser in both engines runs on exactly that array, so there is one canonical
+number per hour rather than two derivations of it.
+
+### Location confidence is a separate multiplier
+
+Window utility multiplies by `L = 0.75 + 0.25 × location_confidence`, so a candidate now
+loses real ground for geography nobody has verified — see [GEOGRAPHY.md](GEOGRAPHY.md). It
+is deliberately NOT folded into forecast confidence: they answer different questions and
+are displayed separately (§31, §65).
+
+### Research contributes, capped
+
+`fit_research` is unchanged in shape, but the cap is now explicit and tested: the whole
+research swing is worth less than one live-water component. `test_research_changes_ranking`
+asserts it directly —
+
+```
+research weight (15)  <  current + thermal (45) × 0.5
+whole research swing  <  the current component alone
+```
+
+A recent Tier A/B source raises a candidate. A stale community post barely moves it. Neither
+can overturn dead water. See [RESEARCH.md](RESEARCH.md) for tiers and decay.
+
+## 12. Species coverage after 2.1
+
+| species | zones | of which stillwater |
+|---|---|---|
+| striped bass | 8 | 2 |
+| smallmouth | 17 | 3 |
+| largemouth | 13 | 5 |
+| trout | 4 | 0 |
+
+**Striped bass** are no longer modelled only at Carthage (§34). The zone set now covers
+every month across four systems: the Cordell Hull tailwater and the Carthage confluence
+year round, the lower Caney as a summer thermal refuge, Old Hickory below the dam
+Nov–Mar and its lower embayments in winter, the Cordell Hull creeks from Granville to
+Gainesboro in spring, Cheatham, and the Wolf Creek tailwater in summer.
+
+**Largemouth** got cover water (§35). The 2.0 zone set was river-shaped, so largemouth were
+made to compete inside current-oriented reaches, which is not where they live. Old Hickory
+creek arms, the lower Old Hickory embayments, Percy Priest creek arms, Center Hill shoreline
+and the Cordell Hull reservoir arms are all TWRA-described, all `ZoneKind.STILLWATER`, and
+all carry cover habitat rather than seams.
+
+**Trout** is still four zones and is still the narrowest species. That is honest: this is
+Middle Tennessee, and the cold water is where the cold water is.

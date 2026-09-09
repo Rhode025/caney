@@ -1,5 +1,11 @@
 # The research layer
 
+> **2.1.** The seeded corpus below is still the offline floor. What is new is the
+> **Research Intelligence worker** (`research-worker/`) — a Cloudflare Worker that holds
+> the key, does the searching, normalises findings into claims, decays them by type,
+> dedupes them and keeps an audit trail. Sections 1–8 describe the model; section 9
+> describes the service.
+
 Deterministic water and weather tell you *whether* it is fishable. They do not tell you
 that TWRA manages the Cordell Hull tailwater as the striped-bass concentration for the
 Cumberland system. That is what this layer is for.
@@ -135,3 +141,113 @@ contributes 15 points for stripers, 10 for smallmouth, 7 for trout, and 0 for la
 (whose column spends that weight on `forage / recent reports` instead). The breakdown line
 names the count, the tiers and the best source — which is what appears under
 **Recent research evidence** in the score breakdown, and links out from the evidence drawer.
+
+
+---
+
+## 9. The Research Intelligence worker (§16, §17, §44)
+
+`research-worker/`. A Cloudflare Worker, deployed independently of the static site.
+
+### Why a service rather than a library call
+
+1. **The key never reaches a browser.** `OPENAI_API_KEY` is a Worker secret.
+2. **Research refreshes independently of the build.** The hourly site build is not a
+   research schedule; the worker owns its own cache and TTLs.
+3. **Cost and abuse control live in one place** — rate limits, per-zone-per-day caps, a
+   global daily cap, query-scope validation and the audit trail.
+
+### Endpoints
+
+```
+GET  /health                 status, claim count, cache hit rate, spend today
+POST /research               {species, zone_ids[], date, context{}} -> {claims[], disagreements[], meta}
+POST /refresh                force a refresh (rate-limited harder)
+GET  /claims?species=&zone=  read stored claims without triggering a search
+```
+
+**It never fetches a URL a caller supplies.** The only outbound request is to the model
+provider, with a query the worker built from a validated species key (one of four) and
+validated zone ids (`^[a-z0-9_]{3,48}$`, at most six).
+
+### Storage: D1, with KV in front (§76)
+
+**D1** holds claims and the audit trail. Every question we ask of this data is a query —
+"every striped-bass claim for these zones, valid this month, above this tier, not stale" is
+a `WHERE` clause, and in KV it would be a hand-maintained index that goes wrong the first
+time a write fails halfway. Dedupe is a natural unique index; the audit trail is
+append-only rows.
+
+**KV** holds only the hot response cache, keyed by query hash, because KV's native TTL and
+edge reads are exactly right for "same question, same day, don't pay again" and nothing
+about that needs querying.
+
+Trip outcomes, when they move off-device, belong in D1 for the same reason: the scoreboard
+asks `species × zone × season × conditions → outcome`.
+
+### Decay by claim type (§24)
+
+`research-worker/src/claims.js::DECAY`. `ttlSeconds` is when we go looking again;
+`halfLifeDays` is how fast influence decays meanwhile; `floor` is what it is always worth.
+
+| claim type | TTL | half-life | floor |
+|---|---|---|---|
+| `recent_report` | 12 h | 5 d | 0.05 |
+| `stocking` | 14 d | 500 d | 0.35 |
+| `regulation` | **7 d** | — | **0.95** |
+| `current_response`, `thermal_refuge`, `seasonal_distribution`, `migration` | 28 d | ~1200 d | 0.65 |
+| `forage` | 45 d | 1100 d | 0.55 |
+| `habitat`, `species_presence` | 90 d | 2200 d | 0.70 |
+| `survey` | 180 d | 1800 d | 0.45 |
+
+Regulations are the interesting case: they do **not** decay in influence — a regulation is
+either current or it is wrong — but they must be rechecked, so the TTL is short and the
+floor is high.
+
+§62 falls out of this: a five-year-old field report is worth `0.05`; a current one `>0.85`.
+
+### Refresh policy (§42)
+
+The worker searches only when: no claims are held, the held claims are stale for their
+type, the date or season has materially changed, a new candidate zone enters the ranking,
+or the user explicitly refreshes. Otherwise it answers from the store, and the response
+says `source: "store"`.
+
+### Cost controls (§43)
+
+Tracked per UTC day in `budget`: queries, tokens in/out, cache hits. Capped by
+`MAX_QUERIES_PER_DAY` (default 400) and `MAX_QUERIES_PER_ZONE_DAY` (default 12). Over cap,
+the worker returns what it holds with `degraded: true` — it does not fail.
+
+### Audit trail (§77)
+
+Every search cycle records the query, the provider and model, latency, the source URLs
+returned, how many claims were accepted, how many rejected **and why**, and tokens spent.
+It does **not** retain copies of the pages — normalised claims and source metadata only.
+
+### Disagreement (§27)
+
+`disagreements()` reports when sources of different authority make claims of the same type
+about the same water. It never silently picks one. The plan surfaces it:
+
+> *Research confidence reduced: sources of different authority disagree about forage on
+> this water. The agency source is weighted higher.*
+
+### Failure behaviour (§43, §58, §63)
+
+Every endpoint answers **200** with `{claims: [], meta: {degraded: true, error}}` rather
+than an error status, and `HttpResearchProvider` treats any failure as "no claims". Research
+going down must never take the planner with it —
+`test_research.test_research_offline` runs the whole pipeline with zero claims and asserts
+a valid plan comes out.
+
+### Configuring the planner to use it
+
+```bash
+export RESEARCH_ENABLED=1
+export CANEY_RESEARCH_ENDPOINT=https://caney-research.<subdomain>.workers.dev
+python3 planner.py
+```
+
+Order of preference in `build_provider()`: the worker, then a direct OpenAI call if only
+`OPENAI_API_KEY` is set, then `NullProvider` — and the planner is completely unaffected.

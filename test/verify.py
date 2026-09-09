@@ -413,10 +413,16 @@ else:
         _ev = _P["evidence"].get("carthage_confluence|striped_bass") or []
         check("carthage striper case carries sourced evidence", len(_ev) >= 3,
               "%d claims" % len(_ev))
-        for _cid in _ev:
+        # 2.1: an evidence row is {id, confidence} — the confidence is per zone, because
+        # a claim is worth more at the water it names than at the water it does not.
+        for _row in _ev:
+            _cid = _row["id"] if isinstance(_row, dict) else _row
             _cl = _P["claims"].get(_cid) or {}
             check("every research claim has a source URL", bool(_cl.get("source_url")),
                   _cid)
+            if isinstance(_row, dict):
+                check("evidence carries a per-zone confidence: " + _cid,
+                      isinstance(_row.get("confidence"), (int, float)), str(_row))
 
     # §3.3 / §20 — safety claims are minted from instruments and carry their bound.
     _bad_bound = [c["id"] for c in _P["safety"] if c["bound"] not in
@@ -445,6 +451,110 @@ else:
             check("arrival ships early/typical/late: " + _zid,
                   set(_a) == {"earliest_h", "typical_h", "latest_h"} and
                   _a["earliest_h"] <= _a["typical_h"] <= _a["latest_h"], str(_a))
+
+    # ── Caney 2.1 ──────────────────────────────────────────────────────
+    # §6, §7 — the window utility constants are published, not written twice.
+    _U = _P.get("utility") or {}
+    for _k in ("wPeak", "wCubic", "wFloor", "idealMinutes", "dBase", "dSpan",
+               "shortPenalty", "cBase", "cSpan", "lBase", "lSpan",
+               "transitionCostPerMin", "idleCostFactor", "breadthBonus",
+               "complexityPenalty", "sampleMinutes", "minDuration"):
+        check("utility constant published: " + _k, _k in _U, str(sorted(_U)))
+    check("the quality mixture sums to 1",
+          abs(_U.get("wPeak", 0) + _U.get("wCubic", 0) + _U.get("wFloor", 0) - 1) < 1e-9,
+          str([_U.get("wPeak"), _U.get("wCubic"), _U.get("wFloor")]))
+    check("the peak term dominates the mixture (§7)",
+          _U.get("wPeak", 0) > _U.get("wCubic", 0) and _U.get("wPeak", 0) > _U.get("wFloor", 0))
+    for _sp in ("striped_bass", "smallmouth", "largemouth", "trout"):
+        check("minimum practical duration published: " + _sp,
+              (_U.get("minDuration") or {}).get(_sp, 0) >= 60,
+              str(_U.get("minDuration")))
+    check("duration saturates rather than paying forever",
+          _U.get("dBase", 0) + _U.get("dSpan", 0) <= 1.0 + 1e-9)
+
+    # §4 — the hourly opportunity series both engines optimise over.
+    check("hourly opportunity series shipped", bool(_P.get("hourly")),
+          str(len(_P.get("hourly") or {})))
+    for _k, _h in (_P.get("hourly") or {}).items():
+        check("hourly series is anchored and dense: " + _k,
+              _h.get("t0") and _h.get("step") == 3600 and len(_h.get("values") or []) >= 48,
+              str(len(_h.get("values") or [])))
+        break
+
+    # §11, §12 — the transition graph, per craft, with provenance on every edge.
+    _T = _P.get("transitions") or {}
+    check("a transition graph exists for every craft",
+          set(_T) == {"any", "wade", "kayak", "drift", "power"}, str(sorted(_T)))
+    for _craft, _edges in _T.items():
+        for _k, _e in list(_edges.items())[:200]:
+            check("transition declares provenance: %s %s" % (_craft, _k),
+                  _e.get("provenance") in ("known", "estimated", "unknown"),
+                  str(_e.get("provenance")))
+            check("transition has a positive cost: %s %s" % (_craft, _k),
+                  isinstance(_e.get("minutes"), (int, float)) and _e["minutes"] > 0,
+                  str(_e.get("minutes")))
+    check("a wading angler gets far fewer moves than a power boat",
+          len(_T.get("wade", {})) < len(_T.get("power", {})),
+          "%d vs %d" % (len(_T.get("wade", {})), len(_T.get("power", {}))))
+
+    # §28-§33 — geographic confidence is first class, and honest.
+    for _zid, _z in _P["zones"].items():
+        _lc = _z.get("location_confidence") or {}
+        check("zone declares location confidence: " + _zid,
+              isinstance(_lc.get("score"), (int, float)) and 0 <= _lc["score"] <= 100,
+              str(_lc.get("score")))
+        check("it names its three parts: " + _zid, len(_lc.get("rows") or []) == 3)
+        check("it declares a tactical level: " + _zid,
+              _lc.get("tactical_level") in ("precise", "corridor", "hedged"),
+              str(_lc.get("tactical_level")))
+        check("zone declares its kind: " + _zid, bool(_z.get("kind")))
+        _geo = _z.get("geometry") or {}
+        if _geo:
+            check("geometry declares its evidence level: " + _zid,
+                  _geo.get("evidence") in _P["locationEvidence"]["order"],
+                  str(_geo.get("evidence")))
+        # §30 — weak geography must NOT produce precise tactical language. The check is
+        # on the INSTRUCTION half: the rationale may describe what the model expects, but
+        # the sentence the reader acts on must say it is unverified.
+        for _sp2, _parts in (_z.get("holds_parts") or {}).items():
+            if _lc.get("tactical_level") == "hedged":
+                check("hedged geography hedges its instruction: %s/%s" % (_zid, _sp2),
+                      "not been field verified" in _parts[0], _parts[0][:80])
+            if _lc.get("tactical_level") == "corridor":
+                check("corridor geography gives a stretch, not a spot: %s/%s" % (_zid, _sp2),
+                      "corridor" in _parts[0].lower(), _parts[0][:80])
+
+    # §35, §36 — largemouth has cover water, and not every zone is a river reach.
+    _kinds = {z.get("kind") for z in _P["zones"].values()}
+    check("more than one kind of water is modelled", len(_kinds) >= 5, str(sorted(_kinds)))
+    _lm_still = [z for z in _P["zones"].values()
+                 if "largemouth" in (z.get("species_profiles") or {}) and z.get("stillwater")]
+    check("largemouth has stillwater zones to compete in", len(_lm_still) >= 3,
+          str([z["id"] for z in _lm_still]))
+
+    # §34 — stripers are modelled in every month, across more than one system.
+    _sb = [z for z in _P["zones"].values()
+           if "striped_bass" in (z.get("species_profiles") or {})]
+    _months = set()
+    for _z in _sb:
+        _months |= set(_z["species_profiles"]["striped_bass"]["months"])
+    check("striper zones cover every month", _months == set(range(1, 13)),
+          str(sorted(set(range(1, 13)) - _months)))
+    check("striper zones span several systems",
+          len({z["river"] for z in _sb}) >= 4, str({z["river"] for z in _sb}))
+
+    # §53 — every plan is stamped with the models that produced it.
+    for _k in ("planner", "species_model", "zone_model", "research"):
+        check("model version published: " + _k, bool((_P.get("versions") or {}).get(_k)),
+              str(_P.get("versions")))
+
+    # §55 — the parity fixture covers all four layers.
+    _pp = os.path.join(OUT, "plan", "parity.json")
+    if os.path.exists(_pp):
+        _PA = json.load(open(_pp))
+        for _layer in ("cases", "windows", "subwindows", "itineraries"):
+            check("parity fixture covers " + _layer, len(_PA.get(_layer) or []) > 0,
+                  str(len(_PA.get(_layer) or [])))
 
     check("dataset carries the published rank formula",
           abs(_P["rank"]["base"] + _P["rank"]["conf"] - 1.0) < 1e-9, str(_P["rank"]))
