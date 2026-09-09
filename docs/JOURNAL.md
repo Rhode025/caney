@@ -1099,3 +1099,75 @@ have paid $99 for that this morning — why or why not."
 `a290afe` is the initial commit — 7 generators, `riverlib`, HQ, and `RIVER_SPEC.md` already
 mature. History before that point was not under version control and is not recoverable; the
 design rationale that survived lives in `RIVER_SPEC.md` and in the calibration comments.
+
+---
+
+## 2026-09-09 — Caney 3.0: from report to live guide
+
+### State
+
+Three deployments, all live:
+
+- **Pages** https://caney.pages.dev — river pages, board, roadmap, the 2.1 planner at `/`,
+  and the 3.0 app at `/app/`
+- **caney-api** https://caney-api.steven-b9c.workers.dev — the canonical planner, a
+  Cloudflare Python Worker
+- **caney-research** https://caney-research.steven-b9c.workers.dev — the research service
+
+999 planner checks, 405 parity checks (the 2.1 planner, still built), research-worker
+suite, 96 app browser checks, axe zero violations. `docs/V3_ARCHITECTURE.md` is canonical;
+`DEPLOYMENT.md` has the machine-readable checklist.
+
+### What actually changed
+
+One planner. It lives in Python and the browser renders what it is told — no scoring, no
+window search, no beam search anywhere under `web-v3/src`. Travel moved inside the
+constraint solver, so "leave at 5, home by 11:30" produces a whole day rather than six and
+a half hours of fishing nobody could execute. Features answer "where in the zone". Method
+answers "what am I throwing". Sessions, deltas and snapshots make the plan a thing that
+runs rather than a document.
+
+### Decisions worth remembering
+
+- **§25 is enforced, not documented.** `FeatureGeometry` refuses a point below
+  `OFFICIAL_GIS`. All 66 feature coordinates derive from the zone registry; a test checks
+  none was typed in.
+- **Only two routing parameters are identifiable.** Written as road-factor × speed, the fit
+  returned a road factor of 0.86 — roads shorter than straight lines. The model carries the
+  one slope the data supports.
+- **Versions move where the model moved.** §67 said not to change the scoring formula and
+  it did not: `utility.py` and `WEIGHTS` are byte-for-byte 2.1. The SEARCH changed, so
+  `PLANNER_VERSION` moved; the corpus did not, so `RESEARCH_VERSION` stayed.
+- **`ClaimBook.from_json` does not call `add()`.** `add` re-derives which digits a safety
+  claim licenses, and that may never happen downstream of the source.
+
+### The Worker fight, because it will come up again
+
+Four things failed before the fifth worked, and the pattern is one idea:
+
+1. `zoneinfo` — no tz database in Pyodide. `caney/tz.py` falls back to the US rule,
+   verified against zoneinfo over five years, both directions, all four zones.
+2. `ThreadPoolExecutor` — no threads. Runtimes now declare whether concurrency helps.
+3. **74 subrequests against a limit of 50.** 28 sources failed silently and the winning
+   zone planned on unknown flow. Sharded by hydrology river; now 77 of 77, zero failures.
+4. **`waitUntil` does not buy a fresh budget.** It defers work within the SAME invocation.
+   A cold start doing one shard inline plus two in waitUntil put ~72 fetches on one
+   invocation and returned 1102.
+5. **The fix is a separate invocation.** The Worker's own cron never fires; a
+   self-addressed fetch never lands; an external POST to `/internal/rebuild` works.
+   `.github/workflows/refresh.yml` every ten minutes.
+
+Cloudflare returns 1101/1102 as plain text **with no CORS headers**, so from a browser they
+arrive as a CORS error. The first diagnosis was "CORS" and it was two layers from the
+cause. If an intermittent CORS failure appears against an endpoint that sometimes works,
+look at the worker, not the headers.
+
+### Open
+
+- `DEPLOYMENT.md` RES-02: D1 needs one permission from the account admin (token returns
+  401). KV covers everything except queries.
+- RES-03: no `OPENAI_API_KEY`, so research is off. The planner is deterministic without it.
+- API-05: cold isolates return 1101/1102 about one time in four; retries make it invisible.
+  A Paid plan would raise the CPU limit.
+- Every utility constant is still an uncalibrated prior. `analysis/road_factor.py` is the
+  only fitted thing in the release.
