@@ -1,6 +1,28 @@
 # Caney — agent orientation
 
-Personal river-fishing tool. **A fishing-day oracle** (`out/index.html`): you pick a
+Personal river-fishing tool. **A live guide.** You give it the fish you want and the
+constraints of your day — "stripers, leave at 5, home by 11:30, power boat" — and it
+returns an executable trip and then maintains it while the day happens.
+
+**Read `docs/V3_ARCHITECTURE.md` first.** It is the canonical architecture document.
+`docs/ARCHITECTURE.md` describes the static build only and points there.
+
+Three deployments:
+
+| What | Where |
+|---|---|
+| Static site + the 3.0 app | https://caney.pages.dev (app at `/app/`) |
+| Planner API | https://caney-api.steven-b9c.workers.dev |
+| Research service | https://caney-research.steven-b9c.workers.dev |
+
+`DEPLOYMENT.md` carries the deploy commands and a machine-readable checklist of what is
+not yet done and exactly what unblocks each item.
+
+---
+
+## The 2.x planner, still here
+
+The static species-first planner (`out/index.html`): you pick a
 species, a time window and a craft, and it runs your day — the best contiguous window
 inside your availability, the zone or zones to fish, when to move and why, what to tie on
 at each stretch, the conditions that would change the plan, and the evidence behind all of
@@ -32,7 +54,12 @@ that happens to `~/.claude`.
 
 | Path | What |
 |---|---|
-| `caney/` | the planner package — domain, species, zones, research, sources, planner, render |
+| `caney/` | THE planner — domain, hydrology, planner, routing, api, species, zones, sources |
+| `caney/api/` | the v3 contract, router and handler — runtime-independent |
+| `caney/hydrology/` | arrival, wading, striper — extracted from riverlib, now canonical |
+| `caney-api/` | the Cloudflare Python Worker. Plumbing only; `caney/` is copied in at deploy |
+| `web-v3/` | the Preact/TS frontend. Renders plans; decides nothing |
+| `tools/api_dev.py` | the same API, served locally: `python3 tools/api_dev.py` |
 | `research-worker/` | Cloudflare Worker: web search → sourced ResearchClaims, D1 + KV |
 | `planner.py` | builds the species-first homepage + `out/plan/*` (runs after `hq.py`) |
 | `web/` | the shared frontend — one stylesheet, ES modules, no build step |
@@ -52,7 +79,9 @@ that happens to `~/.claude`.
 ## Build & check
 
 ```bash
-./build.sh                   # every river + board + planner + bot corpus (~60s, stdlib only)
+./build.sh                   # every river + board + planner + app + bot corpus (~70s)
+python3 tools/api_dev.py     # the v3 API locally on :8787 (same handler as the Worker)
+cd web-v3 && npm run dev     # the 3.0 app against that API
 python3 planner.py           # JUST the planner and its dataset (~2s warm)
 python3 briefing.py          # or duck.py, elk.py, … — one river at a time
 ./test/run.sh                # build, then every check we have
@@ -138,6 +167,35 @@ never fire. Do not remove it.
   when you change the utility function, the weights, the zone registry or the corpus — the
   scoreboard groups by version, and a calibration figure spanning a model change is worse
   than none.
+- **One planner.** It lives in Python, in `caney/`. The browser formats, sorts and renders;
+  it may never answer "which plan wins". There is no scoring, window search or itinerary
+  logic under `web-v3/src`, and nothing may add any. The 2.1 parity tests existed to keep
+  two implementations agreeing — with one implementation, API contract tests replace them.
+- **The planner may not import `riverlib`.** The hydrology is canonical in
+  `caney/hydrology/` and `riverlib` imports it back (§28). This is what lets the planner
+  run inside a Cloudflare Python Worker, where a module that fetches at import cannot go.
+  `test_hydrology.py` asserts IDENTITY, not equality — two dicts that happen to match
+  today are how a constant ends up with two homes.
+- **Travel is a constraint, not a subtraction.** Each candidate gets its own fishable
+  envelope and the window search runs inside it (`caney/planner/logistics.py`). A zone the
+  day cannot reach is ELIMINATED with the arithmetic in the reason. Outbound uses the
+  nominal drive; the return leg is padded by its provenance, because being late home is
+  the failure that module exists to prevent.
+- **A described reach may not become a waypoint.** `FeatureGeometry` raises
+  `InventedWaypoint` for a point below `OFFICIAL_GIS`. Every coordinate in
+  `caney/zones/features.py` is derived from `caney/zones/registry.py`; a test checks that
+  none was typed in.
+- **Materiality is decided on the server.** `caney/domain/session.py::Threshold`, published
+  in every delta payload. A client may explain a verdict and may never reach a different
+  one. The safety asymmetry there is not negotiable: an exit time moving LATER is notable,
+  moving EARLIER by five minutes is material every time.
+- **Serialisation is lossless for `state`.** `Observation.from_json` defaults `state` to
+  UNKNOWN and never to KNOWN; `ClaimBook.from_json` does NOT go through `add()`, because
+  `add` re-derives which digits a safety claim licenses and that may never happen
+  downstream of the source.
+- **The origin is never stored.** `caney/api/storage.py::redact_origin` walks the whole
+  envelope — the origin appears in three places — and keeps an ~11 km cell. A door-to-door
+  refresh asks the client for it again rather than retaining it (§16).
 - **No build-time relative time** (`RIVER_SPEC.md` §0) — every day row ships `iso`, every page
   ships `todayIso`, and `Today`/`Tomorrow` are stamped client-side from the reader's clock by
   `riverlib.DAYLABEL_JS`. Never select a day by index (`week[0]`, `di===0`); select by `isToday`.
