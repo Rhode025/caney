@@ -1,0 +1,63 @@
+name: Workers
+
+# Caney 3.0 (§96-§98) deploys two Workers alongside the Pages site:
+#
+#   caney-research   the Research Intelligence service (§34, §97)
+#   caney-api        the canonical Python planner API (§4, §98)
+#
+# Both need CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID, which live as repository
+# secrets and are NOT available on a developer machine. That is why deployment is a
+# workflow rather than a script someone runs locally.
+#
+# `probe` exists because a token scoped only for Pages will fail every Worker step with
+# an authentication error that reads like a bug. Run it first; it prints exactly what
+# the token may do.
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "probe | bootstrap | deploy-research | deploy-api | deploy-all"
+        required: true
+        default: probe
+        type: choice
+        options: [probe, bootstrap, deploy-research, deploy-api, deploy-all]
+
+concurrency:
+  group: caney-workers
+  cancel-in-progress: false
+
+jobs:
+  workers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      ACTION: ${{ inputs.action }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+
+      - name: Token identity and scope
+        run: |
+          echo "::group::whoami"
+          npx --yes wrangler@3 whoami || echo "whoami failed (exit $?)"
+          echo "::endgroup::"
+
+      - name: Capability probe
+        if: ${{ inputs.action == 'probe' }}
+        run: |
+          set +e
+          api() { curl -s -o /tmp/r.json -w "%{http_code}" \
+                  -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+                  "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/$1"; }
+          for ep in "workers/scripts" "d1/database" "storage/kv/namespaces" "pages/projects"; do
+            code=$(api "$ep")
+            printf '%-26s HTTP %s  %s\n' "$ep" "$code" \
+              "$(python3 -c 'import json,sys;d=json.load(open("/tmp/r.json"));print("ok" if d.get("success") else (d.get("errors") or [{}])[0].get("message",""))' 2>/dev/null)"
+          done
+          echo
+          echo "A 200 on workers/scripts, d1/database and storage/kv/namespaces means the"
+          echo "token can deploy Caney 3.0 end to end. A 403 names the missing permission."
