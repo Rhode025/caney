@@ -110,6 +110,38 @@ class ClaimBook:
     def __init__(self):
         self._claims = {}
 
+    @staticmethod
+    def from_json(rows):
+        """Rebuild a book from serialised claims. §12.
+
+        Used by the API Worker, which reads a scheduled build's output rather than
+        minting claims per request. This does NOT go through `add()` and must not: `add`
+        is the minting path (§3.3), and re-minting would recompute ids and licensed digit
+        tokens from text — quietly re-deriving what a claim licenses, which is the one
+        thing about a SafetyClaim that may never be recomputed downstream of its source.
+        Rehydration restores; it does not re-decide.
+        """
+        book = ClaimBook()
+        for r in rows or []:
+            c = SafetyClaim(
+                id=r.get("id", ""), kind=r.get("kind", ""), zone_id=r.get("zone_id", ""),
+                text=r.get("text", ""), numbers=tuple(r.get("numbers") or ()),
+                value=r.get("value"), unit=r.get("unit", ""), at=r.get("at"),
+                bound=r.get("bound", "typical"), source=r.get("source", ""),
+                source_url=r.get("source_url", ""), state=r.get("state", "known"),
+                observed_at=r.get("observed_at"),
+                # When the claim was minted is audit data, not bookkeeping: it is how you
+                # tell a claim carried forward from a scheduled build apart from one
+                # minted now. Passed to the constructor because SafetyClaim is frozen —
+                # which is the point of it, and worth the slightly longer call.
+                **({"created_at": r["created_at"]}
+                   if r.get("created_at") is not None else {}))
+            book._claims[c.id] = c
+        return book
+
+    def to_json(self):
+        return [c.to_json() for c in self._claims.values()]
+
     def add(self, kind, zone_id, text, value=None, unit="", at=None, bound="typical",
             source="", source_url="", state="known", observed_at=None, numbers=None):
         """`numbers` overrides the licensed digit tokens.

@@ -102,8 +102,44 @@ class RiverSnapshot:
         """§28 — weather for the USER'S window, not for 'today'."""
         return [h for h in self.weather_hours if start <= h.get("epoch", 0) <= end]
 
+    @staticmethod
+    def from_json(d):
+        """Rebuild a snapshot from its own JSON. §12, §33.
+
+        The API Worker does not build snapshots on the request path — 22 zones of
+        hydrology is far more work than answering one question, and doing it per request
+        exceeded the platform's limits on the second call. A scheduled build writes them
+        to KV and requests rehydrate here.
+
+        The round trip must be LOSSLESS for the Observation states in particular:
+        `known`/`stale`/`unknown`/`error` are the whole basis of the freshness strip and
+        of the confidence penalty, and a rehydrate that flattened them to plain values
+        would restore the exact failure this codebase is built to prevent.
+        """
+        s = RiverSnapshot(
+            zone_id=d.get("zone_id", ""), river_id=d.get("river_id", ""),
+            taken_at=d.get("taken_at") or time.time())
+        for k in ("flow", "stage", "flow_trend", "stage_trend", "generation",
+                  "generation_on", "generation_forecast", "water_temp",
+                  "lake_elevation", "clarity", "recent_rain_in", "sunrise", "sunset"):
+            setattr(s, k, Observation.from_json(d.get(k) or {}))
+        s.weather_hours = d.get("weather_hours") or []
+        s.weather_daily = d.get("weather_daily") or {}
+        s.tz_name = d.get("tz_name") or "America/Chicago"
+        s.arrival = d.get("arrival") or {}
+        s.model_confidence = d.get("model_confidence", "unknown")
+        s.model_note = d.get("model_note", "")
+        s.lunar = d.get("lunar") or {}
+        s.access = d.get("access") or []
+        s.research = d.get("research") or []
+        s.biological_context = d.get("biological_context") or {}
+        s.safety_claim_ids = d.get("safety_claim_ids") or []
+        s.errors = d.get("errors") or []
+        return s
+
     def to_json(self):
         out = {"zone_id": self.zone_id, "river_id": self.river_id,
+               "tz_name": self.tz_name, "weather_daily": self.weather_daily,
                "taken_at": self.taken_at, "arrival": self.arrival,
                "model_confidence": self.model_confidence, "model_note": self.model_note,
                "lunar": self.lunar, "access": self.access, "research": self.research,

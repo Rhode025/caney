@@ -127,6 +127,25 @@ class Observation:
         d["age_label"] = self.age_label()
         return d
 
+    @staticmethod
+    def from_json(d):
+        """The inverse. Lossless for `state` above all else.
+
+        A rehydrate that dropped `state` and kept only `value` would turn every stale or
+        errored reading back into a confident one — silently, and in exactly the place the
+        freshness strip and the confidence penalty read from. `state` therefore has NO
+        default here beyond UNKNOWN: an object with no state was never an Observation, and
+        guessing KNOWN for it would be the `value or 0` bug wearing different clothes.
+        """
+        if not d:
+            return Observation.unknown()
+        return Observation(
+            value=d.get("value"), unit=d.get("unit", ""),
+            state=d.get("state") or DataState.UNKNOWN,
+            observed_at=d.get("observed_at"), fetched_at=d.get("fetched_at"),
+            source=d.get("source", ""), source_url=d.get("source_url", ""),
+            confidence=d.get("confidence", 0.0), note=d.get("note", ""))
+
 
 class UnknownValue(Exception):
     """Raised by Observation.require(). Caught by the planner and turned into a SKIP."""

@@ -3,6 +3,12 @@ main = "src/entry.py"
 compatibility_date = "2026-01-01"
 compatibility_flags = ["python_workers"]
 
+# §12 — five minutes is the cadence a generation schedule revises at. The build is a
+# system property now, not something a caller triggers: requests read the bundle this
+# writes and never fetch 74 sources themselves.
+[triggers]
+crons = ["*/5 * * * *"]
+
 [vars]
 # §77 — the browser calls this from the Pages origin. Not a wildcard.
 ALLOWED_ORIGINS = "https://caney.pages.dev,http://localhost:8788"
