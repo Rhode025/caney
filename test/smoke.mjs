@@ -3,15 +3,28 @@
  * on the host, not just in out/. Catches things a file:// run cannot — TLS, redirects,
  * blocked third-party assets, and a secure context for geolocation.
  *
+ * This covers the RIVER PAGES and the river board. The planner homepage has a different
+ * contract — no riverlib build stamp, an ES-module bootstrap, a dataset to be fresh — and
+ * is covered by planner-smoke.mjs, which runs immediately after this.
+ *
  * Run:  cd test && node smoke.mjs [base-url]
  * Default base: https://caney.pages.dev (production; the master.* alias is dead)
  */
 import { chromium } from 'playwright';
+import { readdirSync } from 'node:fs';
 
 const BASE = (process.argv[2] || 'https://caney.pages.dev').replace(/\/$/, '');
-const PAGES = ['index.html', 'caney.html', 'cumbnash.html', 'stones.html',
-               'duck.html', 'elktn.html', 'cumberland.html', 'elk.html',
-               'cheatham.html', 'cordell.html'];
+
+// DERIVED from the build, never hand-maintained. The hardcoded list this replaced had
+// gone stale in both directions: it still asked for duck.html, which has not existed
+// since the Duck was split into three reaches, and it did not know about the four rivers
+// added since. verify.py already learned this lesson; so has this.
+const STATUS = new URL('../out/status/', import.meta.url).pathname;
+const RIVER_PAGES = readdirSync(STATUS)
+  .filter((f) => f.endsWith('.json'))
+  .map((f) => f.replace(/\.json$/, '.html'))
+  .sort();
+const PAGES = [...RIVER_PAGES, 'rivers.html', 'roadmap.html'];
 
 let fails = 0;
 const ok = n => console.log('  \x1b[32m✓\x1b[0m ' + n);
@@ -20,6 +33,7 @@ const assert = (n, c, d) => c ? ok(n) : bad(n, d);
 
 const browser = await chromium.launch();
 console.log(`── post-deploy smoke: ${BASE} ──`);
+console.log(`   ${RIVER_PAGES.length} river pages + the board and the roadmap`);
 
 for (const p of PAGES) {
   const errs = [];
@@ -35,6 +49,8 @@ for (const p of PAGES) {
   assert(`${p}: secure context (geolocation will work)`,
     await pg.evaluate(() => window.isSecureContext).catch(() => false));
   assert(`${p}: build stamp rendered`, !!(await pg.$('#bstamp')));
+  assert(`${p}: switcher links back to the planner`,
+    !!(await pg.$('a[href="index.html"]')));
   const real = errs.filter(e => !/favicon/.test(e));
   assert(`${p}: no JS errors`, real.length === 0, real.join(' | '));
   await pg.close();
