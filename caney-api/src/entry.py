@@ -241,6 +241,18 @@ async def handle(request, env):
                                      if _CACHE.get("built_at") else None)
             obj["prefetch"] = _CACHE.get("stats") or {}
             obj["bundle_source"] = _CACHE.get("source") or "none"
+            # Health deliberately does not build, but it should not report "no bundle"
+            # while one is sitting in KV — that reads as an outage. Peek at the metadata
+            # without rehydrating 22 zones.
+            kv = getattr(env, "PLANS", None)
+            if kv is not None and obj["bundle_source"] == "none":
+                raw = await kv.get(BUNDLE_KEY)
+                if raw:
+                    b = json.loads(raw)
+                    obj["bundle_source"] = "kv"
+                    obj["zones"] = len(b.get("zones") or {})
+                    obj["snapshot_age_s"] = round(now - float(b.get("built_at") or now), 1)
+                    obj["prefetch"] = b.get("prefetch") or {}
             return _json(status, obj, cors)
 
         snaps, book, claims, stats = await _load(env, now)

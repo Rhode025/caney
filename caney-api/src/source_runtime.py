@@ -85,6 +85,8 @@ async def prefetch(build_fn, fetch, max_concurrency=12):
     if not reqs:
         return filled, stats
 
+    stats["by_host"] = {}
+    stats["errors"] = []
     sem = asyncio.Semaphore(max_concurrency)
 
     async def guarded(r):
@@ -93,15 +95,27 @@ async def prefetch(build_fn, fetch, max_concurrency=12):
 
     results = await asyncio.gather(*[guarded(r) for r in reqs],
                                    return_exceptions=True)
+    by_key = {r.key: r for r in reqs}
     for res in results:
         if isinstance(res, BaseException):
             stats["failed"] += 1
+            stats["errors"].append({"key": "?", "error": str(res)[:120]})
             continue
         key, data, err = res
+        host = _host(by_key[key].url) if key in by_key else "?"
+        row = stats["by_host"].setdefault(host, {"ok": 0, "failed": 0})
         if err:
             filled.put(key, error=err)
             stats["failed"] += 1
+            row["failed"] += 1
+            # §72 — a source failing is data. Keeping a bounded sample of WHICH and WHY
+            # is the difference between "28 of 74 failed" and something actionable; the
+            # first version of this reported only the count and told me nothing.
+            if len(stats["errors"]) < 12:
+                stats["errors"].append({"key": key[:60], "host": host,
+                                        "error": str(err)[:140]})
         else:
             filled.put(key, data=data)
             stats["ok"] += 1
+            row["ok"] += 1
     return filled, stats
