@@ -4,8 +4,15 @@ The planner test suite.
 
     python3 test/planner/run.py
 
-No network, no clock dependence, no third-party packages. Everything here runs against
-hand-built fixtures, so a failure means the code changed — never that the river did.
+No network, no clock dependence, no third-party packages, AND NO BUILD. Everything here
+runs against hand-built fixtures, so a failure means the code changed — never that the
+river did.
+
+The no-build part is a contract, not an accident: CI runs this suite FIRST, before the
+sixty-second build, so a broken scorer fails in seconds. A check that needs `out/` must
+call `harness.skip()` and name where the same invariant is enforced after the build —
+`test/verify.py` — rather than failing. Two checks did fail on a clean checkout the first
+time this ran in CI, which is how that rule got written down.
 """
 import os
 import sys

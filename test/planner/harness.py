@@ -42,6 +42,17 @@ def raises(name, exc, fn, *a, **kw):
     return check(name, False, "did not raise " + exc.__name__)
 
 
+def skip(name, why):
+    """A check that cannot run here, said out loud.
+
+    Used only where the SAME invariant is enforced somewhere that can run it. This suite
+    is contracted to need no network and no build (see run.py), so a check that needs
+    out/ must say it is deferring rather than fail — and must name where it is covered,
+    so a silent gap is impossible to create by accident.
+    """
+    print("  \033[33m~\033[0m %s — %s" % (name, why))
+
+
 def section(title):
     print("\n\033[1m── %s ──\033[0m" % title)
 

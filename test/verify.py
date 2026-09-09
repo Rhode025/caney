@@ -556,6 +556,28 @@ else:
             check("parity fixture covers " + _layer, len(_PA.get(_layer) or []) > 0,
                   str(len(_PA.get(_layer) or [])))
 
+    # §55 — the build report. These live here as well as in test_architecture because
+    # that suite runs BEFORE the build in CI and defers to this one.
+    _bp = os.path.join(OUT, "plan", "build.json")
+    if not os.path.exists(_bp):
+        check("out/plan/build.json exists", False, "planner.py must write its build report")
+    else:
+        _B = json.load(open(_bp))
+        for _k in ("built", "durationSeconds", "zones", "safetyClaims", "featuredPlans",
+                   "http", "research", "datasetBytes"):
+            check("build report records " + _k, _k in _B, str(sorted(_B)))
+        for _k in ("fetches", "failures", "hits_memo", "hits_disk", "seconds", "bytes"):
+            check("source fetch stats record " + _k, _k in _B["http"],
+                  str(sorted(_B["http"])))
+        for _k in ("provider", "enabled", "queries", "fetched", "cached", "latencySeconds"):
+            check("research stats record " + _k, _k in _B["research"],
+                  str(sorted(_B["research"])))
+        check("the build reports a duration it can be measured against",
+              isinstance(_B["durationSeconds"], (int, float)))
+        check("no source fetch failed catastrophically",
+              _B["http"]["fetches"] == 0 or
+              _B["http"]["failures"] / _B["http"]["fetches"] < 0.5, str(_B["http"]))
+
     check("dataset carries the published rank formula",
           abs(_P["rank"]["base"] + _P["rank"]["conf"] - 1.0) < 1e-9, str(_P["rank"]))
     check("planner reports research state", "provider" in _P.get("research", {}))

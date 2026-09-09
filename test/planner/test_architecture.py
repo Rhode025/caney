@@ -8,7 +8,7 @@ reappearing, a secret being committed.
 import os
 import re
 
-from harness import check, eq, section
+from harness import check, eq, section, skip
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -91,6 +91,9 @@ def test_no_inline_assets():
     check("the page renderer links the shared stylesheet",
           'href="assets/app.css"' in pages)
 
+    # This suite runs BEFORE the build in CI, on purpose: a broken scorer should fail in
+    # seconds rather than after a sixty-second build. So the built-output half defers to
+    # test/verify.py, which runs after it and asserts the same things.
     out = os.path.join(ROOT, "out", "index.html")
     if os.path.exists(out):
         html = _read("out", "index.html")
@@ -99,11 +102,13 @@ def test_no_inline_assets():
                                         html, re.S) if len(b.strip()) > 200]
         check("the built homepage has no inline script over 200 chars", not bodies,
               "%d found" % len(bodies))
-        for js in ("app.js", "model.js", "ui.js", "timeline.js", "format.js", "map.js"):
+        for js in ("app.js", "model.js", "utility.js", "opportunity.js", "itin.js",
+                   "segments.js", "ui.js", "timeline.js", "format.js", "map.js"):
             check("shared module is a separate file: " + js,
                   os.path.exists(os.path.join(ROOT, "out", "assets", "planner", js)))
     else:
-        check("out/index.html exists (run planner.py)", False)
+        skip("built-output asset checks",
+             "out/ has not been built; test/verify.py enforces them after the build")
 
 
 def test_browser_engine_holds_no_model():
@@ -190,7 +195,8 @@ def test_observability():
     section("§55 — the build records what it did")
     p = os.path.join(ROOT, "out", "plan", "build.json")
     if not os.path.exists(p):
-        return check("out/plan/build.json exists (run planner.py)", False)
+        return skip("build-report checks",
+                    "out/ has not been built; test/verify.py enforces them after the build")
     import json
     b = json.load(open(p))
     for k in ("built", "durationSeconds", "zones", "safetyClaims", "featuredPlans",
