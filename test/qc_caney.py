@@ -8,11 +8,12 @@ suggest. This half is instant and needs no browser.
 
     python3 test/qc_caney.py          # exits non-zero on any failure
 """
-import json, sys, datetime, urllib.request, urllib.parse, math
-sys.path.insert(0,'/Users/stevenrhodes/caney')
+import json, os, sys, datetime, urllib.request, urllib.parse, math
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)   # derived, never hardcoded — see qc_rivers.py
 from zoneinfo import ZoneInfo
 CT=ZoneInfo("America/Chicago")
-h=open('/Users/stevenrhodes/caney/out/caney.html').read()
+h=open(os.path.join(ROOT,'out','caney.html')).read()
 i=h.index('DATA='); j=h.index('{',i); d=0
 for k in range(j,len(h)):
     if h[k]=='{':d+=1
@@ -150,7 +151,7 @@ chk("planDefault indexes a real day", 0<=D['planDefault']<len(D['gen']))
 # The craft toggle's whole claim is that the SAME water is worth different amounts depending
 # on how you are on it. That cannot be tested against the live forecast -- some weeks have no
 # zero-generation day at all -- so probe the curves themselves across the full flow range.
-ROOT="/Users/stevenrhodes/caney"
+
 _lv=None
 try:
     # exec only the pure scoring helpers, not the whole generator (which hits the network)
@@ -358,7 +359,7 @@ chk("the upper wade reach is above the confluence",
 chk("Stonewall is correctly flagged as wadeable BUT below the confluence",
     any(_p.get('belowSmith') and 'wade' in (_p.get('types') or []) for _p in D['points']))
 chk("the page does not claim the whole wade reach stays clear",
-    'whole wade reach' not in open('/Users/stevenrhodes/caney/out/caney.html').read())
+    'whole wade reach' not in open(os.path.join(ROOT,'out','caney.html')).read())
 chk("every trout hole is above the confluence",
     all(o['mfd'] < _conf for o in (D.get('holes') or [])),
     str([o['mfd'] for o in (D.get('holes') or []) if o['mfd'] >= _conf]))
@@ -384,7 +385,7 @@ chk("muddiness stays in range",
     all(0.0 <= _mud(q, c) <= 1.0 for q in (10, 100, 1000, 6000) for c in (200, 1000, 8000)))
 
 # and the page has to SAY which side is which, or the number is useless
-_html = open('/Users/stevenrhodes/caney/out/caney.html').read()
+_html = open(os.path.join(ROOT,'out','caney.html')).read()
 chk("the page explains the confluence split", 'confluence' in _html.lower())
 chk("the page links the Smith Fork gauge", '03424730' in _html)
 

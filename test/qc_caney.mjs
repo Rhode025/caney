@@ -14,6 +14,9 @@
  */
 import { chromium } from 'playwright';
 
+// Derived from this file, never hardcoded. See test/qc_rivers.py for why.
+const CANEY = new URL('../out/caney.html', import.meta.url).href;
+
 let TOTAL_FAIL = 0;
 
 // ── LAYER B ──
@@ -23,7 +26,7 @@ const b = await chromium.launch();
 const p = await b.newPage({ viewport: { width: 430, height: 1200 } });
 const jsErrs = [];
 p.on('pageerror', e => jsErrs.push(String(e)));
-await p.goto('file:///Users/stevenrhodes/caney/out/caney.html', { waitUntil: 'domcontentloaded' });
+await p.goto(CANEY, { waitUntil: 'domcontentloaded' });
 await p.waitForTimeout(1500);
 
 const CRAFTS = ['wade', 'raft', 'power'];
@@ -155,7 +158,7 @@ TOTAL_FAIL += fails.length + jsErrs.length;
 const b = await chromium.launch();
 const p = await b.newPage({ viewport: { width: 430, height: 1400 } });
 const errs = []; p.on('pageerror', e => errs.push(String(e)));
-await p.goto('file:///Users/stevenrhodes/caney/out/caney.html', { waitUntil: 'domcontentloaded' });
+await p.goto(CANEY, { waitUntil: 'domcontentloaded' });
 await p.waitForTimeout(1800);
 await p.evaluate(() => document.querySelectorAll('.secbody').forEach(e => e.classList.add('open')));
 await p.waitForTimeout(600);
@@ -237,7 +240,7 @@ TOTAL_FAIL += fails.length + errs.length;
 {
 const b = await chromium.launch();
 const p = await b.newPage({ viewport: { width: 430, height: 1200 } });
-await p.goto('file:///Users/stevenrhodes/caney/out/caney.html', { waitUntil: 'domcontentloaded' });
+await p.goto(CANEY, { waitUntil: 'domcontentloaded' });
 await p.waitForTimeout(1600);
 const fails = [], warns = [], notes = [];
 

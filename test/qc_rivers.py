@@ -11,7 +11,11 @@ forecast — and the page has to be honest about which.
 """
 import json, math, os, re, sys
 
-ROOT = "/Users/stevenrhodes/caney"
+# Derived from this file, never hardcoded. This line used to be an absolute path to one
+# laptop, which worked for years because nothing but that laptop ever ran it — and then
+# failed the moment CI did. Every other path in this file hangs off ROOT for the same
+# reason.
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 import riverlib
 

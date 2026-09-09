@@ -1,5 +1,34 @@
+"""
+Create a GitHub issue for every roadmap ticket that does not have one, and write the new
+issue numbers back into roadmap.json.
+
+    python3 test/tools/make_issues.py --dry-run     list what WOULD be created
+    python3 test/tools/make_issues.py --create      actually create them
+
+THIS SCRIPT WRITES TO A LIVE REPOSITORY. It used to do that on a bare `python3
+make_issues.py` with no confirmation and no argument parsing at all, which meant that
+running it with `--help` — expecting usage text — silently created fifty-two issues and
+rewrote roadmap.json. It now refuses to do anything without an explicit `--create`, prints
+a dry run by default, and shows what it is about to do before it does it.
+"""
 import json, html, re, subprocess, sys, time
-R = json.load(open("/Users/stevenrhodes/caney/roadmap.json"))
+import os
+
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+ROADMAP = os.path.join(ROOT, "roadmap.json")
+
+ARGS = set(sys.argv[1:])
+CREATE = "--create" in ARGS
+if ARGS - {"--dry-run", "--create", "--labels"}:
+    print(__doc__)
+    raise SystemExit(0 if ({"--help", "-h"} & ARGS) else 2)
+
+_r = subprocess.run(["git", "-C", ROOT, "remote", "get-url", "origin"],
+                    capture_output=True, text=True)
+REPO_HINT = (_r.stdout.strip() or "the configured origin") if _r.returncode == 0 \
+    else "the configured origin"
+
+R = json.load(open(ROADMAP))
 
 def md(s):
     s = re.sub(r"<code>(.*?)</code>", r"`\1`", s)
@@ -25,8 +54,24 @@ if "--labels" in sys.argv:
     sh(["gh","label","create","roadmap","--color","0a5ec2","--force","--description","From the 2026-08-23 QC & UX audit"])
     print("labels ready"); sys.exit()
 
+# ONLY tickets that do not already have an issue. The original loop walked every ticket,
+# so any second run duplicated all forty-three that already had one. Combined with there
+# being no confirmation gate, one accidental invocation created a hundred-odd duplicates.
+todo = [t for t in R["tickets"] if not t.get("issue")]
+print("%d of %d tickets already have an issue; %d would be created."
+      % (len(R["tickets"]) - len(todo), len(R["tickets"]), len(todo)))
+for t in todo:
+    print("  S%-3s %-12s %s" % (t["sprint"], t["key"], t["title"][:58]))
+if not CREATE:
+    print("\nDRY RUN — nothing was created, roadmap.json was not written.\n"
+          "Re-run with --create to do it for real.")
+    sys.exit(0)
+if not todo:
+    print("Nothing to create."); sys.exit(0)
+print("\nCreating %d issues in %s…" % (len(todo), REPO_HINT))
+
 created = []
-for t in R["tickets"]:
+for t in todo:
     title = f'S{t["sprint"]} · {t["key"]} — {t["title"]}'
     body = (
         f'**Sprint {t["sprint"]} · {t["epic"]} · {t["priority"]} · effort {t["effort"]}**\n\n'
@@ -49,5 +94,9 @@ for t in R["tickets"]:
     c = by.get(t["key"])
     if c: t["issue"] = c["issue"]; t["issue_url"] = c["url"]
 R["repo"] = "Rhode025/caney"
-json.dump(R, open("/Users/stevenrhodes/caney/roadmap.json","w"), indent=1)
+if CREATE:
+    json.dump(R, open(ROADMAP, "w"), indent=1)
+else:
+    print("\nDRY RUN — nothing was created and roadmap.json was not written.\n"
+          "Re-run with --create to do it for real.")
 print(f'\ncreated {sum(1 for c in created if c["issue"])}/{len(created)} issues; roadmap.json updated with issue numbers')
