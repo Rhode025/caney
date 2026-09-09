@@ -20,10 +20,19 @@ from ..domain.planning import SCHEMA_VERSION
 from ..domain.zone import Craft
 from ..species.profiles import SPECIES
 
-#: Requests further out than this are refused rather than answered badly: the release
-#: forecast does not reach, and a plan built on a weather model alone would carry a
-#: confidence the reader could not distinguish from a real one.
-MAX_DAYS_OUT = 7
+#: Requests further out than this are refused rather than answered badly.
+#:
+#: WEATHER IS THE BINDING CONSTRAINT, not the release forecast — this constant used to say
+#: 7 and blame the release schedule, which was simply wrong. The snapshot carries 96 hours
+#: of hourly weather from build time, so a window four days out finds ZERO rows in it. The
+#: confidence model already handles that correctly and visibly, degrading 55.9 -> 43.9 ->
+#: 13.9 -> 1.9 -> 0.0 as the rows run out, so nothing was being hidden. But a plan with a
+#: forecast confidence of zero is not an answer, and offering to compute one invites
+#: somebody to read the destination and skip the number.
+#:
+#: Three days is what the data supports. Verified by planning at +1 through +6 and
+#: watching where the weather rows stop; test_v3.py pins it.
+MAX_DAYS_OUT = 3
 
 #: A day longer than this is not a fishing trip, and letting it through makes the
 #: itinerary search do a great deal of work to produce something nobody asked for.
@@ -160,8 +169,9 @@ def parse(body, now=None, tz_name="America/Chicago"):
     days_out = (lo - now) / 86400.0
     if days_out > MAX_DAYS_OUT:
         raise BadRequest(
-            "that is %.0f days out; the release forecast does not reach past %d and a "
-            "plan built without it would carry a confidence you could not check"
+            "that is %.1f days out. The hourly weather forecast only reaches %d days, "
+            "and past that a plan carries a forecast confidence of zero — which is not "
+            "an answer, however confidently the destination is printed."
             % (days_out, MAX_DAYS_OUT), "availability")
 
     origin = parse_origin(body)

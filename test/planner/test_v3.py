@@ -347,6 +347,40 @@ def test_api_contract():
             check("%s is rejected, naming %s" % (name, field), e.field == field,
                   "field was %r" % e.field)
 
+    section("the horizon matches the data, not a hopeful constant")
+    from caney.api.contract import MAX_DAYS_OUT
+    import datetime as _dt
+    day = _dt.datetime.fromtimestamp(now, _tz()).date()
+
+    def _at(d, h):
+        x = day + _dt.timedelta(days=d)
+        return _dt.datetime(x.year, x.month, x.day, h, tzinfo=_tz()).timestamp()
+
+    check("the horizon is 3 days", MAX_DAYS_OUT == 3, str(MAX_DAYS_OUT))
+    ok_body = {**good, "availability": {"depart_after": _at(MAX_DAYS_OUT, 6),
+                                        "return_by": _at(MAX_DAYS_OUT, 11)}}
+    try:
+        parse(ok_body, now=now)
+        check("a request at the horizon is accepted", True)
+    except BadRequest as e:
+        check("a request at the horizon is accepted", False, e.message)
+    try:
+        parse({**good, "availability": {"depart_after": _at(MAX_DAYS_OUT + 2, 6),
+                                        "return_by": _at(MAX_DAYS_OUT + 2, 11)}}, now=now)
+        check("a request past the horizon is refused", False, "it parsed")
+    except BadRequest as e:
+        check("a request past the horizon is refused", True)
+        check("and blames the weather, which is what actually runs out",
+              "weather" in e.message.lower(), e.message[:90])
+
+    # The reason the bound exists: past it there are no weather rows to score.
+    snap = _snaps[list(_snaps)[0]] if False else _ctx()[0].get("caney_upper")
+    if snap is not None:
+        inside = snap.weather_window(_at(MAX_DAYS_OUT, 6), _at(MAX_DAYS_OUT, 11))
+        beyond = snap.weather_window(_at(MAX_DAYS_OUT + 2, 6), _at(MAX_DAYS_OUT + 2, 11))
+        check("weather reaches the horizon", len(inside) > 0, str(len(inside)))
+        check("and does not reach past it", len(beyond) == 0, str(len(beyond)))
+
     section("§7 — the envelope carries what §7 lists")
     from caney.api.handler import Context, plan as api_plan
     from caney.api.storage import MemoryStore
