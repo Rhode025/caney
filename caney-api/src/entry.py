@@ -141,7 +141,7 @@ async def _flush(store):
     store.clear_pending()
 
 
-async def on_fetch(request, env):
+async def handle(request, env):
     t0 = time.time()
     url = str(request.url)
     path = "/" + url.split("://", 1)[-1].split("/", 1)[-1].split("?")[0] \
@@ -205,3 +205,30 @@ def _research_status(env):
     if getattr(env, "RESEARCH", None) is None:
         return ResearchStatus.DISABLED
     return ResearchStatus.CACHED
+
+
+# ── entry points ────────────────────────────────────────────────────────────
+# Python Workers have had two handler shapes, and which one the platform looks for
+# depends on the runtime behind your compatibility date. The module-level `on_fetch`
+# came first; `WorkerEntrypoint.fetch` is current, and a deploy that registers neither
+# is rejected with "The uploaded script has no registered event handlers" — which is
+# what happened here on the first attempt, AFTER a clean 65-module bundle, so it reads
+# like a code fault rather than a version mismatch.
+#
+# Both are exported. The class form is guarded because `workers` does not exist on older
+# runtimes and an unguarded import would turn a version mismatch into an import crash,
+# which is a strictly worse failure: it happens later and says less.
+
+
+async def on_fetch(request, env):
+    return await handle(request, env)
+
+
+try:
+    from workers import WorkerEntrypoint
+
+    class Default(WorkerEntrypoint):
+        async def fetch(self, request):
+            return await handle(request, self.env)
+except ImportError:                                 # older runtime — on_fetch carries it
+    pass
