@@ -62,11 +62,50 @@ export function cacheSession(s: Session | null) {
   if (s) store(SESSION_KEY, s);
 }
 
-async function call<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(API_BASE + path, {
+/**
+ * Cloudflare returns 1101/1102 — worker threw, resource limits — as a plain-text body with
+ * no CORS headers, so from the browser they arrive as a network failure rather than an
+ * HTTP error. Python Workers are beta, and a COLD ISOLATE cannot always import a
+ * 65-module package and parse the state bundle inside the CPU budget: measured, warm
+ * requests take ~1s and always succeed, cold ones 2.6-4s and fail about a quarter of the
+ * time.
+ *
+ * A retry is the correct response rather than a paper-over, because the failure is
+ * genuinely transient and the second attempt lands on the isolate the first one warmed.
+ * Two retries with a short backoff, and only for 5xx and network errors — a 400 is a
+ * mistake in the request and retrying it would just be slower.
+ */
+const RETRIES = 2;
+const BACKOFF_MS = 700;
+
+async function once(path: string, init?: RequestInit): Promise<Response> {
+  return fetch(API_BASE + path, {
     ...init,
     headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
   });
+}
+
+async function call<T>(path: string, init?: RequestInit): Promise<T> {
+  let res: Response | null = null;
+  let netErr: unknown = null;
+  for (let attempt = 0; attempt <= RETRIES; attempt++) {
+    netErr = null;
+    try {
+      res = await once(path, init);
+    } catch (e) {
+      netErr = e;
+      res = null;
+    }
+    const retryable = netErr !== null || (res !== null && res.status >= 500);
+    if (!retryable || attempt === RETRIES) break;
+    await new Promise((r) => setTimeout(r, BACKOFF_MS * (attempt + 1)));
+  }
+  if (res === null) {
+    throw new CaneyApiError({
+      message: "could not reach the planner",
+      field: "", code: "network", status: 0,
+    });
+  }
   const text = await res.text();
   let body: unknown = null;
   try {
