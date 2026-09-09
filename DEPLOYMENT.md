@@ -71,6 +71,8 @@ deployed:
     bindings: { PLANS: kv/d8101bfcb97f423d83e9ada04c66061e }
     verified:
       - POST /api/v3/plan returns a PlanEnvelope for all four species
+      - all 77 upstream sources fetch with zero failures across three shards
+      - warm latency 0.92s median, 1.39s p95
       - GET  /health reports tz_backend=builtin-us-rule (Pyodide has no tz database)
       - plans, snapshots and sessions persist to KV
       - stored plans contain no origin coordinates, only an ~11 km cell
@@ -110,27 +112,44 @@ blocked:
       - gh workflow run workers.yml -f action=deploy-api
 
   - id: API-03
-    what: the cron is registered and does not fire
-    detail: wrangler reports `schedule: */5 * * * *` on every deploy. Bundle age was
-      sampled at 865s, 966s, 1067s — linear, no refresh, and no error in any deploy
-      log. Python Workers are beta and the scheduled handler has had two shapes.
-    mitigation: SHIPPED. Freshness no longer depends on the cron — a request finding a
-      bundle older than five minutes rebuilds it, in the background where the platform
-      supplies a ctx and inline where it does not. build_bundle writes
-      build:last_start and build:last_ok markers to KV, and /health reports both with
-      their ages plus ctx_available, so the next diagnosis is one request rather than
-      an afternoon.
-    unblock: read /health's last_build_* markers to distinguish "never invoked" from
-      "invoked and threw", then fix accordingly.
+    what: the Worker's own cron is registered and does not fire
+    status: RESOLVED by routing around it
+    detail: wrangler prints `schedule: */5 * * * *` on every deploy. Bundle age was
+      sampled growing linearly at 865s, 966s, 1067s with no error in any log, and it
+      stayed dead after the build was made cheap enough to fit one invocation. Two
+      in-Worker alternatives also failed: waitUntil defers work within the SAME
+      invocation and so shares its budget, and a self-addressed fetch is issued on every
+      stale request and never lands.
+    resolution: .github/workflows/refresh.yml calls /internal/rebuild every ten minutes,
+      all three shards. An external call is a separate invocation with its own CPU and
+      its own 50 subrequests, which is the property that matters and the one none of the
+      in-Worker approaches had. Verified green in CI.
+    residual: GitHub delays scheduled workflows under load. Each run rebuilds ALL shards,
+      so a skipped run costs staleness rather than leaving a third of the water behind,
+      and the freshness strip reports every signal's real age.
 
   - id: API-04
-    what: 28 of 74 upstream sources fail from inside the Worker
-    detail: the same URLs succeed from the build box. Per-host tallies and a bounded
-      error sample are now recorded in the bundle and surfaced at /health.
-    impact: real but not silent — affected zones report unknown/stale in the freshness
-      strip and the confidence penalty applies. Plans are still produced.
-    unblock: read /health prefetch.by_host and prefetch.errors after a build that
-      post-dates the diagnostics deploy.
+    what: 28 of 74 upstream sources failed from inside the Worker
+    status: RESOLVED
+    detail: Cloudflare allows 50 subrequests per invocation and a full build asked for 74.
+      Because 1101/1102 are returned as plain text with no CORS headers, the browser
+      reported this as a CORS failure — a symptom two layers from the cause.
+    resolution: the build is sharded by hydrology river, one shard per invocation, and
+      KV operations were accounted for in the same budget. Now 30 ok / 0 failed,
+      23 ok / 0 failed, 24 ok / 0 failed — 77 of 77 sources, zero failures.
+
+  - id: API-05
+    what: cold Python isolates intermittently return 1101/1102
+    status: MITIGATED, not eliminated
+    detail: a cold isolate cannot always import the 65-module package and rehydrate the
+      state bundle inside its CPU budget. Measured: warm requests ~0.9s median, 1.4s p95,
+      and reliable; cold ones 2.6-4s and failing roughly one in four.
+    mitigation: the app retries 5xx and network errors twice with backoff, and the refresh
+      script retries too. The retry lands on the isolate the first attempt warmed, so it
+      is a fix for a transient rather than a paper-over. Browser QA passes 94 of 95 checks
+      across all four §94 flows with the retry in place.
+    unblock: a Workers Paid plan raises the CPU limit substantially; alternatively, trim
+      the import surface further (features are already lazy) or split the package.
 
   - id: CUSTOM_DOMAIN
     what: api.caney… rather than *.workers.dev (§96)
