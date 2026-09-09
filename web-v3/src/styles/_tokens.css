@@ -1,0 +1,164 @@
+/* ============================================================================
+   Design tokens, carried FORWARD from Caney 2.x. §64.
+
+   Copied deliberately rather than reinvented. The palette below is not a default —
+   --faint went through three revisions to clear 4.5:1 on all three grounds it is used
+   on at 11.5px, and --go/--cond were darkened after axe found 39 contrast failures.
+   Redesigning that for novelty would have thrown away work that was paid for in
+   accessibility audits.
+
+   What follows is tokens, dark mode, reduced motion, base resets, focus rings and the
+   skip link. The 3.0 components live in app.css and build on these.
+   ========================================================================= */
+
+/* ============================================================================
+   Caney — the one stylesheet. §47, §52, §53.
+
+   Shared means SHARED: this file is served once and cached, not pasted into
+   thirteen generated documents. Everything below is a token or a component;
+   nothing here knows about a specific river.
+
+   DARK MODE (§53) is token-level, not a filter. The app is opened at 4am in a
+   truck; the default palette is the dark one when the OS says so, and the
+   manual override wins in both directions. Every colour is defined on bare
+   :root first, so no value exists only inside a media query.
+
+   ACCESSIBILITY (§52): 44px minimum touch targets, visible focus rings that
+   are never removed, AA contrast on every text/background pair used here,
+   and a reduced-motion branch that turns off every transition.
+   ========================================================================= */
+
+:root {
+  color-scheme: light dark;
+
+  --ink:        #16202b;
+  --ink-2:      #3d4b5a;
+  --muted:      #5a6b7c;   /* 5.5:1 on card, 5.2:1 on card-2 */
+  /* 5.1:1 on card, 4.8:1 on card-2, 4.5:1 on the safety card. The .tiny class runs at
+     11.5px, which is small text under WCAG, so this has to clear 4.5:1 on EVERY ground
+     it is used on — the first palette shipped #78889a and failed on all three. */
+  --faint:      #606f80;
+  --line:       #dfe6ee;
+  --line-2:     #eef2f7;
+  --bg:         #eef2f6;
+  --bg-2:       #e5ebf1;
+  --card:       #ffffff;
+  --card-2:     #f6f8fb;
+  --shadow:     0 8px 26px rgba(20, 50, 80, .07);
+  --shadow-lg:  0 18px 48px rgba(20, 50, 80, .16);
+
+  --go:         #12723e;   /* 5.4:1 on --go-bg */
+  --go-bg:      #e7f6ed;
+  --cond:       #87590a;   /* 5.5:1 on --cond-bg */
+  --cond-bg:    #fdf3e0;
+  --skip:       #a4343a;
+  --skip-bg:    #fdeced;
+  --accent:     #0a5ec2;
+  --accent-ink: #ffffff;
+  --safety:     #a4343a;
+  --safety-bg:  #fdeced;
+
+  --radius:     16px;
+  --radius-sm:  10px;
+  --tap:        44px;
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ink:      #e9eef4;
+    --ink-2:    #c2ceda;
+    --muted:    #9aabbb;
+    --faint:    #8b9cae;   /* 5.3:1 on --card-2 in dark */
+    --line:     #2a3644;
+    --line-2:   #212c38;
+    --bg:       #0d141c;
+    --bg-2:     #111a24;
+    --card:     #16202b;
+    --card-2:   #1c2836;
+    --shadow:   0 8px 26px rgba(0, 0, 0, .45);
+    --shadow-lg:0 18px 48px rgba(0, 0, 0, .6);
+    --go:       #58d38d;
+    --go-bg:    #12301f;
+    --cond:     #edb95e;
+    --cond-bg:  #33270d;
+    --skip:     #f08b90;
+    --skip-bg:  #351417;
+    --accent:   #5aa9ff;
+    --accent-ink: #06121f;
+    --safety:   #f08b90;
+    --safety-bg:#351417;
+  }
+}
+
+:root[data-theme="dark"] {
+  --ink:      #e9eef4;
+  --ink-2:    #c2ceda;
+  --muted:    #9aabbb;
+  --faint:    #8b9cae;   /* 5.3:1 on --card-2 in dark */
+  --line:     #2a3644;
+  --line-2:   #212c38;
+  --bg:       #0d141c;
+  --bg-2:     #111a24;
+  --card:     #16202b;
+  --card-2:   #1c2836;
+  --shadow:   0 8px 26px rgba(0, 0, 0, .45);
+  --shadow-lg:0 18px 48px rgba(0, 0, 0, .6);
+  --go:       #58d38d;
+  --go-bg:    #12301f;
+  --cond:     #edb95e;
+  --cond-bg:  #33270d;
+  --skip:     #f08b90;
+  --skip-bg:  #351417;
+  --accent:   #5aa9ff;
+  --accent-ink: #06121f;
+  --safety:   #f08b90;
+  --safety-bg:#351417;
+}
+
+* { box-sizing: border-box; -webkit-font-smoothing: antialiased; }
+
+html, body { background: var(--bg); }
+
+body {
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.45;
+  background:
+    radial-gradient(1100px 720px at 80% -8%, var(--bg-2) 0, transparent 60%),
+    var(--bg);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+.app { max-width: 780px; margin: 0 auto; padding: 18px 16px 96px; }
+
+/* ── typography ─────────────────────────────────────────────────────────── */
+h1 { font-size: 30px; font-weight: 800; letter-spacing: -.7px; margin: 4px 0 6px; }
+h2 { font-size: 19px; font-weight: 750; letter-spacing: -.3px; margin: 26px 0 10px; }
+h3 { font-size: 15px; font-weight: 700; margin: 16px 0 6px; }
+.eyebrow {
+  font-size: 11.5px; letter-spacing: .22em; text-transform: uppercase;
+  color: var(--faint); font-weight: 700;
+}
+.cap { color: var(--muted); font-size: 14px; }
+.small { font-size: 12.5px; color: var(--muted); }
+.tiny { font-size: 11.5px; color: var(--faint); }
+a { color: var(--accent); }
+
+/* ── focus, always visible, never removed (§52) ─────────────────────────── */
+:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+.skip-link {
+  position: absolute; left: -9999px; top: 0; z-index: 100;
+  background: var(--card); color: var(--ink); padding: 12px 16px;
+  border-radius: 0 0 var(--radius-sm) 0; border: 2px solid var(--accent);
+}
+.skip-link:focus { left: 0; }

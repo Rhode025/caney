@@ -59,6 +59,12 @@ jobs:
           fi
           echo "no credential literals found"
 
+      # The 3.0 frontend. Installed before the build because build.sh only builds the app
+      # when web-v3/node_modules exists — that guard keeps build.sh working on a machine
+      # with no npm, and in CI we always want the app.
+      - name: Install the app toolchain
+        run: cd web-v3 && npm ci --no-audit --no-fund || npm install --no-audit --no-fund
+
       - name: Restore release cache
         uses: actions/cache/restore@v4
         with:

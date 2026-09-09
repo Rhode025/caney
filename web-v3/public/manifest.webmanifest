@@ -1,0 +1,14 @@
+{
+  "name": "Caney",
+  "short_name": "Caney",
+  "start_url": "/app/",
+  "scope": "/app/",
+  "display": "standalone",
+  "background_color": "#0d1117",
+  "theme_color": "#0d1117",
+  "description": "Pick a species, a day and a boat. Caney runs the trip.",
+  "icons": [
+    { "src": "/assets/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/assets/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
