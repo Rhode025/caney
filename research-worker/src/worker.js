@@ -80,7 +80,7 @@ async function research(request, env, ctx, force) {
   if (!force && env.CACHE) {
     const hit = await env.CACHE.get(cacheKey, "json");
     if (hit) {
-      await bump(env, { cache_hits: 1 });
+      await bump(env, null, { cache_hits: 1 });
       return { claims: hit.claims, meta: { ...hit.meta, cached: true,
                                            latencyMs: Date.now() - t0 } };
     }
@@ -143,7 +143,7 @@ async function research(request, env, ctx, force) {
   await Promise.all([
     writeClaims(env, dedupe(accepted)),
     writeAudit(env, audit),
-    bump(env, { queries: searched,
+    bump(env, gate, { queries: searched,
                 tokens_in: audit.reduce((a, x) => a + x.tokens_in, 0),
                 tokens_out: audit.reduce((a, x) => a + x.tokens_out, 0) }),
   ]);
@@ -243,36 +243,76 @@ async function writeAudit(env, rows) {
 
 function today() { return new Date().toISOString().slice(0, 10); }
 
+// D1 IS NOT REQUIRED, AND THE CAP MUST NOT DEPEND ON IT. The original gate opened
+// unconditionally when env.DB was absent, which was fine while D1 was assumed present and
+// is dangerous now that it is not: this account's deploy token cannot create a database
+// (401 on the D1 API — see DEPLOYMENT.md), so the worker ships without one, and a
+// cost-control gate that silently disables itself on the deployment we actually have is
+// worse than no gate at all — it reads as protection.
+//
+// KV carries the counters instead. It is eventually consistent, so two requests racing
+// the same second can both pass a cap they jointly exceed; the overshoot is bounded by
+// concurrency and the cap is a budget, not a safety limit. D1 restores exactness.
 async function budgetGate(env, zoneId, force) {
-  if (!env.DB) return { ok: true };
   const day = today();
-  const row = await env.DB.prepare("SELECT * FROM budget WHERE day = ?").bind(day).first();
-  const used = (row && row.queries) || 0;
   const cap = Number(env.MAX_QUERIES_PER_DAY || 400);
+  const perZone = Number(env.MAX_QUERIES_PER_ZONE_DAY || 12) * (force ? 2 : 1);
+
+  if (env.DB) {
+    const row = await env.DB.prepare("SELECT * FROM budget WHERE day = ?").bind(day).first();
+    const used = (row && row.queries) || 0;
+    if (used >= cap) {
+      return { ok: false, reason: "daily research query cap reached (" + cap + ")" };
+    }
+    const zr = await env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM searches WHERE at > ? AND zone_ids LIKE ?")
+      .bind(Math.round(Date.now() / 1000) - 86400, "%" + zoneId + "%").first();
+    if (zr && zr.n >= perZone) {
+      return { ok: false, reason: "per-zone daily research cap reached (" + perZone + ")" };
+    }
+    return { ok: true };
+  }
+
+  if (!env.CACHE) {
+    // No D1 and no KV means nothing can count. Refuse rather than search unbounded
+    // against a metered API.
+    return { ok: false, reason: "no budget store is bound — research is disabled rather " +
+                                "than uncounted" };
+  }
+  const used = Number((await env.CACHE.get("budget:" + day)) || 0);
   if (used >= cap) {
     return { ok: false, reason: "daily research query cap reached (" + cap + ")" };
   }
-  const perZone = Number(env.MAX_QUERIES_PER_ZONE_DAY || 12);
-  const zr = await env.DB.prepare(
-    "SELECT COUNT(*) AS n FROM searches WHERE at > ? AND zone_ids LIKE ?")
-    .bind(Math.round(Date.now() / 1000) - 86400, "%" + zoneId + "%").first();
-  if (zr && zr.n >= perZone * (force ? 2 : 1)) {
+  const zoneUsed = Number((await env.CACHE.get("budget:" + day + ":" + zoneId)) || 0);
+  if (zoneUsed >= perZone) {
     return { ok: false, reason: "per-zone daily research cap reached (" + perZone + ")" };
   }
-  return { ok: true };
+  return { ok: true, kv: true, zoneId, day };
 }
 
-async function bump(env, delta) {
-  if (!env.DB) return;
+async function bump(env, gate, delta) {
   const day = today();
-  await env.DB.prepare(
-    "INSERT INTO budget (day, queries, tokens_in, tokens_out, cache_hits) " +
-    "VALUES (?, ?, ?, ?, ?) ON CONFLICT(day) DO UPDATE SET " +
-    "queries = queries + excluded.queries, tokens_in = tokens_in + excluded.tokens_in, " +
-    "tokens_out = tokens_out + excluded.tokens_out, " +
-    "cache_hits = cache_hits + excluded.cache_hits")
-    .bind(day, delta.queries || 0, delta.tokens_in || 0, delta.tokens_out || 0,
-          delta.cache_hits || 0).run();
+  if (env.DB) {
+    await env.DB.prepare(
+      "INSERT INTO budget (day, queries, tokens_in, tokens_out, cache_hits) " +
+      "VALUES (?, ?, ?, ?, ?) ON CONFLICT(day) DO UPDATE SET " +
+      "queries = queries + excluded.queries, tokens_in = tokens_in + excluded.tokens_in, " +
+      "tokens_out = tokens_out + excluded.tokens_out, " +
+      "cache_hits = cache_hits + excluded.cache_hits")
+      .bind(day, delta.queries || 0, delta.tokens_in || 0, delta.tokens_out || 0,
+            delta.cache_hits || 0).run();
+    return;
+  }
+  if (!env.CACHE || !delta.queries) return;
+  // Two days of TTL: the counter only has to outlive its own day, and an expiring key
+  // means the store never grows.
+  const n = Number((await env.CACHE.get("budget:" + day)) || 0) + delta.queries;
+  await env.CACHE.put("budget:" + day, String(n), { expirationTtl: 172800 });
+  const zid = gate && gate.zoneId;
+  if (zid) {
+    const zn = Number((await env.CACHE.get("budget:" + day + ":" + zid)) || 0) + delta.queries;
+    await env.CACHE.put("budget:" + day + ":" + zid, String(zn), { expirationTtl: 172800 });
+  }
 }
 
 // ── read-only endpoints ────────────────────────────────────────────────────

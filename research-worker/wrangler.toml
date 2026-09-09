@@ -13,11 +13,17 @@ EXTRA_PRIMARY_DOMAINS = ""
 # OPENAI_API_KEY is a SECRET, never a var:
 #   npx wrangler secret put OPENAI_API_KEY
 
-[[d1_databases]]
-binding = "DB"
-database_name = "caney-research"
-database_id = "REPLACE_WITH_D1_ID"
+# D1 IS NOT BOUND, and this is a permission limit rather than a design choice. The deploy
+# token returns 401 on the D1 API — its role has no D1 privilege, and only the account
+# admin can add one (DEPLOYMENT.md, RES-02). Every D1 use in src/worker.js is guarded, and
+# the daily/per-zone query caps fall back to KV counters so cost control survives the
+# absence. What is lost without D1 is exact counting and claim history queries.
+#
+# [[d1_databases]]
+# binding = "DB"
+# database_name = "caney-research"
+# database_id = "REPLACE_WITH_D1_ID"
 
 [[kv_namespaces]]
 binding = "CACHE"
-id = "REPLACE_WITH_KV_ID"
+id = "afe6706a296e4b0181fc170688ade2d9"

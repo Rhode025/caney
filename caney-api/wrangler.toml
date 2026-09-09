@@ -13,7 +13,7 @@ DEBUG = "0"
 # so KV serves; what is missing is queries ("my last ten trips"), which need D1.
 [[kv_namespaces]]
 binding = "PLANS"
-id = "REPLACE_WITH_KV_ID"
+id = "d8101bfcb97f423d83e9ada04c66061e"
 
 # §35 — the Research Worker is reached by SERVICE BINDING, privately. The browser never
 # receives OPENAI_API_KEY and never calls research directly. Commented until the research
