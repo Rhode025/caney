@@ -20,6 +20,7 @@ import time
 from ..tz import zone as _tz
 
 from ..domain.claim import SafetyKind
+from ..domain.method import TackleMethod
 from ..domain.observation import DataState
 from ..domain.opportunity import FishingItinerary, SegmentType
 from ..domain.plan import (FishingPlan, ScoreLine, Technique, Verdict)
@@ -29,7 +30,9 @@ from ..sources.snapshots import localize
 from ..version import (PLANNER_VERSION, RESEARCH_VERSION, SPECIES_MODEL_VERSION,
                        ZONE_MODEL_VERSION)
 from ..zones.registry import ZONES, zones_for_species
+from ..routing.provider import build_provider as build_routing
 from . import itinerary as itin_search
+from . import logistics
 from . import opportunity, scoring, segments, timeline, transitions, utility
 from .confidence import confidence, confidence_label, rank_key
 from .window import best_window
@@ -38,18 +41,64 @@ SITE_TZ = "America/Chicago"
 
 
 class Request:
-    """What the user asked for. §4, §5, §6."""
+    """What the user asked for. §4, §5, §6 — and, since 3.0, §14.
 
-    def __init__(self, species, start, end, craft=Craft.ANY, tz=SITE_TZ, now=None):
+    Two shapes, because both are things people say:
+
+        Request(species, start, end, craft)
+            "I can fish 6 to 10." The 2.1 contract, unchanged. No travel is modelled;
+            the window IS the availability.
+
+        Request(species, depart_after=…, return_by=…, origin=(lat, lon), craft=…)
+            "I can leave at 5 and need to be home by 11:30." The day. Travel, rigging and
+            the run to the water come out of it per candidate (§19), and `start`/`end`
+            become the widest fishing bounds the day could possibly support.
+
+    `start` and `end` still mean "the outer bounds of any fishing this request could do",
+    which is what every downstream consumer already assumed they meant. The per-zone
+    narrowing lives in the Envelope, not here — a single global window would be wrong the
+    moment two candidates are different distances away.
+    """
+
+    def __init__(self, species, start=None, end=None, craft=Craft.ANY, tz=SITE_TZ,
+                 now=None, origin=None, method=TackleMethod.EITHER,
+                 depart_after=None, return_by=None, max_drive_minutes=None,
+                 routing=None, preferences=None):
         self.species = species
-        self.start = float(start)
-        self.end = float(end)
         self.craft = craft or Craft.ANY
+        self.method = TackleMethod.normalise(method)
         self.tz_name = tz
         self.tz = _tz(tz)
         self.now = now or time.time()
+        self.origin = tuple(origin) if origin else None
+        self.max_drive_minutes = (float(max_drive_minutes)
+                                  if max_drive_minutes else None)
+        self.routing = routing if routing is not None else build_routing()
+        self.preferences = dict(preferences or {})
+
+        door_to_door = depart_after is not None and return_by is not None
+        if door_to_door:
+            self.availability = logistics.Availability(
+                depart_after=float(depart_after), return_by=float(return_by),
+                fish_after=float(start) if start else None,
+                fish_before=float(end) if end else None,
+                window_only=False)
+            self.start, self.end = self.availability.clamp(
+                float(depart_after), float(return_by))
+        else:
+            if start is None or end is None:
+                raise ValueError("a request needs either (start, end) or "
+                                 "(depart_after, return_by)")
+            self.start, self.end = float(start), float(end)
+            self.availability = logistics.Availability(
+                depart_after=self.start, return_by=self.end, window_only=True)
+
         if self.end <= self.start:
             raise ValueError("requested window ends before it starts")
+
+    @property
+    def door_to_door(self):
+        return not self.availability.window_only and self.origin is not None
 
     @property
     def month(self):
@@ -64,7 +113,13 @@ class Request:
     def to_json(self):
         return {"start": round(self.start), "end": round(self.end),
                 "iso": _dt.datetime.fromtimestamp(self.start, self.tz).isoformat(),
-                "tz": self.tz_name, "days_out": self.days_out}
+                "tz": self.tz_name, "days_out": self.days_out,
+                "craft": self.craft, "method": self.method,
+                "species": self.species,
+                "origin": list(self.origin) if self.origin else None,
+                "max_drive_minutes": self.max_drive_minutes,
+                "door_to_door": self.door_to_door,
+                "availability": self.availability.to_json()}
 
 
 class Rejected:
@@ -77,7 +132,13 @@ class Rejected:
 
 
 def eligible(req, snaps):
-    """Step 1 + 2. Returns ([zones], [Rejected])."""
+    """Step 1 + 2. Returns ([(zone, envelope)], [Rejected]).
+
+    3.0 adds the travel gate (§19). A zone the day cannot reach is ELIMINATED here, with
+    the arithmetic in the reason, rather than scored and quietly beaten later — "you
+    cannot get there and back today" is a different statement from "it fishes worse", and
+    a reader deserves to be told which one applies.
+    """
     keep, out = [], []
     for z in zones_for_species(req.species, None):
         ref = z.species_profiles.get(req.species)
@@ -99,7 +160,19 @@ def eligible(req, snaps):
         if unsafe:
             out.append(Rejected(z.id, z.name, unsafe))
             continue
-        keep.append(z)
+        env = logistics.envelope(z, req.availability, req.origin, req.craft, req.routing)
+        if req.max_drive_minutes and env.drive_out is not None and \
+                env.drive_out.minutes > req.max_drive_minutes:
+            out.append(Rejected(z.id, z.name,
+                                "a %d-minute drive, past the %d you allowed"
+                                % (round(env.drive_out.minutes),
+                                   round(req.max_drive_minutes))))
+            continue
+        if not env.viable:
+            out.append(Rejected(z.id, z.name,
+                                env.reason or "the day leaves no fishable time here"))
+            continue
+        keep.append((z, env))
     return keep, out
 
 
@@ -165,10 +238,10 @@ def candidates(req, snaps, book, claims_by_zone):
     candidate is now a set of windows, each with its own quality, duration and utility, and
     the ranking is over windows rather than over averages.
     """
-    zones, rejected = eligible(req, snaps)
+    pairs, rejected = eligible(req, snaps)
     scored = []
     req_date = _dt.datetime.fromtimestamp(req.start, req.tz).date()
-    for z in zones:
+    for z, env in pairs:
         # Localise to the DATE being planned: sun times and moon belong to that day.
         snap = localize(snaps[z.id], req_date)
         cfg = _cfg(z)
@@ -184,7 +257,8 @@ def candidates(req, snaps, book, claims_by_zone):
         hourly = hourly_scores(req.species, z, series, statics, req.craft)
 
         win, win_why = best_window(req, z, snap, claims, cfg, units, gen_known,
-                                   series=series, statics=statics)
+                                   series=series, statics=statics,
+                                   bounds=(env.start, env.end))
         sc, lines, fits = scoring.score(req.species, z, snap, claims, win, req.craft,
                                         req.month, cfg, units, gen_known,
                                         series=series, statics=statics)
@@ -193,13 +267,17 @@ def candidates(req, snaps, book, claims_by_zone):
         stale = snap.flow.state == DataState.STALE or \
             snap.generation.state == DataState.STALE
 
+        # THE ENVELOPE, NOT THE AVAILABILITY (§19). Two candidates ninety minutes apart
+        # do not share a fishing window, and searching both over the raw day is how the
+        # far one ends up recommended for hours nobody could be standing there.
         windows = opportunity.find_windows(
             z.id, req.species, hourly["values"], hourly["t0"], hourly["step"],
-            req.start, req.end, confidence=conf, location_confidence=loc.value,
+            env.start, env.end, confidence=conf, location_confidence=loc.value,
             stale=stale, conditions_summary=_conditions_summary(snap),
             reasons=[l.why for l in sorted(lines, key=lambda x: -x.earned)[:2]])
 
-        scored.append({"zone": z, "snap": snap, "score": sc, "lines": lines, "fits": fits,
+        scored.append({"zone": z, "snap": snap, "envelope": env,
+                       "score": sc, "lines": lines, "fits": fits,
                        "confidence": conf, "conf_rows": conf_rows, "window": win,
                        "window_why": win_why, "claims": claims, "cfg": cfg,
                        "units": units, "gen_known": gen_known,
@@ -344,6 +422,22 @@ def plan(req, snaps, book, claims_by_zone):
     }
     p.timeline = segments.to_timeline(segs, req.tz)
     p.technique = technique(req.species, z, snap, primary, req, winner.windows[0])
+
+    # §14/§18 — the day, not just the fishing. `legs` covers every minute from leaving
+    # the house to getting back, and `summary` is the five times the hero block shows.
+    env = primary["envelope"]
+    leg_list = logistics.legs(env, list(winner.windows), list(winner.transitions),
+                              req.availability, req.craft, req.tz)
+    if leg_list:
+        p.logistics = {
+            "legs": [l.to_json() for l in leg_list],
+            "summary": logistics.summary(leg_list),
+            "envelope": env.to_json(),
+            "origin": list(req.origin) if req.origin else None,
+            "door_to_door": req.door_to_door,
+            "constants": logistics.published(),
+            "routing": req.routing.describe() if hasattr(req.routing, "describe") else {},
+        }
     p.backup_plan = _backup_plan(winner, scored, zones, graph, req, book)
 
     p.water = {"flow": snap.flow, "stage": snap.stage, "flow_trend": snap.flow_trend,
@@ -361,6 +455,7 @@ def plan(req, snaps, book, claims_by_zone):
         p.safety.extend(c.to_json() for c in book.for_zone(w.zone_id))
     p.data_freshness = primary["conf_rows"]
 
+    p.method = req.method
     p.alternatives = _alternatives(winner, runners, scored, zones, req) + \
         [r.to_json() for r in rejected[:3]]
     p.limitations = _limitations(primary, req, snap, winner)

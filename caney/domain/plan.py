@@ -87,6 +87,11 @@ class FishingPlan:
     species: str = ""
     requested_window: Dict[str, Any] = field(default_factory=dict)   # {start,end,iso,tz}
     craft: str = "any"
+    #: §20 — fly / conventional / either. Changes technique, nothing else.
+    method: str = "either"
+    #: §14 — the door-to-door plan: legs, the five hero times, and the envelope that
+    #: produced them. None when the request gave a fishing window rather than a day.
+    logistics: Optional[Dict[str, Any]] = None
 
     verdict: str = Verdict.SKIP
     verdict_why: str = ""
@@ -142,6 +147,7 @@ class FishingPlan:
         return {
             "id": self.id, "created_at": self.created_at, "species": self.species,
             "requested_window": self.requested_window, "craft": self.craft,
+            "method": self.method, "logistics": self.logistics,
             "verdict": self.verdict, "verdict_why": self.verdict_why,
             "score": round(self.score, 1),
             "opportunity": round(self.opportunity or self.score, 1),

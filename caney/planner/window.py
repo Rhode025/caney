@@ -21,10 +21,16 @@ GAIN = 0.35          # points a shorter slice must beat the whole window by
 TIE = 0.05           # inside this, the LONGER window wins
 
 
-def best_window(req, zone, snap, claims, cfg, units, gen_known, series=None, statics=None):
-    """((start, end), why) — the slice of the request worth fishing."""
+def best_window(req, zone, snap, claims, cfg, units, gen_known, series=None, statics=None,
+                bounds=None):
+    """((start, end), why) — the slice of the request worth fishing.
+
+    `bounds` is the candidate's fishable envelope (§19). Since 3.0 the caller passes the
+    zone's own reachable window rather than the raw request, because a zone ninety
+    minutes away does not have the same day available to it as one down the road.
+    """
     from . import scoring
-    start, end = req.start, req.end
+    start, end = bounds if bounds else (req.start, req.end)
     span = end - start
     if span <= MIN_SPAN * SHORT_DAY:
         return (start, end), "the whole requested window — it is short enough to fish through"
