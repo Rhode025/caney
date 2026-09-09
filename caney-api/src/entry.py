@@ -529,14 +529,39 @@ async def on_fetch(request, env, ctx=None):
     return await handle(request, env, ctx)
 
 
-async def on_scheduled(event, env, ctx=None):
-    """The cron. §12, §37 — the system keeps conditions fresh, not the caller.
-
-    One shard per minute-bucket, so a cron invocation stays inside the subrequest limit
-    the same way a request does.
-    """
+async def _run_cron(env, why="cron"):
+    """One shard per five-minute bucket, so a cron tick stays inside the subrequest limit
+    exactly the way a request does. Shared by both handler shapes below."""
     n = int(time.time() // 300) % SHARDS
-    await build_bundle(env, time.time(), "cron", n)
+    await build_bundle(env, time.time(), why, n)
+
+
+async def on_scheduled(*args, **kwargs):
+    """The cron, module form. §12, §37.
+
+    DELIBERATELY PERMISSIVE IN ITS SIGNATURE. The build markers proved this handler was
+    never REACHED — every build ever recorded is labelled "self", from the external
+    endpoint, and no invocation has written a "cron" marker at all. That rules out
+    "invoked and threw inside build_bundle" and leaves "invoked with an arity this
+    function refused", which on a beta runtime that has changed handler shapes at least
+    once is the likelier of the two. A TypeError at the call boundary produces exactly
+    what was observed: no marker, no log, no trace.
+    """
+    env = _env_from(args, kwargs)
+    if env is None:
+        return
+    await _run_cron(env)
+
+
+def _env_from(args, kwargs):
+    """Find the env in whatever shape the platform passed. `env` is the object carrying
+    the bindings, so identify it by having one rather than by its position."""
+    if "env" in kwargs:
+        return kwargs["env"]
+    for a in args:
+        if hasattr(a, "PLANS") or hasattr(a, "ALLOWED_ORIGINS"):
+            return a
+    return args[1] if len(args) > 1 else None
 
 
 try:
@@ -546,7 +571,12 @@ try:
         async def fetch(self, request):
             return await handle(request, self.env, getattr(self, "ctx", None))
 
-        async def scheduled(self, _event=None):
-            await build_bundle(self.env, time.time())
+        async def scheduled(self, *_args, **_kwargs):
+            # Same permissiveness as the module form, and the same shard rotation. This
+            # method used to call build_bundle with no shard argument at all, so had the
+            # class shape been the live one it would have rebuilt shard 0 forever and
+            # left two thirds of the water stale — a bug that would have looked like
+            # "the cron works" from any check that only asked whether it ran.
+            await _run_cron(self.env)
 except ImportError:                                 # older runtime — on_fetch carries it
     pass
