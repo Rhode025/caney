@@ -77,14 +77,38 @@ def _release_events(rows, cfg, now, horizon):
     return ev
 
 
-def build_all(now=None, horizon_days=3, tz_name="America/Chicago", book=None):
-    """{zone_id: RiverSnapshot}, plus the ClaimBook every safety sentence must cite."""
+def rivers():
+    """Every hydrology river, in a stable order. The unit a build can be sharded by."""
+    seen = []
+    for z in all_zones():
+        if z.hydrology_river not in seen:
+            seen.append(z.hydrology_river)
+    return seen
+
+
+def build_all(now=None, horizon_days=3, tz_name="America/Chicago", book=None,
+              only_rivers=None):
+    """{zone_id: RiverSnapshot}, plus the ClaimBook every safety sentence must cite.
+
+    `only_rivers` builds a SUBSET, and exists because a Cloudflare Worker may make at
+    most 50 subrequests per invocation while a full build asks for 74. Sharding by river
+    is the natural split: a river is already the fetch-dedupe unit, its zones share every
+    source, and a zone's snapshot carries its own timestamps — so a bundle assembled from
+    shards refreshed at different moments still reports each zone's real age rather than
+    one blended lie.
+
+    Zones on rivers outside the filter are simply absent from the result. The caller
+    merges them forward; nothing here invents a snapshot for water it did not fetch.
+    """
     now = now or time.time()
     tz = _tz(tz_name)
     book = book if book is not None else ClaimBook()
     horizon = now + horizon_days * 86400
 
     zones = all_zones()
+    if only_rivers is not None:
+        keep = set(only_rivers)
+        zones = [z for z in zones if z.hydrology_river in keep]
     by_river = {}
     for z in zones:
         by_river.setdefault(z.hydrology_river, []).append(z)

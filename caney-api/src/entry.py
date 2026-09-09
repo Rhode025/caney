@@ -56,6 +56,19 @@ BUNDLE_MAX_SECONDS = 3600.0
 #: Reuse within one isolate, so a burst of requests shares one rehydrate.
 ISOLATE_TTL_SECONDS = 120.0
 
+#: CLOUDFLARE ALLOWS 50 SUBREQUESTS PER INVOCATION. A full build asks for 74, so 24-28 of
+#: them were failing with "Too many subrequests by single Worker invocation" — which is
+#: why the winning zone was quietly planning on unknown flow. The count is not a bug to
+#: optimise away: 17 rivers x four or five sources each is what the model needs.
+#:
+#: So a build does a THIRD of the rivers and merges into the stored bundle. Sharding by
+#: river is the natural split — a river is already the fetch-dedupe unit and its zones
+#: share every source — and because each zone's snapshot carries its own timestamps, a
+#: bundle assembled from shards refreshed at different moments still reports every zone's
+#: real age rather than one blended lie. Three shards of 25-30 requests leaves margin;
+#: two of 44 and 30 did not.
+SHARDS = 3
+
 _CACHE = {"snaps": None, "book": None, "claims": None, "at": 0.0, "stats": {},
           "built_at": None, "source": ""}
 
@@ -89,6 +102,13 @@ def _claims_for_all(now):
     return out
 
 
+def _shard(n):
+    """Rivers for shard `n`, round-robin so adjacent shards are not adjacent water."""
+    from caney.sources.snapshots import rivers
+    rs = rivers()
+    return [r for i, r in enumerate(rs) if i % SHARDS == (n % SHARDS)]
+
+
 async def build_bundle(env, now, why="unknown"):
     """Fetch everything and serialise the snapshots.
 
@@ -110,20 +130,72 @@ async def build_bundle(env, now, why="unknown"):
     from caney.sources import runtime as rt
     from caney.sources.snapshots import build_all
 
+    # Which shard: whatever the last one was, plus one. Stored so it survives isolate
+    # recycling — otherwise a cold start would rebuild shard 0 forever and two thirds of
+    # the water would never refresh.
+    kv_n = getattr(env, "PLANS", None)
+    n = 0
+    if kv_n is not None:
+        try:
+            raw_n = await kv_n.get("build:shard")
+            n = (int(raw_n) + 1) % SHARDS if raw_n else 0
+        except Exception:                           # noqa: BLE001
+            n = 0
+    mine = _shard(n)
+
     def build():
-        return build_all(now=now, horizon_days=3)
+        return build_all(now=now, horizon_days=3, only_rivers=mine)
 
     filled, stats = await prefetch(build, fetch)
     with rt.using(filled):
         snaps, book = build()
 
+    # Merge forward. Zones this shard did not touch keep their previous snapshot, which
+    # still carries its own observed_at and fetched_at — so the freshness strip tells the
+    # truth about each one independently.
+    prev = {}
+    prev_book = []
+    if kv_n is not None:
+        try:
+            raw_p = await kv_n.get(BUNDLE_KEY)
+            if raw_p:
+                pb = json.loads(raw_p)
+                prev = pb.get("zones") or {}
+                prev_book = pb.get("book") or []
+        except Exception:                           # noqa: BLE001
+            pass
+
+    zones = dict(prev)
+    fresh_ids = set()
+    for zid, sn in snaps.items():
+        zones[zid] = sn.to_json()
+        fresh_ids.add(zid)
+    # Claims follow their zone: keep the previous book's entries for zones this shard did
+    # not rebuild, and take the new ones for those it did. A claim is minted against a
+    # reading, so carrying one forward past its zone's refresh would be a lie about which
+    # numbers it was derived from.
+    merged_book = [c for c in prev_book if c.get("zone_id") not in fresh_ids]
+    merged_book.extend(book.to_json())
+
     bundle = {
         "built_at": now,
-        "zones": {zid: s.to_json() for zid, s in snaps.items()},
-        "book": book.to_json(),
-        "prefetch": stats,
+        "shard": n,
+        "shard_rivers": mine,
+        "zones": zones,
+        "book": merged_book,
+        "prefetch": dict(stats, shard=n, shard_rivers=len(mine),
+                         zones_refreshed=len(fresh_ids), zones_total=len(zones)),
         "versions": __import__("caney.version", fromlist=["versions"]).versions(),
     }
+    if kv_n is not None:
+        try:
+            from js import Object as _O2
+            from pyodide.ffi import to_js as _tj2
+            await kv_n.put("build:shard", str(n),
+                           _tj2({"expirationTtl": 86400},
+                                dict_converter=_O2.fromEntries))
+        except Exception:                           # noqa: BLE001
+            pass
     kv = getattr(env, "PLANS", None)
     if kv is not None:
         from js import Object
@@ -216,7 +288,11 @@ async def _load(env, now, ctx=None):
     # No bundle, or one too old to use. Build inline — expensive, and the honest fallback
     # for a cold start before anything has populated KV. The freshness strip reports the
     # real ages either way, so a request served this way is not silently different.
-    bundle, stats = await build_bundle(env, now, "cold")
+    # A cold start has no previous bundle to merge into, so one shard would leave two
+    # thirds of the water missing. Build them all — each is a separate invocation's worth
+    # of subrequests, and this happens once.
+    for _i in range(SHARDS):
+        bundle, stats = await build_bundle(env, now, "cold")
     snaps, book, claims = _rehydrate(bundle, now)
     _CACHE.update(snaps=snaps, book=book, claims=claims, at=now,
                   stats=dict(stats, built_inline=True),
