@@ -157,3 +157,20 @@ jobs:
       # fresh, does the homepage still ask what you want to catch.
       - name: Post-deploy smoke and freshness
         run: cd test && node smoke.mjs && node planner-smoke.mjs
+
+      # A SECOND, INDEPENDENT PATH to refreshing the API's conditions.
+      #
+      # refresh.yml asks every ten minutes, and GitHub's scheduler is not something to
+      # rely on alone — CLAUDE.md already records scheduled runs here arriving 40-100
+      # minutes late or never (18:00 ran at 19:44; 00:00 never fired), which is why the
+      # site build asks hourly rather than three-hourly. The Worker's own cron does not
+      # fire at all (OPS-01).
+      #
+      # This build already runs hourly and on every push, so piggy-backing the refresh on
+      # it costs three HTTP calls and puts a floor under staleness that does not depend on
+      # the ten-minute schedule ever working. `continue-on-error` because a stale API is
+      # not a reason to fail a green site deploy — the freshness strip reports every
+      # signal's real age either way.
+      - name: Refresh the API's conditions
+        continue-on-error: true
+        run: python3 tools/refresh_api.py
