@@ -22,6 +22,12 @@ from ..species.profiles import STRIPED_BASS, SMALLMOUTH, LARGEMOUTH, TROUT
 TWRA_ACCESS = "TWRA Boating & Fishing Access layer"
 USACE = "USACE Nashville District (LRN) published project location"
 OSM = "OpenStreetMap waterway centreline, walked to the access"
+#: USGS publishes the surveyed position of every gauge, with an accuracy code and a datum,
+#: from waterservices.usgs.gov/nwis/site. That VERIFIES A POSITION and nothing else — it
+#: does not say a ramp exists there or that the public may launch. Access points anchored
+#: this way therefore carry VERIFIED_ZONE, not VERIFIED_ACCESS, which is the difference
+#: between "we know where this is" and "we know you can get on the water here".
+USGS_SITE = "USGS site service (surveyed, NAD83)"
 
 ALL = list(range(1, 13))
 SUMMER = [6, 7, 8, 9]
@@ -30,10 +36,19 @@ FALL = [9, 10, 11]
 WINTER = [11, 12, 1, 2, 3]
 
 
-def _ap(id, name, lat, lon, kinds, craft, note="", source=OSM, verified=True, mfd=None):
+def _ap(id, name, lat, lon, kinds, craft, note="", source=OSM, verified=True, mfd=None,
+        evidence=""):
+    """`evidence` overrides the default grade.
+
+    Without it, `verified=True` grades as VERIFIED_ACCESS — "a published ramp coordinate".
+    That is right for a TWRA access layer entry and WRONG for a USGS gauge position, which
+    tells you exactly where a structure is and nothing whatever about whether the public
+    may launch beside it. Passing VERIFIED_ZONE keeps that distinction, and it is the
+    difference between "we know where this is" and "we know you can get on the water".
+    """
     return AccessPoint(id=id, name=name, lat=lat, lon=lon, kinds=kinds, craft=craft,
                        note=note, source=source, verified=verified,
-                       river_miles_from_dam=mfd)
+                       river_miles_from_dam=mfd, evidence=evidence)
 
 
 _ZONES = [
@@ -92,9 +107,12 @@ _ZONES = [
                           note="Betty's Island to Stonewall — mfd 9–15."),
         habitat=["seam", "shelf", "tailout", "undercut bank", "gravel shoal"],
         access=[
-            _ap("caney_stonewall", "Stonewall", 36.19569, -85.91774,
+            # USGS 03424860 "CANEY FORK AT STONEWALL". The note always said this was the
+            # gauge reach; the coordinate was 1.6 km from the gauge.
+            _ap("caney_stonewall", "Stonewall", 36.18611, -85.90444,
                 ["wade", "paddle", "ramp"], [Craft.WADE, Craft.KAYAK, Craft.DRIFT],
-                "Gordonsville — the USGS gauge reach.", OSM, mfd=15.0),
+                "Gordonsville — the USGS gauge reach, at its surveyed position.",
+                USGS_SITE, mfd=15.0, evidence=LocationEvidence.VERIFIED_ZONE),
             _ap("caney_bettys2", "Betty's Island", 36.14760, -85.83970,
                 ["wade", "paddle", "ramp"], [Craft.WADE, Craft.KAYAK, Craft.DRIFT],
                 "TWRA published ramp coordinate.", TWRA_ACCESS, mfd=9.0),
@@ -523,9 +541,18 @@ _ZONES = [
                           note="Priest Dam down to the Cumberland."),
         habitat=["tailrace", "current seam", "ledge", "backwater", "wood"],
         access=[
-            _ap("stones_donelson", "Stones River at US-70", 36.185, -86.665,
+            # USGS 03430200 "STONES RIVER AT US HWY 70 NEAR DONELSON, TN" — the same
+            # structure this access is named for, published 2.9 km from the coordinate
+            # that was here. It is worth correcting because this is the point a plan
+            # sends somebody to, and because the routing estimate is computed from it.
+            # Honesty about the size of the win: for this particular access the drive
+            # estimate did NOT move — 25 minutes either way once rounded to five — so the
+            # gain is in where you are told to go, not in when you are told to leave.
+            _ap("stones_donelson", "Stones River at US-70", 36.18648, -86.63276,
                 ["bank", "paddle", "ramp"], [Craft.KAYAK, Craft.DRIFT, Craft.POWER, Craft.WADE],
-                "Metro access. Not verified to §2.", "OSM, unverified", verified=False),
+                "The US-70 bridge reach, at the USGS gauge. Position surveyed; nothing "
+                "published says the public may launch here.", USGS_SITE, verified=True,
+                evidence=LocationEvidence.VERIFIED_ZONE),
         ],
         species_profiles={
             TROUT: SpeciesProfileRef(
@@ -617,8 +644,13 @@ _ZONES = [
                           note="Wolf Creek Dam downstream past Burkesville."),
         habitat=["riffle", "seam", "shelf", "gravel shoal", "tailout"],
         access=[
-            _ap("cumberland_burkesville", "Burkesville", 36.8672, -85.1461,
+            # RENAMED, not moved. This point is 21 km from Burkesville and sits at Wolf
+            # Creek Dam — which is right for a zone whose mfd is 3.0, so the coordinate
+            # was fine and the label was not. USGS 03414100 is the Burkesville gauge at
+            # 36.78675, -85.36522, and it is a different place from this one.
+            _ap("cumberland_burkesville", "Wolf Creek Dam tailwater", 36.8672, -85.1461,
                 ["ramp", "paddle", "wade"], [Craft.DRIFT, Craft.KAYAK, Craft.POWER, Craft.WADE],
+                "Below the dam, three river miles above the Burkesville gauge. "
                 "Not verified to §2.", "OSM, unverified", verified=False),
         ],
         species_profiles={
@@ -979,7 +1011,20 @@ _LOCATION = {
     "buffalo_river": LocationConfidence(access=_U, reach=_R, holding_water=_M,
         notes="TDEC describes the river; the liveries are named but not coordinate-verified."),
     "harpeth_river": LocationConfidence(access=_U, reach=_U, holding_water=_U),
-    "stones_river": LocationConfidence(access=_U, reach=_U, holding_water=_U),
+    # Access is _Z, not _A. USGS 03430200 publishes the surveyed position of the US-70
+    # structure this access is named for, so we now know WHERE it is to the metre — and
+    # still have nothing published saying the public may launch beside it. Reach and
+    # holding water stay unverified: a surveyed point does not map a reach.
+    "stones_river": LocationConfidence(
+        access=_Z, reach=_U, holding_water=_U,
+        verification=Verification(status="desk_verified", verified_by="repo",
+                                  verified_at="2026-09-09",
+                                  source="USGS site service, gauge 03430200 (NAD83)",
+                                  notes=("The coordinate that was here sat 2.9 km from the "
+                                         "gauge it was named after. The drive estimate did "
+                                         "not move at five-minute rounding; what moved is "
+                                         "where the plan points.")),
+        notes="Position surveyed; public access unpublished; the reach is still a guess."),
     "elk_tims_ford": LocationConfidence(access=_U, reach=_U, holding_water=_U),
     "elk_alabama": LocationConfidence(access=_U, reach=_U, holding_water=_U),
     "cumberland_ky": LocationConfidence(access=_U, reach=_U, holding_water=_U),
