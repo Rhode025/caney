@@ -29,6 +29,7 @@ import test_hydrology as H                       # noqa: E402
 import test_opportunity as O                     # noqa: E402
 import test_research as R                        # noqa: E402
 import test_species as S                         # noqa: E402
+import test_v3 as V3                             # noqa: E402
 import test_zones as Z                           # noqa: E402
 
 if __name__ == "__main__":
@@ -48,4 +49,9 @@ if __name__ == "__main__":
         A.test_no_unknown_as_zero, A.test_no_inline_assets,
         A.test_browser_engine_holds_no_model, A.test_layering, A.test_repo_hygiene,
         A.test_observability,
+        # ── Caney 3.0 · §87-§93's golden scenarios ─────────────────────────
+        V3.test_door_to_door, V3.test_best_water_too_far,
+        V3.test_feature_selection, V3.test_plan_delta, V3.test_source_failure,
+        V3.test_research_unavailable, V3.test_api_contract, V3.test_sessions,
+        V3.test_snapshot_is_replayable, V3.test_method, V3.test_routing_is_honest,
     ])
