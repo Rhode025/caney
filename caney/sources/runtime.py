@@ -61,6 +61,12 @@ class SourceRuntime:
 
     name = "abstract"
 
+    #: Does loading rivers on a thread pool buy anything? True where get_json performs
+    #: I/O that can overlap; False where it is a dictionary lookup. It is not merely an
+    #: optimisation flag — Pyodide has no threads at all, so a runtime that says True
+    #: inside a Worker takes the request down with "can't start new thread".
+    concurrent = True
+
     def get_json(self, url, ttl=900, timeout=45, retries=2, key=None, headers=None):
         raise NotImplementedError
 
@@ -186,6 +192,9 @@ class WorkerSourceRuntime(SourceRuntime):
     """
 
     name = "worker"
+    #: Everything was fetched before the planner ran. There is no I/O left to overlap,
+    #: and no threads to overlap it with.
+    concurrent = False
 
     def __init__(self):
         self._store = {}
@@ -223,6 +232,7 @@ class FixtureSourceRuntime(SourceRuntime):
     """Recorded responses on disk, addressed by the same key the live runtimes use."""
 
     name = "fixture"
+    concurrent = False
 
     def __init__(self, root, strict=True):
         self.root, self.strict = root, bool(strict)
@@ -269,6 +279,10 @@ class RecordingSourceRuntime(SourceRuntime):
     """
 
     name = "recording"
+
+    @property
+    def concurrent(self):
+        return getattr(self.inner, "concurrent", True)
 
     def __init__(self, inner):
         self.inner = inner

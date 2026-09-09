@@ -93,13 +93,36 @@ def build_all(now=None, horizon_days=3, tz_name="America/Chicago", book=None):
     # AFTER deduping by hydrology river, because parallelising duplicated work is how a
     # build gets slower and ruder to USGS at the same time. Modest pool: these are four
     # public agencies, not a CDN.
+    #
+    # WHETHER TO USE A POOL AT ALL IS THE RUNTIME'S CALL. Inside a Cloudflare Python
+    # Worker the sources were already fetched concurrently before the planner ran, so
+    # get_json is a dictionary lookup with nothing to overlap — and Pyodide has no threads
+    # to overlap it with. Asking for one there does not degrade; it raises
+    # "RuntimeError: can't start new thread" and takes the request with it, which is
+    # exactly how this was found.
+    from . import runtime as _rt
     river_data = {}
-    from concurrent.futures import ThreadPoolExecutor
-    with ThreadPoolExecutor(max_workers=5) as pool:
-        futures = {rid: pool.submit(_load_river, rid, now, horizon) for rid in by_river}
-        for rid, fut in futures.items():
+    if getattr(_rt.current(), "concurrent", True):
+        try:
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=5) as pool:
+                futures = {rid: pool.submit(_load_river, rid, now, horizon)
+                           for rid in by_river}
+                for rid, fut in futures.items():
+                    try:
+                        river_data[rid] = fut.result()
+                    except Exception as e:               # noqa: BLE001
+                        river_data[rid] = {
+                            "cfg": water_for(rid),
+                            "errors": ["load failed: %s: %s" % (type(e).__name__, e)]}
+        except RuntimeError:
+            # A runtime that claimed threads and has none. Fall through rather than fail:
+            # the sequential path is correct everywhere, only slower where I/O is real.
+            river_data = {}
+    if not river_data:
+        for rid in by_river:
             try:
-                river_data[rid] = fut.result()
+                river_data[rid] = _load_river(rid, now, horizon)
             except Exception as e:                       # noqa: BLE001
                 river_data[rid] = {"cfg": water_for(rid),
                                    "errors": ["load failed: %s: %s" % (type(e).__name__, e)]}
