@@ -46,9 +46,15 @@ from storage import KVStore
 #: revises at, and it is now a property of the SYSTEM rather than of whoever happens to
 #: call the API.
 BUNDLE_KEY = "bundle:latest"
-BUNDLE_TTL_SECONDS = 3600.0
+
+#: How old a bundle may be before a request triggers a background rebuild. Five minutes,
+#: matching the cron.
+BUNDLE_FRESH_SECONDS = 300.0
+#: How old it may be before a request refuses to use it and rebuilds INLINE, blocking.
+#: An hour is well past any generation forecast's usefulness.
+BUNDLE_MAX_SECONDS = 3600.0
 #: Reuse within one isolate, so a burst of requests shares one rehydrate.
-ISOLATE_TTL_SECONDS = 240.0
+ISOLATE_TTL_SECONDS = 120.0
 
 _CACHE = {"snaps": None, "book": None, "claims": None, "at": 0.0, "stats": {},
           "built_at": None, "source": ""}
@@ -121,8 +127,24 @@ def _rehydrate(bundle, now):
     return snaps, book, _claims_for_all(now)
 
 
-async def _load(env, now):
-    """Snapshots for this request: isolate cache, then KV, then a build as a last resort."""
+async def _load(env, now, ctx=None):
+    """Snapshots for this request. Stale-while-revalidate.
+
+    THE CRON IS NOT TRUSTED TO BE THE ONLY PATH. It is registered — wrangler reports
+    `schedule: */5 * * * *` — and the bundle's age was observed growing linearly at 865s,
+    966s, 1067s across three samples, which means the scheduled handler was not running
+    and no error surfaced anywhere a deploy log would show it.
+
+    Rather than keep guessing at handler signatures against a beta runtime, freshness is
+    made a property of TRAFFIC as well as of the clock: a request that finds a bundle past
+    BUNDLE_FRESH_SECONDS serves it immediately and rebuilds in the background through
+    waitUntil, so the requester waits for nothing and the next one gets current numbers.
+    The cron still runs if it works, and is now a bonus rather than a single point of
+    failure.
+
+    Past BUNDLE_MAX_SECONDS the bundle is refused outright and the rebuild blocks, because
+    an hour-old release forecast is not a thing to plan a morning on.
+    """
     if _CACHE["snaps"] is not None and (now - _CACHE["at"]) < ISOLATE_TTL_SECONDS:
         return (_CACHE["snaps"], _CACHE["book"], _CACHE["claims"], _CACHE["stats"])
 
@@ -132,17 +154,24 @@ async def _load(env, now):
         if raw:
             bundle = json.loads(raw)
             age = now - float(bundle.get("built_at") or 0)
-            if age < BUNDLE_TTL_SECONDS:
+            if age < BUNDLE_MAX_SECONDS:
                 snaps, book, claims = _rehydrate(bundle, now)
+                stale = age >= BUNDLE_FRESH_SECONDS
                 _CACHE.update(snaps=snaps, book=book, claims=claims, at=now,
                               stats=dict(bundle.get("prefetch") or {},
-                                         bundle_age_s=round(age, 1)),
+                                         bundle_age_s=round(age, 1),
+                                         revalidating=stale),
                               built_at=bundle.get("built_at"), source="kv")
+                if stale and ctx is not None:
+                    try:
+                        ctx.waitUntil(build_bundle(env, now))
+                    except Exception:               # noqa: BLE001
+                        pass
                 return snaps, book, claims, _CACHE["stats"]
 
-    # No bundle, or a stale one. Build inline — expensive, and the honest fallback for a
-    # cold start before the first cron has run. The freshness strip reports the real ages
-    # either way, so a request served this way is not silently different.
+    # No bundle, or one too old to use. Build inline — expensive, and the honest fallback
+    # for a cold start before anything has populated KV. The freshness strip reports the
+    # real ages either way, so a request served this way is not silently different.
     bundle, stats = await build_bundle(env, now)
     snaps, book, claims = _rehydrate(bundle, now)
     _CACHE.update(snaps=snaps, book=book, claims=claims, at=now,
@@ -204,7 +233,7 @@ async def _flush(store):
     store.clear_pending()
 
 
-async def handle(request, env):
+async def handle(request, env, ctx=None):
     t0 = time.time()
     url = str(request.url)
     path = "/" + url.split("://", 1)[-1].split("/", 1)[-1].split("?")[0] \
@@ -255,7 +284,7 @@ async def handle(request, env):
                     obj["prefetch"] = b.get("prefetch") or {}
             return _json(status, obj, cors)
 
-        snaps, book, claims, stats = await _load(env, now)
+        snaps, book, claims, stats = await _load(env, now, ctx)
         ctx = Context(snapshots=snaps, book=book, claims_by_zone=claims, store=store,
                       research_status=_research_status(env),
                       source_stats=stats, now=now)
@@ -296,11 +325,11 @@ def _research_status(env):
 # which is a strictly worse failure: it happens later and says less.
 
 
-async def on_fetch(request, env):
-    return await handle(request, env)
+async def on_fetch(request, env, ctx=None):
+    return await handle(request, env, ctx)
 
 
-async def on_scheduled(event, env, ctx):
+async def on_scheduled(event, env, ctx=None):
     """The cron. §12, §37 — the system keeps conditions fresh, not the caller."""
     await build_bundle(env, time.time())
 
@@ -310,9 +339,9 @@ try:
 
     class Default(WorkerEntrypoint):
         async def fetch(self, request):
-            return await handle(request, self.env)
+            return await handle(request, self.env, getattr(self, "ctx", None))
 
-        async def scheduled(self, event):
+        async def scheduled(self, _event=None):
             await build_bundle(self.env, time.time())
 except ImportError:                                 # older runtime — on_fetch carries it
     pass
