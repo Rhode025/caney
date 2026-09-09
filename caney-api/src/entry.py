@@ -218,7 +218,27 @@ async def _read_shards(kv, now):
     return zones, book, meta
 
 
-async def _load(env, now, ctx=None):
+def _kick(env, ctx, shard, self_url):
+    """Ask ourselves to rebuild one shard, in its own invocation. Fire and forget."""
+    if not self_url or ctx is None or not hasattr(ctx, "waitUntil"):
+        return "unavailable"
+    token = str(getattr(env, "INTERNAL_TOKEN", "") or "")
+    if not token:
+        return "no-token"
+    try:
+        from js import Object
+        from pyodide.ffi import to_js
+        url = "%s/internal/rebuild?shard=%d" % (self_url.rstrip("/"), shard)
+        opts = to_js({"method": "POST",
+                      "headers": {"X-Caney-Internal": token}},
+                     dict_converter=Object.fromEntries)
+        ctx.waitUntil(fetch(url, opts))
+        return "self-fetch"
+    except Exception as e:                          # noqa: BLE001
+        return "failed: %s" % str(e)[:60]
+
+
+async def _load(env, now, ctx=None, self_url=""):
     """Snapshots for this request, merged from the shards. Stale-while-revalidate.
 
     THE CRON IS NOT TRUSTED TO BE THE ONLY PATH. It is registered — wrangler reports
@@ -263,9 +283,22 @@ async def _load(env, now, ctx=None):
             # visible rather than assumed, and a generation forecast revises far more
             # slowly than it is fetched.
             if oldest >= BUNDLE_FRESH_SECONDS:
-                stats["stale"] = True
-                stats["stale_note"] = ("waiting on the scheduled build; requests do not "
-                                       "rebuild")
+                # REBUILD IN A SEPARATE INVOCATION, by asking ourselves.
+                #
+                # The cron is dead — 24 minutes of staleness observed with it registered —
+                # and doing the rebuild inline is what returned 1102, because a request
+                # that also rebuilds spends one invocation's CPU on reading three shards,
+                # rehydrating 22 zones, planning, and then two snapshot passes and ~28
+                # fetches. Taking rebuilds off the request path fixed the 1102s and left
+                # the data stale, which is not a trade worth making.
+                #
+                # A self-addressed fetch costs the requester ONE subrequest and hands the
+                # work to a fresh invocation with its own budget. waitUntil defers within
+                # this invocation; a new request gets a new one. That distinction is the
+                # whole fix, and it is the thing I had wrong twice.
+                stale_n = max(present, key=lambda m: m["age_s"])["shard"]
+                stats["revalidating"] = stale_n
+                stats["revalidate_mode"] = _kick(env, ctx, stale_n, self_url)
             return snaps, bk, claims, stats
 
         # Some shards are missing. Build EXACTLY ONE, and never fan the rest out into
@@ -415,7 +448,22 @@ async def handle(request, env, ctx=None):
             obj["ctx_available"] = ctx is not None and hasattr(ctx, "waitUntil")
             return _json(status, obj, cors)
 
-        snaps, book, claims, stats = await _load(env, now, ctx)
+        # §77 — internal only. Not routed publicly, requires the shared secret, and does
+        # exactly one thing: rebuild one shard in this invocation's own budget.
+        if path.rstrip("/") == "/internal/rebuild":
+            token = str(getattr(env, "INTERNAL_TOKEN", "") or "")
+            given = request.headers.get("X-Caney-Internal") or ""
+            if not token or given != token:
+                return _json(403, {"error": {"message": "internal endpoint",
+                                             "status": 403, "code": "forbidden"}}, cors)
+            try:
+                n = int((url.split("shard=")[1].split("&")[0]) if "shard=" in url else 0)
+            except (IndexError, ValueError):
+                n = 0
+            _b, st2 = await build_bundle(env, now, "self", n % SHARDS)
+            return _json(200, {"ok": True, "shard": n % SHARDS, "prefetch": st2}, cors)
+
+        snaps, book, claims, stats = await _load(env, now, ctx, _origin_of(url))
         ctx = Context(snapshots=snaps, book=book, claims_by_zone=claims, store=store,
                       research_status=_research_status(env),
                       source_stats=stats, now=now)
@@ -438,6 +486,14 @@ async def handle(request, env, ctx=None):
             "message": "%s: %s" % (type(e).__name__, e), "status": 500,
             "code": "internal_error",
             "trace": traceback.format_exc()[-1200:] if _debug(env) else None}}, cors)
+
+
+def _origin_of(url):
+    try:
+        i = url.index("://") + 3
+        return url[:i] + url[i:].split("/", 1)[0]
+    except ValueError:
+        return ""
 
 
 def _debug(env):

@@ -13,6 +13,9 @@ crons = ["*/5 * * * *"]
 # §77 — the browser calls this from the Pages origin. Not a wildcard.
 ALLOWED_ORIGINS = "https://caney.pages.dev,http://localhost:8788"
 DEBUG = "0"
+# Guards /internal/rebuild (§77). Not a credential for anything external — it exists so
+# the only caller that can trigger a rebuild is this worker asking itself.
+INTERNAL_TOKEN = "bIzbY4QwrCt-kM-ctwiQ9A1lK5Zli4Th"
 
 # Plans, snapshots and sessions (§78). KV rather than D1 because the deploy token returns
 # 401 on the D1 API — see DEPLOYMENT.md. Everything the API does addresses storage by id,
