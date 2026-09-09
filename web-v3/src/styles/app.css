@@ -251,3 +251,16 @@ button.primary[disabled] { opacity: .55; cursor: default; }
 .empty { color: var(--muted); font-size: 14.5px; padding: 24px 0; text-align: center; }
 .reference-link { margin: 28px 0 0; font-size: 14.5px; }
 .reference-link a { color: var(--accent); }
+
+/* WCAG 2.5.8 (AA) sets a 24x24 minimum for pointer targets, with an exemption for links
+   inline in a sentence. These are source links and the reference link — inline, so
+   exempt, and they were rendering at 18px anyway because .tiny runs at 11.5px with a
+   tight line-height. Exempt is not the same as unusable: an 18px target on a phone in
+   the cold is a miss, so they get vertical padding to clear 24 without disturbing the
+   line they sit in. */
+.tiny a, .claims a, .bullets a, .reference-link a {
+  display: inline-block;
+  padding-block: 4px;
+  min-height: 24px;
+  line-height: 16px;
+}
