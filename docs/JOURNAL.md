@@ -1153,9 +1153,27 @@ Four things failed before the fifth worked, and the pattern is one idea:
 4. **`waitUntil` does not buy a fresh budget.** It defers work within the SAME invocation.
    A cold start doing one shard inline plus two in waitUntil put ~72 fetches on one
    invocation and returned 1102.
-5. **The fix is a separate invocation.** The Worker's own cron never fires; a
-   self-addressed fetch never lands; an external POST to `/internal/rebuild` works.
-   `.github/workflows/refresh.yml` every ten minutes.
+5. **The fix is a separate invocation.** `waitUntil` shares the caller's budget; a new
+   request gets a new one. An external POST to `/internal/rebuild` works.
+
+**And then the cron turned out not to be dead.** Added late, because it corrects the point
+above. The build markers said every build ever was `why="self"` — no `"cron"` marker had
+ever existed, which rules out "threw inside the body" (that writes a start marker first)
+and leaves "invoked with an arity the signature refused". `on_scheduled(event, env,
+ctx=None)` accepts exactly that shape and a TypeError at the call boundary leaves no trace
+at all. Both handlers now take `*args/**kwargs` and find `env` by looking for an object
+carrying bindings. A `why=cron` marker appeared within two minutes.
+
+I then reported it as firing "intermittently" and **that was also wrong** — I sampled
+mid-rotation. One shard per fire means a full cycle is fifteen minutes, so any single
+sample finds two shards behind and looks like a stall. Fires are five minutes apart.
+
+Which exposed the real problem: with the cron working, `refresh.yml` rebuilding all three
+shards every ten minutes was ~11,000 needless fetches a day at four public agencies.
+USGS updates every 15 min, CWMS and Open-Meteo hourly, and this repo's own freshness
+budgets are 2-3 hours. The fifteen-minute per-shard rotation is already matched to the
+fastest thing upstream — **do not speed it up**. The net now reads `/health` first and
+acts only on what is behind, every 30 minutes. ~20,000 fetches/day became ~8,000.
 
 Cloudflare returns 1101/1102 as plain text **with no CORS headers**, so from a browser they
 arrive as a CORS error. The first diagnosis was "CORS" and it was two layers from the
@@ -1168,6 +1186,8 @@ look at the worker, not the headers.
   401). KV covers everything except queries.
 - RES-03: no `OPENAI_API_KEY`, so research is off. The planner is deterministic without it.
 - API-05: cold isolates return 1101/1102 about one time in four; retries make it invisible.
-  A Paid plan would raise the CPU limit.
+  A Paid plan would raise the CPU limit. `tools/api_check.py` exists because a probe
+  WITHOUT a retry reports this healthy service as down — it did, to me, during a final
+  verification pass.
 - Every utility constant is still an uncalibrated prior. `analysis/road_factor.py` is the
   only fitted thing in the release.
