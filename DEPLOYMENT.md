@@ -113,7 +113,7 @@ blocked:
 
   - id: API-03
     what: keeping the snapshot shards fresh
-    status: RESOLVED, by three paths, because no single one is reliable
+    status: RESOLVED
     the_bug: the Worker's own cron looked dead — wrangler printed
       `schedule: */5 * * * *` on every deploy and bundle age grew 865s, 966s, 1067s with
       no error anywhere. The build markers settled it: build_bundle writes
@@ -123,18 +123,24 @@ blocked:
       TypeError at the call boundary leaves no marker, no log, no trace. Both handlers
       now take *args/**kwargs and find env by looking for an object carrying bindings.
       A why=cron marker appeared within two minutes.
-    the_residual: it fires INTERMITTENTLY. Observed one landed build in seventeen
-      minutes where three were due; the missing fires never reached build_bundle at all.
-      Separately, GitHub's schedule trigger on refresh.yml had still not fired an hour
-      after the workflow was added, which matches CLAUDE.md's existing note about
-      scheduled runs here arriving 40-100 minutes late or never.
-    so: three independent paths, and the reliable one is the third.
-      1. the Worker cron, every 5 min, one shard per bucket — intermittent
-      2. .github/workflows/refresh.yml, every 10 min, all three shards — unproven
-      3. .github/workflows/deploy.yml, hourly and on every push — RELIABLE, it has been
-         running all along
-      Worst case is therefore an hour of staleness, and the freshness strip reports every
-      signal's real age rather than assuming. A release forecast revises far more slowly.
+    a_correction: I first reported the fixed cron as firing "intermittently" — one landed
+      build in seventeen minutes where three were due. That was wrong, and wrong because
+      I sampled during a rotation. Two fires are visible at 15:15:30 and 15:20:28, exactly
+      five minutes apart. One shard per fire means a full cycle takes fifteen minutes, so
+      any single sample finds two shards mid-cycle and looks like a stall.
+    cadence_is_deliberate: each shard refreshes every fifteen minutes, and that is matched
+      to what the data does rather than to what a cron can manage. USGS instantaneous
+      values update every 15 min; CWMS and Open-Meteo are hourly; the freshness budgets in
+      caney/domain/observation.py are two to three HOURS. Fetching faster would get
+      nothing new and snapshots.py is explicit that these are four public agencies, not a
+      CDN. Do not "optimise" this upward.
+    the_net: .github/workflows/refresh.yml every 30 min, and the hourly site build, both
+      with --stale-after so they read /health and rebuild only shards genuinely behind. A
+      healthy system costs one GET. Rebuilding all three unconditionally every ten minutes
+      — which is what this did first — was ~11,000 extra fetches a day for numbers that
+      had not changed. Total dropped from ~20,000/day to ~8,000, almost all of it the cron
+      doing the work it should.
+      The net is still worth having: the primary failed silently once already.
     manual: python3 tools/refresh_api.py
 
   - id: API-04
