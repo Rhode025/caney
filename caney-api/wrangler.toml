@@ -1,0 +1,29 @@
+name = "caney-api"
+main = "src/entry.py"
+compatibility_date = "2026-01-01"
+compatibility_flags = ["python_workers"]
+
+[vars]
+# §77 — the browser calls this from the Pages origin. Not a wildcard.
+ALLOWED_ORIGINS = "https://caney.pages.dev,http://localhost:8788"
+DEBUG = "0"
+
+# Plans, snapshots and sessions (§78). KV rather than D1 because the deploy token returns
+# 401 on the D1 API — see DEPLOYMENT.md. Everything the API does addresses storage by id,
+# so KV serves; what is missing is queries ("my last ten trips"), which need D1.
+[[kv_namespaces]]
+binding = "PLANS"
+id = "REPLACE_WITH_KV_ID"
+
+# §35 — the Research Worker is reached by SERVICE BINDING, privately. The browser never
+# receives OPENAI_API_KEY and never calls research directly. Commented until the research
+# worker is deployed; the API degrades to research_status="disabled" without it.
+# [[services]]
+# binding = "RESEARCH"
+# service = "caney-research"
+
+# D1, for when the token can create one. The code path exists; the binding does not.
+# [[d1_databases]]
+# binding = "DB"
+# database_name = "caney"
+# database_id = "REPLACE_WITH_D1_ID"

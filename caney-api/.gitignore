@@ -1,0 +1,4 @@
+# The planner package is COPIED here at deploy time, not checked in. §4 says do not create
+# a second copy of the planner; the way to keep that true under a bundler that needs every
+# module beside the entry point is to make the copy a build artifact nobody can edit.
+src/caney/

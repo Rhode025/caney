@@ -47,7 +47,7 @@ jobs:
           echo "::endgroup::"
 
       - name: Capability probe
-        if: ${{ inputs.action == 'probe' }}
+        if: ${{ inputs.action == 'probe' || inputs.action == 'bootstrap' }}
         run: |
           set +e
           api() { curl -s -o /tmp/r.json -w "%{http_code}" \
@@ -61,3 +61,63 @@ jobs:
           echo
           echo "A 200 on workers/scripts, d1/database and storage/kv/namespaces means the"
           echo "token can deploy Caney 3.0 end to end. A 403 names the missing permission."
+
+      # ── bootstrap ────────────────────────────────────────────────────────
+      # KV namespaces are created once and their ids written into the wrangler files.
+      # D1 is attempted and expected to fail on the current token (401); the step reports
+      # that rather than failing the run, because everything else can proceed without it.
+      - name: Create KV namespaces
+        if: ${{ inputs.action == 'bootstrap' }}
+        run: |
+          set -e
+          mk() {
+            echo "::group::KV $1"
+            out=$(npx --yes wrangler@3 kv namespace create "$1" 2>&1) || true
+            echo "$out"
+            echo "$out" | grep -oE 'id = "[0-9a-f]{32}"' | head -1 ||             echo "$out" | grep -oE '"id": "[0-9a-f]{32}"' | head -1 || true
+            echo "::endgroup::"
+          }
+          mk CACHE
+          mk PLANS
+          echo
+          echo "Copy each id into the matching wrangler.toml and commit."
+
+      - name: Try D1
+        if: ${{ inputs.action == 'bootstrap' }}
+        run: |
+          npx --yes wrangler@3 d1 create caney-research 2>&1 | tail -20 ||             echo "D1 unavailable with this token — see DEPLOYMENT.md"
+
+      # ── research worker ──────────────────────────────────────────────────
+      - name: Deploy caney-research
+        if: ${{ inputs.action == 'deploy-research' || inputs.action == 'deploy-all' }}
+        working-directory: research-worker
+        run: |
+          npx --yes wrangler@3 deploy 2>&1 | tail -30
+
+      # ── api worker ───────────────────────────────────────────────────────
+      # §4 — the planner package is COPIED in, never checked in. A bundler needs every
+      # module beside the entry point; a second editable copy in the repo is how two
+      # implementations of one number appear.
+      - name: Vendor the planner package
+        if: ${{ inputs.action == 'deploy-api' || inputs.action == 'deploy-all' }}
+        run: |
+          rm -rf caney-api/src/caney
+          cp -R caney caney-api/src/caney
+          find caney-api/src/caney -name '__pycache__' -type d -exec rm -rf {} + || true
+          echo "vendored $(find caney-api/src/caney -name '*.py' | wc -l) modules, $(du -sh caney-api/src/caney | cut -f1)"
+
+      - name: Deploy caney-api
+        if: ${{ inputs.action == 'deploy-api' || inputs.action == 'deploy-all' }}
+        working-directory: caney-api
+        run: |
+          npx --yes wrangler@3 deploy 2>&1 | tail -40
+
+      - name: Smoke the deployments
+        if: ${{ startsWith(inputs.action, 'deploy') }}
+        run: |
+          set +e
+          for host in caney-api caney-research; do
+            url="https://$host.$(npx --yes wrangler@3 whoami 2>/dev/null | grep -oE '[a-z0-9-]+\.workers\.dev' | head -1)"
+            echo "— $host —"
+          done
+          echo "Smoke runs from the post-deploy workflow; see DEPLOYMENT.md for URLs."
