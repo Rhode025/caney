@@ -31,6 +31,12 @@ const ok = n => console.log('  \x1b[32m✓\x1b[0m ' + n);
 const bad = (n, d) => { fails++; console.log('  \x1b[31m✗\x1b[0m ' + n + (d ? ' — ' + d : '')); };
 const assert = (n, c, d) => c ? ok(n) : bad(n, d);
 
+// Losing the network mid-run while fetching an OSM tile is not a JS error, and this check
+// exists to catch JS errors. Failing on connectivity turns a page-quality gate into a
+// flaky one, which is how a gate stops being believed. Everything else still fails: a 404,
+// a CSP violation, any pageerror, and any console.error the page itself raised.
+const TRANSIENT = /net::ERR_(NETWORK_CHANGED|INTERNET_DISCONNECTED|TIMED_OUT|CONNECTION_\w+|NAME_NOT_RESOLVED|ABORTED|ADDRESS_UNREACHABLE)/;
+
 const browser = await chromium.launch();
 console.log(`── post-deploy smoke: ${BASE} ──`);
 console.log(`   ${RIVER_PAGES.length} river pages + the board and the roadmap`);
@@ -51,7 +57,10 @@ for (const p of PAGES) {
   assert(`${p}: build stamp rendered`, !!(await pg.$('#bstamp')));
   assert(`${p}: switcher links back to the planner`,
     !!(await pg.$('a[href="index.html"]')));
-  const real = errs.filter(e => !/favicon/.test(e));
+  const real = errs.filter(e => !/favicon/.test(e) && !TRANSIENT.test(e));
+  const flaky = errs.filter(e => TRANSIENT.test(e));
+  if (flaky.length) console.log(`      \x1b[33m~\x1b[0m ${flaky.length} transient network `
+    + `failure(s) fetching third-party assets — not counted`);
   assert(`${p}: no JS errors`, real.length === 0, real.join(' | '));
   await pg.close();
 }

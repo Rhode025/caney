@@ -31,6 +31,13 @@ const assert = (n, cond, d) => cond ? ok(n) : bad(n, d);
 const browser = await chromium.launch();
 
 // ── every page: no JS errors, switcher intact, map present ──
+// Losing the network mid-run while fetching an OSM tile is not a JS error, and this check
+// exists to catch JS errors — the negative-<rect> SVG bug is the worked example. Failing on
+// connectivity turns a page-quality gate into a flaky one, which is how a gate stops being
+// believed. Everything else still fails: a 404, a CSP violation, any pageerror, and any
+// console.error the page itself raised.
+const TRANSIENT = /net::ERR_(NETWORK_CHANGED|INTERNET_DISCONNECTED|TIMED_OUT|CONNECTION_\w+|NAME_NOT_RESOLVED|ABORTED|ADDRESS_UNREACHABLE)/;
+
 console.log('── runtime: pages load clean ──');
 for (const p of PAGES) {
   const errs = [];
@@ -39,7 +46,10 @@ for (const p of PAGES) {
   pg.on('pageerror', e => errs.push('pageerror: ' + String(e).slice(0, 120)));
   await pg.goto(url(p), { waitUntil: 'networkidle', timeout: 20000 }).catch(e => errs.push('nav: ' + e.message));
   await pg.waitForTimeout(500);
-  const real = errs.filter(e => !/favicon/.test(e));
+  const real = errs.filter(e => !/favicon/.test(e) && !TRANSIENT.test(e));
+  const flaky = errs.filter(e => TRANSIENT.test(e));
+  if (flaky.length) console.log(`      \x1b[33m~\x1b[0m ${flaky.length} transient network ` +
+    `failure(s) fetching third-party assets — not counted: ${flaky[0].slice(0, 70)}`);
   assert('no JS errors: ' + p, real.length === 0, real.join(' | '));
   if (p !== HQ) {
     const tabs = await pg.$$eval('.switch a', a => a.length).catch(() => 0);

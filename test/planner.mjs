@@ -47,9 +47,17 @@ const server = process.argv[2] ? null : await serve(PORT);
 const browser = await chromium.launch();
 const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
 const page = await ctx.newPage();
+// Losing the network mid-run while fetching an OSM tile is not a JS error, and this check
+// exists to catch JS errors. Failing on connectivity turns a page-quality gate into a
+// flaky one, which is how a gate stops being believed. Everything else still fails: a 404,
+// a CSP violation, any pageerror, and any console.error the page itself raised.
+const TRANSIENT = /net::ERR_(NETWORK_CHANGED|INTERNET_DISCONNECTED|TIMED_OUT|CONNECTION_\w+|NAME_NOT_RESOLVED|ABORTED|ADDRESS_UNREACHABLE)/;
+
 const errors = [];
-page.on("pageerror", (e) => errors.push("pageerror: " + e.message));
-page.on("console", (m) => { if (m.type() === "error") errors.push("console: " + m.text()); });
+const flaky = [];
+const record = (e) => (TRANSIENT.test(e) ? flaky : errors).push(e);
+page.on("pageerror", (e) => record("pageerror: " + e.message));
+page.on("console", (m) => { if (m.type() === "error") record("console: " + m.text()); });
 
 async function plan(species, preset, craft) {
   await page.goto(BASE + "/index.html", { waitUntil: "networkidle" });
@@ -379,6 +387,10 @@ is("Leaflet is bundled locally, not from a CDN",
    (await ctx.request.get(BASE + "/assets/leaflet.js")).ok());
 
 section("console");
+if (flaky.length) {
+  console.log(`      \x1b[33m~\x1b[0m ${flaky.length} transient network failure(s) ` +
+              `fetching third-party assets — not counted`);
+}
 is("no JavaScript errors anywhere in this run", errors.length === 0,
    errors.slice(0, 3).join(" | "));
 

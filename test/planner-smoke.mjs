@@ -21,9 +21,17 @@ console.log("── post-deploy smoke: " + SITE + " ──");
 const browser = await chromium.launch();
 const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
 const page = await ctx.newPage();
+// Losing the network mid-run while fetching an OSM tile is not a JS error, and this check
+// exists to catch JS errors. Failing on connectivity turns a page-quality gate into a
+// flaky one, which is how a gate stops being believed. Everything else still fails: a 404,
+// a CSP violation, any pageerror, and any console.error the page itself raised.
+const TRANSIENT = /net::ERR_(NETWORK_CHANGED|INTERNET_DISCONNECTED|TIMED_OUT|CONNECTION_\w+|NAME_NOT_RESOLVED|ABORTED|ADDRESS_UNREACHABLE)/;
+
 const errors = [];
-page.on("pageerror", (e) => errors.push(e.message));
-page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
+page.on("pageerror", (e) => { if (!TRANSIENT.test(e.message)) errors.push(e.message); });
+page.on("console", (m) => {
+  if (m.type() === "error" && !TRANSIENT.test(m.text())) errors.push(m.text());
+});
 
 const res = await page.goto(SITE + "/", { waitUntil: "networkidle", timeout: 45000 });
 is("homepage returns 200", res && res.status() === 200, String(res && res.status()));
