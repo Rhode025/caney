@@ -94,8 +94,8 @@ _TZC = {}
 
 def _tz(name):
     if name not in _TZC:
-        from zoneinfo import ZoneInfo
-        _TZC[name] = ZoneInfo(name)
+        from ..tz import zone as _tzf
+        _TZC[name] = _tzf(name)
     return _TZC[name]
 
 

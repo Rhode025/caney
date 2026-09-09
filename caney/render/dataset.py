@@ -52,7 +52,7 @@ def build(snaps, book, claims_by_zone_species, now=None, research_meta=None,
     # 08:00 would silently drop those hours — which is exactly the parity failure that
     # made this comment necessary.
     import datetime as _d
-    from zoneinfo import ZoneInfo as _Z
+    from ..tz import zone as _Z
     _tz = _Z("America/Chicago")
     _today = _d.datetime.fromtimestamp(now, _tz).date()
     t0 = int(_d.datetime(_today.year, _today.month, _today.day, tzinfo=_tz).timestamp())
@@ -156,8 +156,8 @@ def build(snaps, book, claims_by_zone_species, now=None, research_meta=None,
         # per-date sun and moon across the horizon (§14, and the day-identity invariant:
         # epochs only, labelled client-side from the reader's own clock)
         import datetime as _dt
-        from zoneinfo import ZoneInfo
-        tz = ZoneInfo(snap.tz_name)
+        from ..tz import zone as _tzf
+        tz = _tzf(snap.tz_name)
         for d in range(0, horizon_h // 24 + 2):
             date = (_dt.datetime.fromtimestamp(t0, tz) + _dt.timedelta(days=d)).date()
             v = localize(snap, date)

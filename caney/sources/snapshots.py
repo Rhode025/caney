@@ -19,7 +19,7 @@ minted (§3.3). Three properties matter more than anything else here:
 """
 import datetime as _dt
 import time
-from zoneinfo import ZoneInfo
+from ..tz import zone as _tz
 
 from ..domain.claim import ClaimBook, SafetyKind
 from ..domain.observation import DataState, Observation
@@ -81,7 +81,7 @@ def _release_events(rows, cfg, now, horizon):
 def build_all(now=None, horizon_days=3, tz_name="America/Chicago", book=None):
     """{zone_id: RiverSnapshot}, plus the ClaimBook every safety sentence must cite."""
     now = now or time.time()
-    tz = ZoneInfo(tz_name)
+    tz = _tz(tz_name)
     book = book if book is not None else ClaimBook()
     horizon = now + horizon_days * 86400
 
@@ -113,7 +113,28 @@ def build_all(now=None, horizon_days=3, tz_name="America/Chicago", book=None):
 
 
 def _load_river(rid, now, horizon):
-    """One fetch set per hydrology river, shared by every zone on it."""
+    """One fetch set per hydrology river, shared by every zone on it.
+
+    Labelled so a recording runtime can group the requests by river (§32): the API
+    Worker fetches the sources for the rivers a request could plausibly reach, not the
+    whole system's.
+    """
+    from . import runtime as _rt
+    _r = _rt.current()
+    ctx = _r.label(rid) if hasattr(_r, "label") else _NullCtx()
+    with ctx:
+        return _load_river_inner(rid, now, horizon)
+
+
+class _NullCtx:
+    def __enter__(self):
+        return None
+
+    def __exit__(self, *a):
+        return False
+
+
+def _load_river_inner(rid, now, horizon):
     cfg = water_for(rid)
     out = {"cfg": cfg, "errors": []}
 
@@ -339,7 +360,7 @@ def localize(snap, date):
     """
     import copy as _copy
     v = _copy.copy(snap)
-    tz = ZoneInfo(snap.tz_name)
+    tz = _tz(snap.tz_name)
     v.sunrise, v.sunset = weather.sun_for(snap.weather_daily or {}, date.isoformat(),
                                           snap.tz_name)
     v.lunar = lunar.lunar_day(date,

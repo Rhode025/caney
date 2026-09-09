@@ -17,7 +17,7 @@ that cannot be waded is removed from a wade request, it does not merely score lo
 """
 import datetime as _dt
 import time
-from zoneinfo import ZoneInfo
+from ..tz import zone as _tz
 
 from ..domain.claim import SafetyKind
 from ..domain.observation import DataState
@@ -46,7 +46,7 @@ class Request:
         self.end = float(end)
         self.craft = craft or Craft.ANY
         self.tz_name = tz
-        self.tz = ZoneInfo(tz)
+        self.tz = _tz(tz)
         self.now = now or time.time()
         if self.end <= self.start:
             raise ValueError("requested window ends before it starts")
