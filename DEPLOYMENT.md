@@ -125,22 +125,32 @@ blocked:
       A why=cron marker appeared within two minutes.
     a_correction: I first reported the fixed cron as firing "intermittently" — one landed
       build in seventeen minutes where three were due. That was wrong, and wrong because
-      I sampled during a rotation. Two fires are visible at 15:15:30 and 15:20:28, exactly
-      five minutes apart. One shard per fire means a full cycle takes fifteen minutes, so
-      any single sample finds two shards mid-cycle and looks like a stall.
-    cadence_is_deliberate: each shard refreshes every fifteen minutes, and that is matched
-      to what the data does rather than to what a cron can manage. USGS instantaneous
-      values update every 15 min; CWMS and Open-Meteo are hourly; the freshness budgets in
+      I sampled during a rotation. One shard per fire means a full cycle takes fifteen
+      minutes, so any single sample finds two shards mid-cycle and looks like a stall.
+    measured: twenty minutes of observation with nothing else touching the API —
+        fire at 15:30:29 -> shard 0
+        fire at 15:35:28 -> shard 1
+        fire at 15:40:27 -> shard 2
+      299 seconds apart, rotating in order, full cycle in fifteen minutes. Confirmed
+      independently from the hourly build, which found shard ages 701s / 402s / 102s —
+      the same 300-second spacing seen from outside — and correctly did nothing.
+    cadence_is_deliberate: fifteen minutes per shard is matched to what the data does
+      rather than to what a cron can manage. USGS instantaneous values update every 15
+      min; CWMS and Open-Meteo are hourly; the freshness budgets in
       caney/domain/observation.py are two to three HOURS. Fetching faster would get
-      nothing new and snapshots.py is explicit that these are four public agencies, not a
-      CDN. Do not "optimise" this upward.
-    the_net: .github/workflows/refresh.yml every 30 min, and the hourly site build, both
-      with --stale-after so they read /health and rebuild only shards genuinely behind. A
-      healthy system costs one GET. Rebuilding all three unconditionally every ten minutes
-      — which is what this did first — was ~11,000 extra fetches a day for numbers that
-      had not changed. Total dropped from ~20,000/day to ~8,000, almost all of it the cron
-      doing the work it should.
-      The net is still worth having: the primary failed silently once already.
+      nothing new, and snapshots.py is explicit that these are four public agencies, not
+      a CDN. Do not "optimise" this upward.
+    the_net: two paths behind the cron, and only one of them is proven.
+      * .github/workflows/deploy.yml — hourly and on every push. PROVEN: observed
+        skipping cleanly with "nothing is stale — the scheduled build is keeping up".
+      * .github/workflows/refresh.yml — every 30 min. Its schedule trigger had STILL not
+        fired two hours after the workflow was added, matching CLAUDE.md's note about
+        scheduled runs here arriving 40-100 minutes late or never. It works on dispatch.
+      Both use --stale-after, so they read /health and rebuild only what is genuinely
+      behind; a healthy system costs one GET. Rebuilding all three unconditionally every
+      ten minutes — which is what this did first — was ~11,000 extra fetches a day for
+      numbers that had not changed. Total dropped from ~20,000/day to ~8,000, almost all
+      of it the cron doing the work it should.
     manual: python3 tools/refresh_api.py
 
   - id: API-04
