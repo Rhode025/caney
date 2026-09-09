@@ -1109,6 +1109,144 @@
    ],
    "issue": 156,
    "issue_url": "https://github.com/Rhode025/caney/issues/156"
+  },
+  {
+   "key": "API-05",
+   "epic": "Build & CI",
+   "priority": "P1",
+   "effort": "S",
+   "lane": "next",
+   "title": "Cold Python Worker isolates return 1101/1102 about one call in four",
+   "evidence": "A cold isolate cannot always import the package and rehydrate the state bundle inside its CPU budget. Measured on the deployed worker: warm requests 0.92s median and 1.39s p95, reliable; cold ones 2.6-4s and failing roughly one in four. Cloudflare returns 1101/1102 as plain text with NO CORS headers, so from a browser they arrive as a CORS error \u2014 which cost an hour of looking at the wrong layer. The app and tools/refresh_api.py retry, and the retry lands on the isolate the first attempt warmed, so it is invisible in practice. It is still real. Profiled first: the whole worker import set is 22ms and parsing all three shards is 14ms, so neither is the limit \u2014 the cost is Pyodide runtime startup. Trimming imports was suggested and the measurement refuted it.",
+   "done": [
+    "A Workers Paid plan is enabled, or the cause is re-measured against a newer Python Workers runtime.",
+    "Ten consecutive cold requests succeed without a retry.",
+    "DEPLOYMENT.md API-05 moves from MITIGATED to RESOLVED."
+   ],
+   "sprint": 54,
+   "issue": 158,
+   "issue_url": "https://github.com/Rhode025/caney/issues/158"
+  },
+  {
+   "key": "RES-02",
+   "epic": "Research",
+   "priority": "P1",
+   "effort": "S",
+   "lane": "next",
+   "title": "D1 is unreachable: the deploy token's role has no D1 privilege",
+   "evidence": "workers.yml -f action=probe returns 200 on workers/scripts, storage/kv/namespaces and pages/projects, and 401 on d1/database. Cloudflare's own message is 'Contact account super admin to change your permissions', so this is a permission limit and not a design choice. Both workers ship without a database. Every D1 use is guarded and the research budget caps fall back to KV counters, so nothing is broken \u2014 what is missing is QUERIES (claim history, 'my last ten trips') and exact counting under concurrency.",
+   "done": [
+    "D1:Edit is added to CLOUDFLARE_API_TOKEN by the account admin.",
+    "workers.yml -f action=bootstrap creates the database.",
+    "The [[d1_databases]] blocks are uncommented in both wrangler.toml files and research-worker/schema.sql is applied.",
+    "/health on caney-research reports hasDb true."
+   ],
+   "sprint": 55,
+   "issue": 159,
+   "issue_url": "https://github.com/Rhode025/caney/issues/159"
+  },
+  {
+   "key": "RES-03",
+   "epic": "Research",
+   "priority": "P2",
+   "effort": "S",
+   "lane": "next",
+   "title": "Live primary-source research is off \u2014 no OPENAI_API_KEY is configured",
+   "evidence": "caney-research is deployed and healthy but reports enabled=false. The planner is fully deterministic without it and every gate passes; the seeded TWRA/TDEC corpus still applies and research_status reports 'disabled' rather than pretending. What is missing is current agency reports and anything that would move research confidence above the seed corpus.",
+   "done": [
+    "wrangler secret put OPENAI_API_KEY --name caney-research.",
+    "RESEARCH_ENABLED and OPENAI_API_KEY are set for the Pages build.",
+    "A bounded live search returns a claim with a citation, a source tier and a retrieval timestamp, verified in production.",
+    "The KV budget counters increment."
+   ],
+   "sprint": 56,
+   "issue": 160,
+   "issue_url": "https://github.com/Rhode025/caney/issues/160"
+  },
+  {
+   "key": "API-02",
+   "epic": "Research",
+   "priority": "P2",
+   "effort": "S",
+   "lane": "later",
+   "title": "Bind the research worker to the API privately, over a service binding",
+   "evidence": "Section 35 asks for the planner to reach research over a service binding rather than a public endpoint, so the browser never receives OPENAI_API_KEY and never calls research directly. The [[services]] block is written and commented out in caney-api/wrangler.toml. It is blocked on nothing technical \u2014 only on RES-03, so that the binding does something when it exists.",
+   "done": [
+    "The [[services]] block is uncommented and deployed.",
+    "caney-api /health reports research_status cached rather than disabled.",
+    "The research worker's public surface is reduced to /health."
+   ],
+   "sprint": 57,
+   "issue": 161,
+   "issue_url": "https://github.com/Rhode025/caney/issues/161"
+  },
+  {
+   "key": "GEO-03",
+   "epic": "Model validation",
+   "priority": "P2",
+   "effort": "L",
+   "lane": "later",
+   "title": "Feature geometry is derived, not surveyed: 6 of 28 sit at UNVERIFIED",
+   "evidence": "Every one of the 66 coordinates in caney/zones/features.py is a named sub-part of a shape the zone registry already carried, and a test proves none was typed in. That makes them honest, not accurate: confidence is inherited from the parent zone and then demoted one step, so features cut from MODELED corridors land at UNVERIFIED. Distribution today: 1 OFFICIAL_GIS, 2 OSM_DERIVED, 6 AGENCY_DESCRIBED, 13 MODELED, 6 UNVERIFIED. The utility multiplier and the prose grading both already charge for this.",
+   "done": [
+    "Ten features are upgraded to FIELD_VERIFIED or OFFICIAL_GIS from a real source or a real visit.",
+    "Verification carries verified_by and verified_at.",
+    "No feature is upgraded on the strength of prose alone (section 25)."
+   ],
+   "sprint": 58,
+   "issue": 162,
+   "issue_url": "https://github.com/Rhode025/caney/issues/162"
+  },
+  {
+   "key": "CAL-03",
+   "epic": "Model validation",
+   "priority": "P1",
+   "effort": "L",
+   "lane": "next",
+   "title": "Every constant outside the routing fit is an uncalibrated prior",
+   "evidence": "analysis/road_factor.py is the only fitted thing in the 3.0 release \u2014 it regresses all 22 zones' mapped drive times, MAE 4.8 min, and it caught a road factor of 0.86 (roads shorter than straight lines) that a hand-picked pair of numbers would have hidden. Everything else is a prior chosen to order correctly: utility.py's weights, features.py::HYDRAULIC_FIT, logistics.py's prep/takeout/run minutes, session.py::Threshold, and TRAILER_PENALTY. The outcome loop is built and has no data in it. Section 67 is explicit that 3.0 must not move the scoring formula, and it did not; this is the ticket that earns the right to.",
+   "done": [
+    "Twenty trips are logged with outcomes through the session lifecycle.",
+    "A calibration curve exists for predicted opportunity against outcome, grouped by model version.",
+    "At least one constant moves on evidence, with its provenance comment rewritten to say what moved it.",
+    "Shrinkage toward the existing prior is used where the sample is small."
+   ],
+   "sprint": 59,
+   "issue": 163,
+   "issue_url": "https://github.com/Rhode025/caney/issues/163"
+  },
+  {
+   "key": "MOVE-02",
+   "epic": "Model validation",
+   "priority": "P2",
+   "effort": "M",
+   "lane": "later",
+   "title": "KNOWN_DRIVES is empty and the trailer penalty is a guess",
+   "evidence": "caney/routing/provider.py ships an empty KNOWN_DRIVES table on purpose: every entry must be a drive somebody actually made and timed, and inventing plausible rows would defeat the point of separating KNOWN from ESTIMATED. So every route is currently an estimate, rounded to five minutes and labelled. TRAILER_PENALTY is 1.12 and nothing in this repo separates a trailered drive from a car one \u2014 the zone drive strings were not recorded per craft.",
+   "done": [
+    "Ten real drives are timed and recorded in KNOWN_DRIVES with their origin id.",
+    "A trailered and an untrailered drive to the same ramp are compared.",
+    "TRAILER_PENALTY carries a provenance comment naming the measurement."
+   ],
+   "sprint": 60,
+   "issue": 164,
+   "issue_url": "https://github.com/Rhode025/caney/issues/164"
+  },
+  {
+   "key": "OPS-01",
+   "epic": "Build & CI",
+   "priority": "P2",
+   "effort": "S",
+   "lane": "later",
+   "title": "The Worker's own cron is registered and has never been observed to fire",
+   "evidence": "wrangler prints `schedule: */5 * * * *` on every deploy. Bundle age was sampled growing linearly at 865s, 966s and 1067s with no error in any log, and it stayed dead after the build was sharded down to one cheap invocation. Two in-Worker alternatives also failed: waitUntil defers work within the SAME invocation and shares its budget, and a self-addressed fetch is issued on every stale request and never lands. Worked around by .github/workflows/refresh.yml calling /internal/rebuild every ten minutes, which is green and refreshes all three shards with zero source failures. The workaround is external, so it inherits GitHub's scheduling delays.",
+   "done": [
+    "The cause is identified \u2014 read /health's last_build_start and last_build_ok markers, or tail the worker.",
+    "Either the in-Worker cron refreshes a shard, or OPS-01 is closed as won't-fix with the reason recorded in DEPLOYMENT.md."
+   ],
+   "sprint": 61,
+   "issue": 165,
+   "issue_url": "https://github.com/Rhode025/caney/issues/165"
   }
  ],
  "repo": "Rhode025/caney",
@@ -1223,20 +1361,5 @@
   ]
  ],
  "method": "Measured against the live build on 23 Aug 2026 \u2014 every page loaded in headless Chromium at 390 / 768 / 1280px, contrast computed per rendered node against its resolved background, CDN failure simulated by aborting unpkg, arcgisonline and the font hosts, overflow measured as scrollWidth &gt; clientWidth.",
- "release": {
-  "name": "Caney 2.1 \u2014 the fishing-day oracle",
-  "date": "2026-09-09",
-  "summary": "The planner stopped optimising the mean. It now finds the best contiguous opportunity WINDOW inside your availability, and assembles the best executable itinerary from those windows \u2014 including moving between zones when that is worth the travel. Geographic confidence became first class, research became a refreshable service, and the outcome loop became the point rather than a footnote.",
-  "docs": [
-   "docs/PLANNER.md",
-   "docs/GEOGRAPHY.md",
-   "docs/RESEARCH.md",
-   "docs/OUTCOMES.md",
-   "docs/SCORING.md",
-   "docs/ARCHITECTURE.md",
-   "docs/SCHEMAS.md",
-   "docs/SAFETY.md"
-  ],
-  "addresses": "Every ticket below now carries a `reconciliation` block classifying it against what 2.0 and 2.1 shipped: completed, partial, superseded or still relevant. The GitHub issue remains the system of record for whether a ticket is closed \u2014 nothing here closes one."
- }
+ "release": "3.0"
 }
