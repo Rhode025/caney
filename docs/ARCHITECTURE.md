@@ -1,3 +1,25 @@
+> **Caney 3.0 superseded most of this document.**
+>
+> The canonical architecture is **[`V3_ARCHITECTURE.md`](V3_ARCHITECTURE.md)**. Read that
+> first. §81 asks for one description rather than several incompatible ones, so this file
+> is now scoped to the part 3.0 did not replace: the **static Pages build** that produces
+> the river reference pages, the river board and the roadmap.
+>
+> What moved, and where to read about it instead:
+>
+> | Was described here | Now |
+> |---|---|
+> | the planner running in the browser | one planner, in Python, behind `/api/v3/plan` |
+> | `out/plan/data.json` as the model's transport | `PlanEnvelope` over HTTP |
+> | Python↔browser parity at four layers | API contract tests — there is one implementation |
+> | `riverlib` as the home of the hydrology | `caney/hydrology/`, which `riverlib` imports |
+> | the planner as the homepage | still true at `/`; the 3.0 app is at `/app/` |
+>
+> Nothing below is deleted, because the static build still runs hourly and still produces
+> every river page. Where the two documents disagree, V3_ARCHITECTURE.md is right.
+
+---
+
 # Caney 2.0 — architecture
 
 Caney answers one question:

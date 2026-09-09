@@ -1,4 +1,47 @@
-# Product strategy — the species-first oracle
+# Product strategy
+
+## The thesis (Caney 3.0)
+
+> **Caney is a live decision engine for freshwater fishing. The user supplies the fish they
+> want and the constraints of their day; Caney returns and maintains an executable trip.**
+
+"and maintains" is the 3.0 half. 2.1 produced a very good report and then stopped. A guide
+does not stop — they watch the water and change the plan when the dam does something the
+forecast did not.
+
+Still true, and still the thing that keeps this from becoming a different product:
+
+> **Build the oracle, not the network.**
+
+No social feed. No leaderboard. No shared catch log. The value is in answering one person's
+question completely, and every feature that would be improved by more users is a feature
+this product does not want.
+
+### What "executable" rules in
+
+A plan is executable when it answers all of these without the reader doing arithmetic:
+
+- where to drive, and when to leave the house
+- where to launch, and what the ramp costs in time
+- which feature to fish first, graded by how well we know where it is
+- when to move, where to, and why
+- what to throw, for the tackle they actually own
+- what physical condition makes the recommendation work
+- what would change it
+- when to get off the water — on the conservative bound, always
+- when they will be home
+
+### What it rules out
+
+- A recommendation that does not fit inside the day. Travel is a constraint, not a note.
+- A precise-sounding number the evidence does not support. A described reach is a corridor,
+  never a waypoint.
+- A safety claim that anything downstream is allowed to restate, round, or improve on.
+- A second implementation of the model, anywhere, for any reason.
+
+---
+
+## Earlier strategy notes
 
 > **Updated 2026-09-09 for Caney 2.0.** The office-hours diagnosis below is preserved
 > verbatim from 2026-07-30, because its verdict — *build the oracle, not the network* — is
