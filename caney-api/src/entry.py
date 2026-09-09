@@ -45,7 +45,16 @@ from storage import KVStore
 #: This is also §12 done properly. Five minutes is the cadence a generation schedule
 #: revises at, and it is now a property of the SYSTEM rather than of whoever happens to
 #: call the API.
-BUNDLE_KEY = "bundle:latest"
+#: ONE KEY PER SHARD, not one bundle read-modify-written three times. The first version
+#: had each shard load the whole 1 MB bundle, merge into it and write it back, which on a
+#: cold start meant six snapshot builds plus three 1 MB reads and three 1 MB writes in a
+#: single invocation — and that is what was returning 1102 (resource limits) and 1101
+#: (worker threw). Those are PLATFORM errors, so they carry no CORS headers, and the
+#: browser reported them as a CORS failure: a symptom two layers from the cause.
+#:
+#: Separate keys mean a build writes only its own third and reads nothing.
+def _shard_key(n):
+    return "bundle:shard:%d" % n
 
 #: How old a bundle may be before a request triggers a background rebuild. Five minutes,
 #: matching the cron.
@@ -109,7 +118,7 @@ def _shard(n):
     return [r for i, r in enumerate(rs) if i % SHARDS == (n % SHARDS)]
 
 
-async def build_bundle(env, now, why="unknown"):
+async def build_bundle(env, now, why="unknown", shard=0):
     """Fetch everything and serialise the snapshots.
 
     Writes a MARKER before it starts and a result after it finishes, so /health can tell
@@ -130,17 +139,10 @@ async def build_bundle(env, now, why="unknown"):
     from caney.sources import runtime as rt
     from caney.sources.snapshots import build_all
 
-    # Which shard: whatever the last one was, plus one. Stored so it survives isolate
-    # recycling — otherwise a cold start would rebuild shard 0 forever and two thirds of
-    # the water would never refresh.
     kv_n = getattr(env, "PLANS", None)
-    n = 0
-    if kv_n is not None:
-        try:
-            raw_n = await kv_n.get("build:shard")
-            n = (int(raw_n) + 1) % SHARDS if raw_n else 0
-        except Exception:                           # noqa: BLE001
-            n = 0
+    if shard is None:
+        shard = 0
+    n = int(shard) % SHARDS
     mine = _shard(n)
 
     def build():
@@ -150,57 +152,26 @@ async def build_bundle(env, now, why="unknown"):
     with rt.using(filled):
         snaps, book = build()
 
-    # Merge forward. Zones this shard did not touch keep their previous snapshot, which
-    # still carries its own observed_at and fetched_at — so the freshness strip tells the
-    # truth about each one independently.
-    prev = {}
-    prev_book = []
-    if kv_n is not None:
-        try:
-            raw_p = await kv_n.get(BUNDLE_KEY)
-            if raw_p:
-                pb = json.loads(raw_p)
-                prev = pb.get("zones") or {}
-                prev_book = pb.get("book") or []
-        except Exception:                           # noqa: BLE001
-            pass
-
-    zones = dict(prev)
-    fresh_ids = set()
-    for zid, sn in snaps.items():
-        zones[zid] = sn.to_json()
-        fresh_ids.add(zid)
-    # Claims follow their zone: keep the previous book's entries for zones this shard did
-    # not rebuild, and take the new ones for those it did. A claim is minted against a
-    # reading, so carrying one forward past its zone's refresh would be a lie about which
-    # numbers it was derived from.
-    merged_book = [c for c in prev_book if c.get("zone_id") not in fresh_ids]
-    merged_book.extend(book.to_json())
-
+    # This shard's zones only. Merging happens at READ time, from separate keys — a
+    # claim stays with the zone whose readings minted it, and every zone keeps its own
+    # observed_at, so a set of shards refreshed at different moments still reports each
+    # zone's real age rather than one blended timestamp wrong for all of them.
     bundle = {
         "built_at": now,
         "shard": n,
         "shard_rivers": mine,
-        "zones": zones,
-        "book": merged_book,
+        "zones": {zid: sn.to_json() for zid, sn in snaps.items()},
+        "book": book.to_json(),
         "prefetch": dict(stats, shard=n, shard_rivers=len(mine),
-                         zones_refreshed=len(fresh_ids), zones_total=len(zones)),
+                         zones_refreshed=len(snaps)),
         "versions": __import__("caney.version", fromlist=["versions"]).versions(),
     }
-    if kv_n is not None:
-        try:
-            from js import Object as _O2
-            from pyodide.ffi import to_js as _tj2
-            await kv_n.put("build:shard", str(n),
-                           _tj2({"expirationTtl": 86400},
-                                dict_converter=_O2.fromEntries))
-        except Exception:                           # noqa: BLE001
-            pass
+
     kv = getattr(env, "PLANS", None)
     if kv is not None:
         from js import Object
         from pyodide.ffi import to_js
-        await kv.put(BUNDLE_KEY, json.dumps(bundle, default=str),
+        await kv.put(_shard_key(n), json.dumps(bundle, default=str),
                      to_js({"expirationTtl": int(BUNDLE_MAX_SECONDS * 6)},
                            dict_converter=Object.fromEntries))
         try:
@@ -223,81 +194,94 @@ def _rehydrate(bundle, now):
     return snaps, book, _claims_for_all(now)
 
 
+async def _read_shards(kv, now):
+    """(zones, book, meta) merged from the shard keys, plus each shard's age."""
+    zones, book, meta = {}, [], []
+    for n in range(SHARDS):
+        raw = None
+        try:
+            raw = await kv.get(_shard_key(n))
+        except Exception:                           # noqa: BLE001
+            raw = None
+        if not raw:
+            meta.append({"shard": n, "age_s": None, "present": False})
+            continue
+        b = json.loads(raw)
+        zones.update(b.get("zones") or {})
+        book.extend(b.get("book") or [])
+        meta.append({"shard": n, "present": True,
+                     "age_s": round(now - float(b.get("built_at") or now), 1),
+                     "prefetch": b.get("prefetch") or {}})
+    return zones, book, meta
+
+
 async def _load(env, now, ctx=None):
-    """Snapshots for this request. Stale-while-revalidate.
+    """Snapshots for this request, merged from the shards. Stale-while-revalidate.
 
     THE CRON IS NOT TRUSTED TO BE THE ONLY PATH. It is registered — wrangler reports
-    `schedule: */5 * * * *` — and the bundle's age was observed growing linearly at 865s,
-    966s, 1067s across three samples, which means the scheduled handler was not running
-    and no error surfaced anywhere a deploy log would show it.
+    `schedule: */5 * * * *` on every deploy — and the bundle's age was observed growing
+    linearly at 865s, 966s, 1067s, which means the scheduled handler was not running and
+    no error surfaced anywhere a deploy log would show it. Rather than keep guessing at
+    handler shapes against a beta runtime, freshness is a property of TRAFFIC as well as
+    of the clock.
 
-    Rather than keep guessing at handler signatures against a beta runtime, freshness is
-    made a property of TRAFFIC as well as of the clock: a request that finds a bundle past
-    BUNDLE_FRESH_SECONDS serves it immediately and rebuilds in the background through
-    waitUntil, so the requester waits for nothing and the next one gets current numbers.
-    The cron still runs if it works, and is now a bonus rather than a single point of
-    failure.
-
-    Past BUNDLE_MAX_SECONDS the bundle is refused outright and the rebuild blocks, because
-    an hour-old release forecast is not a thing to plan a morning on.
+    A request rebuilds at most ONE shard, and always the oldest. Building more than one
+    per invocation is what produced 1102.
     """
     if _CACHE["snaps"] is not None and (now - _CACHE["at"]) < ISOLATE_TTL_SECONDS:
         return (_CACHE["snaps"], _CACHE["book"], _CACHE["claims"], _CACHE["stats"])
 
     kv = getattr(env, "PLANS", None)
     if kv is not None:
-        raw = await kv.get(BUNDLE_KEY)
-        if raw:
-            bundle = json.loads(raw)
-            age = now - float(bundle.get("built_at") or 0)
-            if age < BUNDLE_MAX_SECONDS:
-                snaps, book, claims = _rehydrate(bundle, now)
-                stale = age >= BUNDLE_FRESH_SECONDS
-                _CACHE.update(snaps=snaps, book=book, claims=claims, at=now,
-                              stats=dict(bundle.get("prefetch") or {},
-                                         bundle_age_s=round(age, 1),
-                                         revalidating=stale),
-                              built_at=bundle.get("built_at"), source="kv")
-                if stale:
-                    # Background if the platform gave us a ctx, inline otherwise. An
-                    # inline rebuild costs this requester seconds, which is worth it
-                    # against serving numbers nobody is refreshing — and it is bounded,
-                    # because the isolate cache means the NEXT requests are free.
-                    _CACHE["stats"]["revalidating"] = True
-                    did_bg = False
-                    if ctx is not None and hasattr(ctx, "waitUntil"):
-                        try:
-                            ctx.waitUntil(build_bundle(env, now, "revalidate-bg"))
-                            did_bg = True
-                        except Exception:           # noqa: BLE001
-                            did_bg = False
-                    _CACHE["stats"]["revalidate_mode"] = "background" if did_bg else "inline"
-                    if not did_bg:
-                        try:
-                            b2, st2 = await build_bundle(env, now, "revalidate-inline")
-                            snaps, book, claims = _rehydrate(b2, now)
-                            _CACHE.update(snaps=snaps, book=book, claims=claims, at=now,
-                                          stats=dict(st2, revalidate_mode="inline"),
-                                          built_at=now, source="inline-revalidate")
-                        except Exception as e:      # noqa: BLE001
-                            # Keep serving the older bundle rather than failing. It is
-                            # stale, the freshness strip says so, and that beats no plan.
-                            _CACHE["stats"]["revalidate_error"] = str(e)[:160]
-                return snaps, book, claims, _CACHE["stats"]
+        zones, book, meta = await _read_shards(kv, now)
+        present = [m for m in meta if m["present"]]
+        if zones and len(present) == SHARDS:
+            ages = [m["age_s"] for m in present]
+            oldest = max(ages)
+            snaps, bk, claims = _rehydrate({"zones": zones, "book": book}, now)
+            stats = {"shards": meta, "oldest_shard_age_s": oldest,
+                     "zones": len(zones)}
+            _CACHE.update(snaps=snaps, book=bk, claims=claims, at=now, stats=stats,
+                          built_at=now - oldest, source="kv")
+            if oldest >= BUNDLE_FRESH_SECONDS:
+                stale_n = max(present, key=lambda m: m["age_s"])["shard"]
+                stats["revalidating"] = stale_n
+                if ctx is not None and hasattr(ctx, "waitUntil"):
+                    try:
+                        ctx.waitUntil(build_bundle(env, now, "revalidate", stale_n))
+                        stats["revalidate_mode"] = "background"
+                    except Exception:               # noqa: BLE001
+                        stats["revalidate_mode"] = "failed"
+                else:
+                    stats["revalidate_mode"] = "none"
+            return snaps, bk, claims, stats
 
-    # No bundle, or one too old to use. Build inline — expensive, and the honest fallback
-    # for a cold start before anything has populated KV. The freshness strip reports the
-    # real ages either way, so a request served this way is not silently different.
-    # A cold start has no previous bundle to merge into, so one shard would leave two
-    # thirds of the water missing. Build them all — each is a separate invocation's worth
-    # of subrequests, and this happens once.
-    for _i in range(SHARDS):
-        bundle, stats = await build_bundle(env, now, "cold")
-    snaps, book, claims = _rehydrate(bundle, now)
-    _CACHE.update(snaps=snaps, book=book, claims=claims, at=now,
-                  stats=dict(stats, built_inline=True),
-                  built_at=now, source="inline")
-    return snaps, book, claims, _CACHE["stats"]
+        # Some shards are missing. Build ONE of them inline — the request needs zones —
+        # and hand the rest to the background. Building all three inline is exactly what
+        # returned 1102, so it is not an option even though it would be simpler.
+        missing = [m["shard"] for m in meta if not m["present"]]
+        first = missing[0] if missing else 0
+        await build_bundle(env, now, "cold", first)
+        if ctx is not None and hasattr(ctx, "waitUntil"):
+            for n in missing[1:]:
+                try:
+                    ctx.waitUntil(build_bundle(env, now, "cold-bg", n))
+                except Exception:                   # noqa: BLE001
+                    pass
+        zones, book, meta = await _read_shards(kv, now)
+        snaps, bk, claims = _rehydrate({"zones": zones, "book": book}, now)
+        stats = {"shards": meta, "zones": len(zones), "cold": True,
+                 "built_shards_inline": 1, "pending_shards": missing[1:]}
+        _CACHE.update(snaps=snaps, book=bk, claims=claims, at=now, stats=stats,
+                      built_at=now, source="cold")
+        return snaps, bk, claims, stats
+
+    # No KV at all. One shard's worth is all a single invocation can fetch.
+    bundle, stats = await build_bundle(env, now, "no-kv", 0)
+    snaps, bk, claims = _rehydrate(bundle, now)
+    _CACHE.update(snaps=snaps, book=bk, claims=claims, at=now,
+                  stats=dict(stats, no_storage=True), built_at=now, source="inline")
+    return snaps, bk, claims, _CACHE["stats"]
 
 
 async def _store_for(env, path, body):
@@ -395,13 +379,13 @@ async def handle(request, env, ctx=None):
             # without rehydrating 22 zones.
             kv = getattr(env, "PLANS", None)
             if kv is not None and obj["bundle_source"] == "none":
-                raw = await kv.get(BUNDLE_KEY)
-                if raw:
-                    b = json.loads(raw)
+                zones, _bk, meta = await _read_shards(kv, now)
+                if zones:
                     obj["bundle_source"] = "kv"
-                    obj["zones"] = len(b.get("zones") or {})
-                    obj["snapshot_age_s"] = round(now - float(b.get("built_at") or now), 1)
-                    obj["prefetch"] = b.get("prefetch") or {}
+                    obj["zones"] = len(zones)
+                    ages = [m["age_s"] for m in meta if m["present"]]
+                    obj["snapshot_age_s"] = max(ages) if ages else None
+                    obj["shards"] = meta
             if kv is not None:
                 for k, label in (("build:last_start", "last_build_start"),
                                  ("build:last_ok", "last_build_ok")):
@@ -459,8 +443,13 @@ async def on_fetch(request, env, ctx=None):
 
 
 async def on_scheduled(event, env, ctx=None):
-    """The cron. §12, §37 — the system keeps conditions fresh, not the caller."""
-    await build_bundle(env, time.time(), "cron")
+    """The cron. §12, §37 — the system keeps conditions fresh, not the caller.
+
+    One shard per minute-bucket, so a cron invocation stays inside the subrequest limit
+    the same way a request does.
+    """
+    n = int(time.time() // 300) % SHARDS
+    await build_bundle(env, time.time(), "cron", n)
 
 
 try:
