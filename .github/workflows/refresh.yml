@@ -1,0 +1,69 @@
+name: Refresh conditions
+
+# §12 — keep the API's snapshot bundle current.
+#
+# The Worker's own cron trigger is registered (`schedule: */5 * * * *` on every deploy)
+# and does not run: bundle age was sampled growing linearly at 865s, 966s, 1067s with no
+# error in any log, and it stayed dead after the build was made cheap enough to fit in one
+# invocation. Python Workers are beta and I could not tail it to find out why.
+#
+# What DOES work, measured: an external POST to /internal/rebuild fetches 23 of 23 sources
+# in 2.3 seconds and returns clean. So the schedule comes from here instead. GitHub delays
+# scheduled workflows under load — this repo already documents that, which is why the site
+# build asks hourly rather than three-hourly — so this asks every ten minutes and rebuilds
+# ALL THREE shards each time. Three sequential HTTP calls is cheap, and it means a skipped
+# run costs staleness rather than leaving one third of the water behind.
+#
+# Each call is a separate invocation with its own CPU and subrequest budget, which is the
+# property that matters. That is exactly why the Worker calling itself did not work.
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: caney-refresh
+  cancel-in-progress: true
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rebuild every shard
+        run: |
+          set -u
+          API="https://caney-api.steven-b9c.workers.dev"
+          TOKEN=$(grep '^INTERNAL_TOKEN' caney-api/wrangler.toml | cut -d'"' -f2)
+          if [ -z "$TOKEN" ]; then echo "::error::no INTERNAL_TOKEN in wrangler.toml"; exit 1; fi
+          fail=0
+          for n in 0 1 2; do
+            out=$(curl -s -m 120 -w '\n%{http_code}' -X POST "$API/internal/rebuild?shard=$n" \
+                    -H "X-Caney-Internal: $TOKEN")
+            code=$(echo "$out" | tail -1)
+            body=$(echo "$out" | head -n -1)
+            ok=$(echo "$body" | python3 -c 'import json,sys
+try:
+  d=json.load(sys.stdin); p=d.get("prefetch") or {}
+  print("%s ok / %s failed of %s" % (p.get("ok"), p.get("failed"), p.get("requested")))
+except Exception: print("(unparsed)")' 2>/dev/null)
+            echo "shard $n -> HTTP $code  $ok"
+            [ "$code" = "200" ] || fail=1
+          done
+          exit $fail
+
+      - name: Report freshness
+        if: always()
+        run: |
+          curl -s -m 30 "https://caney-api.steven-b9c.workers.dev/health" | python3 -c '
+import json, sys
+h = json.load(sys.stdin)
+print("zones:", h.get("zones"), "| oldest shard:", h.get("snapshot_age_s"), "s")
+for m in (h.get("prefetch") or {}).get("shards") or []:
+    p = m.get("prefetch") or {}
+    print("  shard %s age=%ss  %s ok / %s failed of %s"
+          % (m["shard"], m.get("age_s"), p.get("ok"), p.get("failed"), p.get("requested")))
+'
