@@ -112,21 +112,26 @@ blocked:
       - gh workflow run workers.yml -f action=deploy-api
 
   - id: API-03
-    what: the Worker's own cron is registered and does not fire
-    status: RESOLVED by routing around it
-    detail: wrangler prints `schedule: */5 * * * *` on every deploy. Bundle age was
-      sampled growing linearly at 865s, 966s, 1067s with no error in any log, and it
-      stayed dead after the build was made cheap enough to fit one invocation. Two
-      in-Worker alternatives also failed: waitUntil defers work within the SAME
-      invocation and so shares its budget, and a self-addressed fetch is issued on every
-      stale request and never lands.
-    resolution: .github/workflows/refresh.yml calls /internal/rebuild every ten minutes,
-      all three shards. An external call is a separate invocation with its own CPU and
-      its own 50 subrequests, which is the property that matters and the one none of the
-      in-Worker approaches had. Verified green in CI.
-    residual: GitHub delays scheduled workflows under load. Each run rebuilds ALL shards,
-      so a skipped run costs staleness rather than leaving a third of the water behind,
-      and the freshness strip reports every signal's real age.
+    what: the Worker's own cron did not fire
+    status: RESOLVED — it was a handler signature, not a dead scheduler
+    detail: wrangler printed `schedule: */5 * * * *` on every deploy and nothing ran.
+      Bundle age grew 865s, 966s, 1067s with no error anywhere. Two in-Worker
+      alternatives also failed: waitUntil defers within the SAME invocation and shares
+      its budget, and a self-addressed fetch never landed.
+    diagnosis: the build markers settled it. build_bundle writes build:last_start before
+      doing anything else, and EVERY marker ever written said why="self" — the external
+      endpoint. No "cron" marker had ever existed, which rules out "invoked and threw
+      inside the body" and leaves "invoked with an arity the signature refused". A
+      TypeError at the call boundary produces exactly the observed symptom: no marker, no
+      log, no trace.
+    resolution: both handlers take *args/**kwargs and locate env by looking for an object
+      carrying bindings rather than by position. A "cron" marker appeared within two
+      minutes of deploy. The class form also had a separate bug — its scheduled() called
+      build_bundle with no shard argument, so had that shape been live it would have
+      rebuilt shard 0 forever and looked like success to any check that only asked
+      whether the cron ran.
+    note: .github/workflows/refresh.yml stays as a second, independent path. Two
+      schedulers on a beta runtime is the right number.
 
   - id: API-04
     what: 28 of 74 upstream sources failed from inside the Worker
