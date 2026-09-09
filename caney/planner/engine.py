@@ -116,7 +116,12 @@ class Request:
                 "tz": self.tz_name, "days_out": self.days_out,
                 "craft": self.craft, "method": self.method,
                 "species": self.species,
-                "origin": list(self.origin) if self.origin else None,
+                # The SAME shape contract.parse accepts, so a stored request re-parses
+                # without a translation step. A round-trip test pins this: the refresh
+                # path re-plans from the stored request, and a shape that only went one
+                # way turned every refresh into a window-only plan.
+                "origin": ({"lat": self.origin[0], "lon": self.origin[1]}
+                           if self.origin else None),
                 "max_drive_minutes": self.max_drive_minutes,
                 "door_to_door": self.door_to_door,
                 "availability": self.availability.to_json()}
