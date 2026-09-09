@@ -256,24 +256,30 @@ async def _load(env, now, ctx=None):
                     stats["revalidate_mode"] = "none"
             return snaps, bk, claims, stats
 
-        # Some shards are missing. Build ONE of them inline — the request needs zones —
-        # and hand the rest to the background. Building all three inline is exactly what
-        # returned 1102, so it is not an option even though it would be simpler.
+        # Some shards are missing. Build EXACTLY ONE, and never fan the rest out into
+        # this same invocation.
+        #
+        # THE SUBREQUEST BUDGET IS PER INVOCATION AND KV COUNTS TOWARDS IT. The previous
+        # version built one shard inline and handed two more to waitUntil, which put
+        # roughly 72 fetches plus a handful of KV operations on one invocation against a
+        # limit of 50 — so the two background shards came back half-fetched (8 ok / 15
+        # failed, 12 ok / 12 failed) and the invocation returned 1102. waitUntil does not
+        # buy a fresh budget; it only defers the work.
+        #
+        # So a cold system fills in over successive invocations — requests and cron ticks
+        # alike, one shard each. The first plans are made from fewer zones, which is
+        # stated in `limitations` rather than hidden, and it converges within a couple of
+        # minutes.
         missing = [m["shard"] for m in meta if not m["present"]]
-        first = missing[0] if missing else 0
-        await build_bundle(env, now, "cold", first)
-        if ctx is not None and hasattr(ctx, "waitUntil"):
-            for n in missing[1:]:
-                try:
-                    ctx.waitUntil(build_bundle(env, now, "cold-bg", n))
-                except Exception:                   # noqa: BLE001
-                    pass
+        stalest = missing[0] if missing else 0
+        await build_bundle(env, now, "fill", stalest)
         zones, book, meta = await _read_shards(kv, now)
         snaps, bk, claims = _rehydrate({"zones": zones, "book": book}, now)
-        stats = {"shards": meta, "zones": len(zones), "cold": True,
-                 "built_shards_inline": 1, "pending_shards": missing[1:]}
+        still = [m["shard"] for m in meta if not m["present"]]
+        stats = {"shards": meta, "zones": len(zones), "filling": True,
+                 "built_shard": stalest, "pending_shards": still}
         _CACHE.update(snaps=snaps, book=bk, claims=claims, at=now, stats=stats,
-                      built_at=now, source="cold")
+                      built_at=now, source="filling")
         return snaps, bk, claims, stats
 
     # No KV at all. One shard's worth is all a single invocation can fetch.
@@ -402,6 +408,14 @@ async def handle(request, env, ctx=None):
                       research_status=_research_status(env),
                       source_stats=stats, now=now)
         status, obj = router.route(method, path, body, ctx)
+        # §75 — an incomplete world is a limitation, not a silent difference. A plan made
+        # while shards are still filling had fewer candidates, and the reader is told.
+        pending = (stats or {}).get("pending_shards")
+        if status == 200 and pending and isinstance(obj, dict) and "limitations" in obj:
+            obj["limitations"] = list(obj["limitations"]) + [
+                "Conditions for some water were still loading when this plan was made, so "
+                "%d of 22 zones were considered. Re-planning in a minute will use all of "
+                "them." % (stats or {}).get("zones", 0)]
         await _flush(store)
         if isinstance(obj, dict) and "timings" in obj:
             obj["timings"]["worker_ms"] = round((time.time() - t0) * 1000.0, 1)
