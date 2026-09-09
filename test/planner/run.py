@@ -25,6 +25,7 @@ import harness                                   # noqa: E402
 import test_architecture as A                    # noqa: E402
 import test_domain as D                          # noqa: E402
 import test_golden as G                          # noqa: E402
+import test_hydrology as H                       # noqa: E402
 import test_opportunity as O                     # noqa: E402
 import test_research as R                        # noqa: E402
 import test_species as S                         # noqa: E402
@@ -35,6 +36,7 @@ if __name__ == "__main__":
         D.test_observations, D.test_claims, D.test_weights,
         Z.test_registry, Z.test_carthage_zone, Z.test_craft_gating,
         G.test_golden_releases, G.test_warmwater_bands, G.test_wade_gate,
+        H.run,
         O.test_peak_beats_average, O.test_minimum_durations, O.test_move_beats_stay,
         O.test_move_not_worth_it, O.test_location_confidence, O.test_transitions,
         O.test_safety_overrides_opportunity, O.test_zone_kinds,

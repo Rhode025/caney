@@ -1620,180 +1620,37 @@ def today_wx(wx, tz):
 
 
 
-# ── ARRIVAL STAGES (measured, not assumed) ───────────────────────────────────
-# analysis/onset_lag.py replays 144 real Center Hill releases against the Stonewall
-# gauge and measures how long each STAGE of the response takes. A tailwater has two
-# different lags and conflating them is what put two disagreeing clocks on the page:
+# ── ARRIVAL, WADE and STRIPER models — now in caney/hydrology/ ───────────────
+# §27/§28. These three blocks used to live here, and everything that needed them reached
+# UP into this module to get them: the planner package imported riverlib, which is a
+# 2,100-line generator full of urllib fetches and HTML helpers, to read a dictionary of
+# wade thresholds.
 #
-#   the gauge starts MOVING at wave celerity (fast — the river is a connected body,
-#   so stage downstream responds before the released water gets there), and the WATER
-#   arrives later. The wading decision belongs to the first; "when is it good boat
-#   water" belongs to the later stages.
+# The dependency is inverted now. The models are canonical in caney/hydrology/, moved
+# there VERBATIM — §27 says do not rewrite validated hydrology to modernise code, and
+# these speeds and thresholds are backtested against real releases and USGS field
+# measurements. The page generators consume them from here, unchanged, under the same
+# names they always had.
 #
-# Measured at Stonewall, 15 mi below Center Hill (median, p25-p75 in hours):
-#     first rise (+5% of the eventual rise)   6.0 h   [3-7]    2.50 mph
-#     quarter risen (+25%)                    7.0 h   [6-8]    2.14 mph
-#     half risen (+50%)                       8.0 h   [7-12]   1.88 mph
-#     near peak (+90%)                       10.0 h   [8-16]   1.50 mph
+# Exact output equivalence across the extraction is proved in
+# test/planner/test_hydrology.py over 3,072 striper cases and 50 arrival cases.
 #
-# The spread is the point. Reporting "the water arrives at 2:47" implies a precision
-# the river does not have: a quarter of releases reach Stonewall in 3 h, not 6. For a
-# safety call ("be off the flats") the honest number is the EARLY end, not the median.
-ARRIVAL_STAGES = {
-    "first":   {"mph": 2.50, "mph_early": 5.00, "mph_late": 2.14, "label": "starts rising"},
-    "quarter": {"mph": 2.14, "mph_early": 2.50, "mph_late": 1.88, "label": "coming up"},
-    "half":    {"mph": 1.88, "mph_early": 2.14, "mph_late": 1.25, "label": "half up"},
-    "peak":    {"mph": 1.50, "mph_early": 1.88, "mph_late": 0.94, "label": "near peak"},
-}
+# What this buys, beyond tidiness: the planner no longer imports this module at all, which
+# is what lets it run inside a Cloudflare Python Worker where blocking fetches cannot go.
+# verify.py loads this module by file path rather than by name, so the repo root is not
+# guaranteed to be on sys.path when these imports run. Put it there rather than depending
+# on how the caller happened to start.
+import os as _os
+import sys as _sys
+_ROOT = _os.path.dirname(_os.path.abspath(__file__))
+if _ROOT not in _sys.path:
+    _sys.path.insert(0, _ROOT)
 
-def arrival_window(mfd, stage="first"):
-    """(earliest_h, median_h, latest_h) for the release to reach mfd at this stage.
+from caney.hydrology.arrival import ARRIVAL_STAGES, arrival_window   # noqa: F401,E402
+from caney.hydrology.striper import STRIPER_SEASON, striper_read     # noqa: F401,E402
+from caney.hydrology.wading import WATER_MODEL                       # noqa: F401,E402
 
-    Use `earliest` for anything safety-shaped. The median is what to display; the
-    spread is what stops the display from lying about its own precision.
-    """
-    s = ARRIVAL_STAGES.get(stage) or ARRIVAL_STAGES["first"]
-    if not mfd or mfd <= 0: return (0.0, 0.0, 0.0)
-    return (round(mfd / s["mph_early"], 2), round(mfd / s["mph"], 2), round(mfd / s["mph_late"], 2))
 
-# ── WADE / FLOAT MODEL ───────────────────────────────────────────────────────
-# Every threshold here is either MEASURED or SOURCED, and each carries which.
-#
-# Two independent evidence streams, combined:
-#
-# 1. USGS field measurements (analysis/channel_geom.py) — 1,516 physically measured
-#    cross-sections across 7 rivers. Each gauging records channel width, area, and
-#    HOW the crew worked: wading, or from a boat/bridge/cableway. The flow at which
-#    P(wading) crosses 50% is a behavioural wade threshold measured over decades.
-# 2. Angler/guide reports, used where stream 1 is confounded or absent.
-#
-# WHAT THIS MODEL DELIBERATELY DOES NOT DO: state an absolute depth at your ramp.
-# Mean depth at a gauge is area/width at a bridge or cableway section, which includes
-# the thalweg and is not the water you stand in. Caney measures 3.0 ft mean at 500 cfs
-# while USGS crews waded it 75% of the time at 398 cfs, and the Stones gauge reads
-# 4.1 ft at 100 cfs because it sits in Cheatham backwater. Absolute depth at the gauge
-# does not transfer to the reach. Flow thresholds do.
-#
-# depth_exp is the measured Leopold-Maddock exponent f in (mean depth ∝ Q^f). It is a
-# channel-shape property and DOES transfer: it says how fast the river deepens when
-# flow doubles (2^f), which is what "is it coming up fast" actually means.
-
-# "craft" is the set of vessels that actually work on each reach. It is USER-STATED
-# ground truth (2026-08-01) and OUTRANKS everything below it: no flow number should ever
-# suggest wading a river you cannot wade, or a power boat on water you only kayak. The
-# flow thresholds decide WHICH available craft fits today, never whether one exists.
-WATER_MODEL = {
-    # --- Duck, by section ---------------------------------------------------------------
-    # Wade thresholds come from USGS field measurements at 03599500 (Columbia), so they describe
-    # the UPPER reach directly. The Duck's flow roughly doubles between Columbia and Centerville
-    # (measured median gain x2.33, analysis/duck_routing.py), so the same wadeability downstream
-    # takes correspondingly more water. Each section carries the thresholds for its own reach.
-    "duckup": {"craft": ["boat", "wade"],
-        "craft_why": "jet boat, and genuinely wadeable at summer level up top",
-        "wade_ok": 560, "wade_marginal": 915, "no_wade": 1200,
-        "depth_exp": 0.633, "fit_r2": 0.87, "n_meas": 255, "substrate": "gravel & ledge",
-        "src": "USGS field measurements at 03599500 (Columbia, in this reach): waded 95% at 128 cfs, 100% at 209, 96% at 342, 74% at 559, 16% at 915, 0% at 1,495. P(wade) crosses 50% at ~915.",
-        "note": "The skinniest of the three reaches — the gauge here is the river, not an estimate."},
-    "duckmid": {"craft": ["boat"],
-        "craft_why": "boat only — no gauge on this reach and the shoals are unforgiving",
-        "wade_ok": 900, "wade_marginal": 1500, "no_wade": 2000,
-        "depth_exp": 0.633, "fit_r2": 0.87, "n_meas": 255, "substrate": "gravel & ledge",
-        "src": "Scaled from the Columbia measurements (03599500) by the measured Columbia→Centerville gain (x2.33 median, analysis/duck_routing.py); this reach sits about halfway between the two gauges.",
-        "note": "No gauge sits on this water. Everything here is interpolated between Columbia and Centerville — treat it as an estimate, not a reading."},
-    "ducklow": {"craft": ["boat"],
-        "craft_why": "boat only — the biggest, deepest water of the three",
-        "wade_ok": 1300, "wade_marginal": 2100, "no_wade": 2800,
-        "depth_exp": 0.633, "fit_r2": 0.87, "n_meas": 255, "substrate": "gravel & ledge",
-        "src": "Scaled from the Columbia measurements (03599500) by the measured Columbia→Centerville gain (x2.33 median, analysis/duck_routing.py). Gauged directly at 03601990 / NWPS CNVT1.",
-        "note": "The only Duck reach with a published forward forecast (NWPS CNVT1)."},
-    "harpeth": {"craft": ["paddle", "wade"],
-        "craft_why": "canoe/kayak and wadeable shoals — a State Scenic River, too skinny for a jet",
-        "wade_ok": 300, "wade_marginal": 550, "no_wade": 850,
-        "depth_exp": 0.60, "fit_r2": None, "n_meas": 0, "substrate": "gravel & limestone ledge",
-        "src": "NOT a field-measurement fit — no USGS wading measurements were available for 03434500 at build time. Scaled from the Duck's measured curve by drainage area (683 sq mi at Kingston Springs vs the Duck's 1,208 at Columbia) and sanity-checked against the gauge's own record (p50 ~250 cfs).",
-        "note": "Free-flowing State Scenic River with no dam anywhere on it. Low gradient: it comes up fast after rain and drops slowly. Unverified thresholds — treat the craft call as provisional."},
-    "buffalo": {"craft": ["paddle", "wade"],
-        "craft_why": "canoe/kayak water with wadeable shoals — too skinny for a jet most of the year",
-        "wade_ok": 350, "wade_marginal": 600, "no_wade": 900,
-        "depth_exp": 0.60, "fit_r2": None, "n_meas": 0, "substrate": "gravel & bedrock",
-        "src": "NOT a field-measurement fit — no USGS wading measurements were available for 03604000 at build time. Thresholds are scaled from the Duck's measured curve by drainage size and confirmed only against the qualitative record (TWRA/State Scenic River: floatable Nov–Aug above Flat Woods, year-round below Linden).",
-        "note": "Free-flowing State Scenic River — no dam anywhere on it, so it rises and drops fast. Unverified thresholds: treat the craft call as provisional."},
-
- "caney": {
-   "craft": ["wade","float","boat"], "craft_why": "wade, drift/float, or power boat depending on release",
-   "wade_ok": 400, "wade_marginal": 600, "no_wade": 1000,
-   "depth_exp": 0.514, "fit_r2": 0.76, "n_meas": 110, "substrate": "gravel",
-   "src": "USGS field measurements at 03424860: waded 80% at 272 cfs, 75% at 398, "
-          "20% at 582, 0% above 1,824 (P(wade) crosses 50% at ~582). Corroborated by "
-          "Middle TN Fly Fishers / Trout Zone: base flow 200-400 cfs wades well, one "
-          "unit (~1,200-2,000 cfs) is drift-boat water, not wadeable.",
-   "note": "Any generation ends wading regardless of the number — the bump arrives before the gauge shows it.",
- },
- "elktn": {
-   "craft": ["kayak","wade"], "craft_why": "kayak or wade only — no power boat on this reach",
-   "wade_ok": 300, "wade_marginal": 400, "no_wade": 500,
-   "depth_exp": 0.603, "fit_r2": 0.75, "n_meas": 665, "substrate": "unspecified",
-   "src": "Angler reports (thefuntimesguide / Tennessee Fly Fishers): zero generation "
-          "with the ~245 cfs sluice is 'a great wading schedule', 240-400 cfs is the "
-          "best window, and 'anything over around 400 cfs makes it pretty much "
-          "non-wadeable'. USGS measurement_type is NOT usable here: this is a cableway "
-          "site, so crews rarely wade (9% even at 143 cfs) regardless of the water.",
-   "note": "TVA warns: do not wade during, or within 4 hours after, generation.",
- },
- "elk": {
-   "craft": ["boat"], "craft_why": "boat only — the 60/40 jet (StealthCraft 1654)",
-   "wade_ok": 250, "wade_marginal": 400, "no_wade": 550,
-   "depth_exp": 0.455, "fit_r2": 0.68, "n_meas": 200, "substrate": "unspecified",
-   "src": "USGS field measurements at 03584600: waded 78% at 153 cfs, 29% at 246, "
-          "17% at 395, 0% at 634 (crossover ~246). Consistent with the general "
-          "wading-safety guidance that above ~550 cfs current is unsafe to wade.",
-   "note": "",
- },
- "cumberland": {
-   "craft": ["boat","wade"], "craft_why": "boat or wade, gated on generation",
-   "wade_ok": None, "wade_marginal": None, "no_wade": 1500,
-   "depth_exp": 0.367, "fit_r2": 0.97, "n_meas": 57, "substrate": "cobbles",
-   "src": "KY Fish & Wildlife / guide consensus: 'if no turbines are running you can "
-          "wade; if one is running you can float'. USGS has no wading measurements at "
-          "03414100 (lowest measured flow 2,540 cfs), so generation state is the "
-          "threshold, not a flow number. The existing WADE=1500 anchor matches.",
-   "note": "Wadeable only with the dam off, at the dam and Kendall shoals.",
- },
- "stones": {
-   "craft": ["boat"], "craft_why": "boat only",
-   "wade_ok": None, "wade_marginal": None, "no_wade": None,
-   "depth_exp": 0.245, "fit_r2": 0.67, "n_meas": 130, "substrate": "cobbles",
-   "src": "NO USABLE THRESHOLD. The gauge (03430200, US-70 near Donelson) sits in "
-          "Cheatham backwater: it measures 4.1 ft mean depth at 100 cfs, so its "
-          "geometry describes an impounded pool, not the fishable reach. Percy Priest "
-          "releases drive the upper river and are not in this gauge.",
-   "note": "Treated as unknown rather than guessed.",
- },
- # The three Cumberland mainstem pools are never wadeable at any release: navigable
- # impoundments maintained for barge traffic. That is a fact about the river, not a
- # missing measurement, so it is stated rather than modelled.
- "cumbnash":  {
-   "craft": ["boat"], "craft_why": "boat only — navigable pool","wade_ok": None, "wade_marginal": None, "no_wade": 0,
-               "depth_exp": 0.163, "fit_r2": 0.77, "n_meas": 99, "substrate": "silt/mud",
-               "src": "Navigable impoundment (Cheatham pool). USGS measured mean depth "
-                      "9.6 ft at 100 cfs; never waded in 99 measurements.", "note": ""},
- "cheatham":  {
-   "craft": ["boat"], "craft_why": "boat only — navigable pool","wade_ok": None, "wade_marginal": None, "no_wade": 0,
-               "depth_exp": None, "fit_r2": None, "n_meas": 0, "substrate": "silt/mud",
-               "src": "Navigable impoundment below Cheatham Dam. No working gauge on the "
-                      "reach (03435000 stopped reporting), so no fit exists.", "note": ""},
- "cordell":   {
-   "craft": ["boat"], "craft_why": "boat only — navigable pool","wade_ok": None, "wade_marginal": None, "no_wade": 0,
-               "depth_exp": None, "fit_r2": None, "n_meas": 0, "substrate": "unspecified",
-               "src": "Navigable impoundment into Old Hickory Lake. No gauge on the reach.",
-               "note": ""},
-}
-
-# A 60/40 jet drafts under a foot, but on GRAVEL and COBBLE the impeller eats what it
-# sucks up, so the practical floor is higher than the draft. Jet guidance converges on
-# staying in 1.5-2 ft over rock; a prop needs ~12 in where a jet needs 4-6 in of pure
-# draft. Rather than convert that to an absolute depth the gauge cannot give us, tie it
-# to the same measured anchor: water too shallow for a boat is water you could wade.
 def wade_float(river_id, cfs, generating=False):
     """(wade_verdict, float_verdict, confidence) for this river at this flow.
 
@@ -1868,111 +1725,12 @@ def depth_ratio(river_id, cfs, ref_cfs):
     if not f or not cfs or not ref_cfs or cfs <= 0 or ref_cfs <= 0:
         return None
     return round((cfs / ref_cfs) ** f, 2)
-
-
-
-# ── STRIPED BASS MODEL (Cumberland tailraces) ────────────────────────────────
-# Sourced, not invented. Every threshold below traces to one of:
-#
-#  BIOLOGY. Striped bass seek thermal refuge once surface water passes ~70 F; occupied
-#  refuges hold <=22 C (72 F) with dissolved oxygen >5 mg/L, and adults select 16-22 C
-#  (61-72 F). 75 F is approaching their upper tolerance. A bottom-release tailrace IS that
-#  refuge in summer, which is why the fish stack there when it is hot.
-#  (Coutant/TVA thermal-refuge literature; TWRA and FWC summaries.)
-#
-#  CURRENT. Stripers hold on current seams and below current breaks, darting into swift
-#  water for disoriented baitfish. Summer fishing "peaks when water is released for
-#  generation" — generation is the trigger, not the obstacle. More than one generator makes
-#  the river genuinely dangerous for small craft, which is a boating limit, not a fish limit.
-#
-#  SEASON (Cumberland-specific, TWRA + guide reports).
-#    Nov-Mar  upper Cheatham, immediately below Old Hickory Dam, is the prime stretch
-#    Apr-May  spring run; trophy fish upper Old Hickory near Carthage and at Cordell Hull
-#    Jun-Sep  tailrace thermal refuge; generation-dependent
-#    Oct      transition, fish follow bait down
-#
-#  NOTE ON TECHNIQUE: sources describe this fishery largely in conventional-tackle terms
-#  (swimbaits, live gizzard shad on downlines). This project is fly-only by policy
-#  (RIVER_SPEC, enforced by verify.py), so the same presentations are expressed as fly
-#  equivalents: sink-tips, big articulated baitfish patterns, Deceivers and Clousers.
-#  The WHERE and WHEN come from the sources; only the HOW is translated.
-#
-#  FISH. Average 25-30 lb, 40-50 lb common, Tennessee record 65 lb from this system.
-#  Guides attribute the size to fish "fighting the current all day".
-#
-# What is NOT claimed: a cfs number above which stripers stop feeding. No source supports
-# one, and the sources that discuss heavy generation describe a BOATING limit. So high flow
-# degrades the fishing verdict only through the boating penalty, never on the fish's behalf.
-
-STRIPER_SEASON = {
-    1:  ("winter",  "below Old Hickory Dam is the prime stretch Nov-Mar"),
-    2:  ("winter",  "below Old Hickory Dam is the prime stretch Nov-Mar"),
-    3:  ("winter",  "tail of the Nov-Mar window; fish still stacked below the dam"),
-    4:  ("spring",  "spring run building; trophy fish move up toward the dams"),
-    5:  ("spring",  "peak trophy month on the upper pool and at Cordell Hull"),
-    6:  ("summer",  "heat pushes fish to the tailrace for cool, oxygenated water"),
-    7:  ("summer",  "thermal refuge is the whole game — fish the tailrace when they generate"),
-    8:  ("summer",  "thermal refuge is the whole game — fish the tailrace when they generate"),
-    9:  ("summer",  "still refuge-bound until the lake turns over"),
-    10: ("fall",    "transition; fish follow bait downstream as the water cools"),
-    11: ("winter",  "below Old Hickory Dam is the prime stretch Nov-Mar"),
-    12: ("winter",  "below Old Hickory Dam is the prime stretch Nov-Mar"),
-}
-
-def striper_read(cfs, unit_cfs, month, water_f=None, at_dam=True):
-    """Grade a striped-bass day from flow, season and (where known) water temperature.
-
-    Returns dict: grade, col, cond, note, where, technique, units, season.
-    """
-    season, snote = STRIPER_SEASON.get(month, ("summer", ""))
-    units = 0 if not cfs else max(0, round(cfs / unit_cfs))
-
-    # Current is the trigger. No generation means no seam, no concentrated bait.
-    if cfs is None:
-        return {"grade": "—", "col": "#94a3b1", "cond": "No data", "units": 0, "season": season,
-                "note": "no release data", "where": "", "technique": ""}
-    if units == 0:
-        base = ("Slack", "Slow", "#f2a832",
-                "No generation — nothing pinning bait. The seam is gone and so are the fish.",
-                "Work deep ledges, channel edges and creek mouths and wait for the horn.",
-                "Sinking line and a big baitfish pattern worked slow along the ledge; cover water until you find them.")
-    elif units == 1:
-        base = ("1 unit", "Good", "#7db85a",
-                "One unit turning — a seam is forming and bait is starting to stack.",
-                "Fish the seam edge and the first break below the discharge.",
-                "Swing a large Deceiver or Clouser across the seam on an intermediate line; hang it in the break.")
-    elif units <= 3:
-        base = ("%d units" % units, "Prime", "#28c76f",
-                "Heavy generation — this is when the tailrace fishes best.",
-                "Right in the tailrace: the boil, the seams either side, the first ledge below.",
-                "Heavy sink-tip and a big articulated baitfish pattern straight through the seam; let it swing.")
-    else:
-        base = ("%d units" % units, "Good", "#f2a832",
-                "Very heavy water — fish are there but boat handling is the limiting factor.",
-                "Stay off the boil; work the outside seams and the slack behind structure.",
-                "Fast-sinking head to hold under the push; spot-lock well clear of the discharge and cast to the edge.")
-    cond, grade, col, note, where, tech = base
-
-    # Summer is when the tailrace matters most: it is the thermal refuge.
-    # Summer upgrades a fishable day, but never overrides the very-heavy case: that verdict
-    # is capped by boat handling, and the refuge argument says nothing about boat handling.
-    if season == "summer" and 1 <= units <= 3:
-        grade, col = "Prime", "#28c76f"
-        note += " Summer refuge: the cool bottom-release water is why they are here at all."
-    if season == "summer" and units == 0:
-        note += " In summer heat with no current the refuge stops working — expect a slow day."
-    if season == "winter" and at_dam:
-        note += " Nov-Mar this stretch immediately below the dam is the one to be on."
-    if season == "spring":
-        note += " Spring run: the biggest fish of the year move up toward the dam now."
-
-    if water_f is not None:
-        if water_f >= 75:
-            note += " Water at %d F is past their comfort — they will be tight to the coldest water." % round(water_f)
-        elif 61 <= water_f <= 72:
-            note += " Water at %d F sits in their preferred 61-72 F band." % round(water_f)
-    return {"grade": grade, "col": col, "cond": cond, "units": units, "season": season,
-            "season_note": snote, "note": note, "where": where, "technique": tech}
+# ── PAGE VOCABULARY ──────────────────────────────────────────────────────────
+# Display kinds for the river pages: how a vessel, a clarity and a level are NAMED and
+# COLOURED. These travelled with the striper model when it was extracted to
+# caney/hydrology/ (§27) and were promptly put back, because they are not hydrology —
+# they are what day_state() below renders with, and the extracted package must stay free
+# of anything presentational.
 
 # ── HQ DAY STATE ─────────────────────────────────────────────────────────────
 # What the board must answer at a glance, per river, per day: wade or boat · clear or
@@ -2003,6 +1761,9 @@ LEVEL_KINDS = {
     "blown":   {"label": "Blown out", "col": "#8b6cef"},
     "unknown": {"label": "—",         "col": "#93a3b3"},
 }
+
+
+
 
 def day_state(vessel="na", vessel_why="", vessel_label=None, clarity="unknown", clarity_why="",
               level="unknown", level_detail="", curve=None, curve_unit="cfs",

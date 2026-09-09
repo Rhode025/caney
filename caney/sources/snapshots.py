@@ -28,12 +28,11 @@ from ..zones.registry import all_zones
 from . import cwms, lunar, usgs, weather
 from .registry import water_for
 
-# riverlib is the calibrated hydrology. Imported, never reimplemented (CLAUDE.md).
-import os
-import sys
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
-    os.path.abspath(__file__)))))
-import riverlib  # noqa: E402
+# The calibrated hydrology. Imported, never reimplemented (CLAUDE.md) — and since §27/§28
+# imported from caney.hydrology rather than from riverlib, which severs this package's
+# last dependency on a module full of blocking fetches. That is what lets the planner run
+# inside a Cloudflare Python Worker.
+from .. import hydrology  # noqa: E402
 
 
 def _units(cfs, cfg):
@@ -231,12 +230,12 @@ def _zone_snapshot(z, rd, now, horizon, tz, book):
 
     # ── model predictions with their uncertainty (§3.5) ─────────────────────
     if z.tailwater and z.mfd is not None:
-        e, m, l = riverlib.arrival_window(z.mfd, "first")
-        pe, pm, pl = riverlib.arrival_window(z.mfd, "peak")
+        e, m, l = hydrology.arrival_window(z.mfd, "first")
+        pe, pm, pl = hydrology.arrival_window(z.mfd, "peak")
         s.arrival = {"mfd": z.mfd, "dam": z.dam,
                      "first": {"earliest_h": e, "typical_h": m, "latest_h": l},
                      "peak": {"earliest_h": pe, "typical_h": pm, "latest_h": pl},
-                     "source": "riverlib.ARRIVAL_STAGES — 80-event Center Hill backtest",
+                     "source": "caney.hydrology.ARRIVAL_STAGES — 80-event Center Hill backtest",
                      "note": ("Safety uses the EARLIEST bound. The typical figure is for "
                               "planning where you fish, never for when you get out.")}
         s.model_confidence = "measured" if z.hydrology_river == "caney" else "reported"
@@ -301,7 +300,7 @@ def _mint_safety_claims(z, s, rd, cfg, now, horizon, tz, book):
                         source_url=fc.source_url, state=fc.state, observed_at=fc.observed_at)
                 # THE safety number on a tailwater: the earliest the water can reach you.
                 if z.tailwater and z.mfd:
-                    e, m, l = riverlib.arrival_window(z.mfd, "first")
+                    e, m, l = hydrology.arrival_window(z.mfd, "first")
                     add(SafetyKind.RELEASE_ARRIVAL,
                         ("That water reaches %s no earlier than %s (typical %s, later edge "
                          "%s)." % (z.name, _fmt(t + e * 3600, tz), _fmt(t + m * 3600, tz),

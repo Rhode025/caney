@@ -138,8 +138,8 @@ def fit_flow(snap, prof, river_id, units):
     f = snap.flow
     if not f.ok:
         return Fit.unknown("no flow reading for this reach")
-    import riverlib
-    m = riverlib.WATER_MODEL.get(river_id) or {}
+    from ..hydrology import wading
+    m = wading.WATER_MODEL.get(river_id) or {}
     ok, marg, no = m.get("wade_ok"), m.get("wade_marginal"), m.get("no_wade")
     v = float(f.value)
     if not (ok and marg and no):

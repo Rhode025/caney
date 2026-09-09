@@ -193,7 +193,7 @@ def _unsafe(zone, snap, req):
         schedule. No forecast at all removes the candidate; generating across the whole
         window removes it; anything else is a scoring problem, not an eligibility one.
       * On a FREE-FLOWING river the gauge IS the river, so the measured no-wade threshold
-        from riverlib.WATER_MODEL applies directly.
+        from wading.WATER_MODEL applies directly.
 
     Getting this backwards eliminated the entire calibrated Caney trout fishery on a
     Stonewall reading taken fifteen miles below the dam.
@@ -225,8 +225,8 @@ def _unsafe(zone, snap, req):
         return None
 
     if snap.flow.ok:
-        import riverlib
-        m = riverlib.WATER_MODEL.get(zone.hydrology_river) or {}
+        from ..hydrology import wading
+        m = wading.WATER_MODEL.get(zone.hydrology_river) or {}
         no = m.get("no_wade")
         if no and snap.flow.value > no * 1.35:
             return ("flow is %s cfs, far above the measured no-wade threshold of %s for "

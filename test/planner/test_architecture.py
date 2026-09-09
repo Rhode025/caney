@@ -166,10 +166,20 @@ def test_layering():
 
     section("the calibrated hydrology is reused, not reimplemented")
     snap = _read("caney", "sources", "snapshots.py")
-    check("arrival routing comes from riverlib, not from a local copy",
-          "riverlib.arrival_window(" in snap)
+    # §28 INVERTED THIS. Until 3.0 the planner reached UP into riverlib.py — a 2,100-line
+    # generator full of blocking fetches — to read a dictionary of wade thresholds, and
+    # this check pinned that direction. The models are canonical in caney/hydrology/ now
+    # and riverlib imports them back, which is what lets the planner run in a Worker.
+    check("arrival routing comes from caney.hydrology, not from a local copy",
+          "hydrology.arrival_window(" in snap)
     check("no new arrival constant is defined in the planner",
           "2.5" not in _read("caney", "planner", "scoring.py"))
+    for mod in ("planner/scoring.py", "planner/engine.py", "render/dataset.py",
+                "sources/snapshots.py"):
+        src = _read("caney", *mod.split("/"))
+        bad = re.search(r"^\s*(import riverlib|from riverlib\b)", src, re.M)
+        check("caney/%s does not import riverlib" % mod, not bad,
+              bad.group(0).strip() if bad else "")
 
 
 def test_repo_hygiene():

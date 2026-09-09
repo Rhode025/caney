@@ -168,8 +168,8 @@ def build(snaps, book, claims_by_zone_species, now=None, research_meta=None,
                                     "sunset": v.sunset.value if v.sunset.ok else None}
 
         # ── the gates, precomputed so the browser never re-derives a safety rule ──
-        import riverlib
-        m = riverlib.WATER_MODEL.get(z.hydrology_river) or {}
+        from ..hydrology import wading
+        m = wading.WATER_MODEL.get(z.hydrology_river) or {}
         no = m.get("no_wade")
         gates = {
             "craft": z.craft_options(),
