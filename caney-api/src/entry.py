@@ -451,6 +451,7 @@ async def handle(request, env, ctx=None):
                         row["age_s"] = round(now - float(row.get("at") or now), 1)
                         obj[label] = row
             obj["ctx_available"] = ctx is not None and hasattr(ctx, "waitUntil")
+            obj["build_sha"] = _deployed_commit(env)
             return _json(status, obj, cors)
 
         # §77 — internal only. Not routed publicly, requires the shared secret, and does
@@ -491,6 +492,18 @@ async def handle(request, env, ctx=None):
             "message": "%s: %s" % (type(e).__name__, e), "status": 500,
             "code": "internal_error",
             "trace": traceback.format_exc()[-1200:] if _debug(env) else None}}, cors)
+
+
+def _deployed_commit(env):
+    """The git SHA this worker was built from, set as a var at deploy time.
+
+    Exists because the live API silently lagged the repo for twenty minutes: deploy.yml
+    publishes Pages, and the Worker needs a SEPARATE workers.yml dispatch — the planner
+    package is vendored in at deploy time, so any change under caney/ diverges from
+    production until somebody remembers. Nothing caught it. /health reports this and CI
+    compares it to master.
+    """
+    return str(getattr(env, "BUILD_SHA", "") or "unknown")
 
 
 def _origin_of(url):

@@ -186,3 +186,12 @@ jobs:
       - name: Refresh the API's conditions if they are behind
         continue-on-error: true
         run: python3 tools/refresh_api.py --stale-after 1800
+
+      # Is the deployed Worker running the code in this repo? This job publishes PAGES;
+      # the Worker needs `workers.yml -f action=deploy-api`, which is a separate dispatch.
+      # The pre-dawn horizon fix was committed, green in CI and absent from the live API
+      # for twenty minutes because nothing checked. Reports rather than fails — Worker
+      # drift is not a reason to fail a good Pages publish — but it says so loudly.
+      - name: Is the deployed API in sync with master?
+        continue-on-error: true
+        run: python3 tools/check_deployed.py

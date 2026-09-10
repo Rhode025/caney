@@ -114,7 +114,10 @@ jobs:
         if: ${{ inputs.action == 'deploy-api' || inputs.action == 'deploy-all' }}
         working-directory: caney-api
         run: |
-          npx --yes wrangler@4 deploy 2>&1 | tail -40
+          # Stamp the commit into the worker so /health can report what is actually live.
+          # The live API lagged the repo by twenty minutes once because deploy.yml
+          # publishes Pages only and this workflow has to be dispatched separately.
+          npx --yes wrangler@4 deploy --var BUILD_SHA:"$GITHUB_SHA" 2>&1 | tail -40
 
       - name: Smoke the deployments
         if: ${{ startsWith(inputs.action, 'deploy') }}
