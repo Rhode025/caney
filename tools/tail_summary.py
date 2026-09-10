@@ -20,55 +20,104 @@ import json
 import sys
 
 
+def _objects(text):
+    """Yield top-level JSON objects from a stream that may be PRETTY-PRINTED.
+
+    `wrangler tail --format json` emits multi-line objects, not one per line. The first
+    version of this read line by line, found nothing that started with "{", and reported
+    "events seen: NONE" — while the raw log plainly contained `"outcome": "exception"`.
+    That nearly produced the wrong conclusion for the third time in this investigation: a
+    broken parser and an idle scheduler look identical in a summary.
+
+    Brace counting, skipping braces inside strings.
+    """
+    depth = 0
+    start = None
+    in_str = False
+    esc = False
+    for i, ch in enumerate(text):
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0 and start is not None:
+                chunk = text[start:i + 1]
+                try:
+                    yield json.loads(chunk)
+                except ValueError:
+                    pass
+                start = None
+
+
 def main():
     path = sys.argv[1] if len(sys.argv) > 1 else "/tmp/tail.log"
-    kinds = collections.Counter()
-    rows = []
     try:
         with open(path, encoding="utf-8", errors="replace") as fh:
-            for line in fh:
-                line = line.strip()
-                if not line.startswith("{"):
-                    continue
-                try:
-                    d = json.loads(line)
-                except ValueError:
-                    continue
-                ev = d.get("event") or {}
-                if "cron" in ev or ev.get("scheduledTime"):
-                    kind = "scheduled"
-                elif ev.get("request"):
-                    kind = "fetch"
-                else:
-                    kind = "other"
-                kinds[kind] += 1
-                rows.append((kind, d.get("outcome"),
-                             [str(x)[:200] for x in (d.get("exceptions") or [])],
-                             [str(m.get("message"))[:200] for m in (d.get("logs") or [])]))
+            raw = fh.read()
     except OSError as e:
         print("no tail log at %s (%s)" % (path, e))
         return 2
 
+    kinds = collections.Counter()
+    outcomes = collections.Counter()
+    errors = []
+    for d in _objects(raw):
+        if "outcome" not in d and "event" not in d:
+            continue
+        ev = d.get("event") or {}
+        if "cron" in ev or ev.get("scheduledTime"):
+            kind = "scheduled"
+        elif ev.get("request"):
+            kind = "fetch"
+        else:
+            kind = "other"
+        kinds[kind] += 1
+        outcomes[d.get("outcome") or "?"] += 1
+        msgs = []
+        for m in (d.get("logs") or []):
+            for part in (m.get("message") or []):
+                msgs.append(str(part))
+        for x in (d.get("exceptions") or []):
+            msgs.append(str(x))
+        # The useful line in a Python traceback is the one naming the error.
+        for m in msgs:
+            if ("Error" in m or "Exception" in m) and "Traceback" not in m:
+                errors.append((kind, m[:300]))
+
     print("events seen: %s" % (dict(kinds) or "NONE"))
-    for kind, outcome, exc, logs in rows[:30]:
-        print("  %-10s outcome=%s" % (kind, outcome))
-        for e in exc:
-            print("     exception: %s" % e)
-        for l in logs[:3]:
-            print("     log: %s" % l)
+    print("outcomes:    %s" % (dict(outcomes) or "NONE"))
+    if errors:
+        print("")
+        print("errors (deduplicated):")
+        seen = set()
+        for kind, m in errors:
+            key = m[:120]
+            if key in seen:
+                continue
+            seen.add(key)
+            print("  [%s] %s" % (kind, m))
 
-    if not kinds.get("scheduled"):
+    if not kinds:
         print("")
-        print("NO SCHEDULED EVENT in this window.")
-        print("The scheduler is not invoking the worker at all — this is not a handler")
-        print("that runs and fails. A handler that ran would appear here with an outcome,")
-        print("and one that threw would appear with an exception.")
-    else:
-        bad = [r for r in rows if r[0] == "scheduled" and r[1] != "ok"]
+        print("NOTHING PARSED. Either no invocations occurred in this window, or the")
+        print("stream format changed — check the raw log before concluding the former.")
+    elif not kinds.get("scheduled"):
         print("")
-        print("%d scheduled invocation(s), %d of them not ok." % (kinds["scheduled"], len(bad)))
+        print("%d invocation(s), NONE of them scheduled. The cron is not invoking the"
+              % sum(kinds.values()))
+        print("worker in this window.")
     return 0
-
-
 if __name__ == "__main__":
     sys.exit(main())
