@@ -158,19 +158,23 @@ jobs:
       - name: Post-deploy smoke and freshness
         run: cd test && node smoke.mjs && node planner-smoke.mjs
 
-      # A SECOND, INDEPENDENT PATH to refreshing the API's conditions.
-      #
-      # refresh.yml asks every ten minutes, and GitHub's scheduler is not something to
-      # rely on alone — CLAUDE.md already records scheduled runs here arriving 40-100
-      # minutes late or never (18:00 ran at 19:44; 00:00 never fired), which is why the
-      # site build asks hourly rather than three-hourly. The Worker's own cron does not
-      # fire at all (OPS-01).
-      #
-      # This build already runs hourly and on every push, so piggy-backing the refresh on
-      # it costs three HTTP calls and puts a floor under staleness that does not depend on
-      # the ten-minute schedule ever working. `continue-on-error` because a stale API is
-      # not a reason to fail a green site deploy — the freshness strip reports every
-      # signal's real age either way.
-      - name: Refresh the API's conditions
+  # ── the API's conditions, refreshed independently of everything above ──────
+  #
+  # THIS USED TO BE A STEP IN build-deploy AND THAT WAS WRONG. It sat after the test
+  # gates, so when a unit test failed at 00:05Z every later step was SKIPPED — including
+  # this one — and `continue-on-error` cannot save a step that never runs. That night all
+  # three refresh paths failed at once: the Worker cron had stopped, GitHub's schedule on
+  # refresh.yml had fired once in two hours, and this was skipped behind a broken test.
+  # The API served data 110 minutes old.
+  #
+  # A failing test must stop the DEPLOY — never publish a bad build — and must not stop the
+  # API's data refreshing. Those are unrelated concerns and they do not belong in one job.
+  # `needs:` is deliberately absent.
+  refresh-api:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Refresh the API's conditions if they are behind
         continue-on-error: true
         run: python3 tools/refresh_api.py --stale-after 1800
