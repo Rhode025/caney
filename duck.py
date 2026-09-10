@@ -145,8 +145,23 @@ cen_flow=cur_flow
 ACC=[("Riverside",133.5,0.000),("Chickasaw Trace",127.0,0.130),("Williamsport",113.9,0.396),
      ("Leatherwood Bridge",95.0,0.654),("Littlelot",89.5,0.744),("River Park (Centerville)",73.7,1.0)]
 def local_flow(f,scale=1.0):
-    if col_flow is None: return (cen_flow*scale if cen_flow else None)
-    if cen_flow is None: return col_flow*scale
+    # INTERPOLATING BETWEEN TWO GAUGES NEEDS BOTH OF THEM.
+    #
+    # This used to fall back to whichever gauge was still answering, for every reach. When
+    # the Columbia gauge 503'd during a scheduled build, all three Duck sections reported
+    # Centerville's 470 cfs as their own — and the upper reach was really about 280. A 1.7x
+    # overstatement on the one number that decides whether you can stand up in it, wearing
+    # the upper reach's name. test/qc_rivers.py caught it, which is exactly why that check
+    # exists ("the reason the Duck was split: the three reaches must NOT read the same").
+    #
+    # f is position by contributing drainage area: 0.0 IS the Columbia gauge and 1.0 IS
+    # Centerville, so those two ends are real readings and everything between is derived.
+    # A derived reach with only one endpoint available does not have a flow, and the honest
+    # answer is None — a borrowed number is the `value or 0` failure with a different
+    # default.
+    if f <= 0.0:  return None if col_flow is None else round(col_flow*scale,2)
+    if f >= 1.0:  return None if cen_flow is None else round(cen_flow*scale,2)
+    if col_flow is None or cen_flow is None: return None
     return round((col_flow+f*(cen_flow-col_flow))*scale,2)
 # craft-aware floatability. The user runs a 60/40 jet (needs more water over the bars
 # but handles high water); a kayak/canoe floats skinnier but high fast water is dangerous.

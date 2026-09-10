@@ -87,7 +87,12 @@ for rid in RIVERS:
         chk("section distance is positive: %s/%s→%s" % (rid, s["from"], s["to"]), s["mi"] > 0, str(s["mi"]))
         chk("section flow is a real number: %s/%s" % (rid, s["from"]), s["flow"] is None or s["flow"] >= 0, str(s["flow"]))
     cur = d.get("cur") or {}
-    chk("current flow present: " + rid, cur.get("flow") is not None)
+    # An HONEST UNKNOWN is allowed; a borrowed number is not. When an upstream gauge is
+    # out, a derived reach genuinely has no flow, and duck.py now says so rather than
+    # reporting the other gauge's reading under this reach's name. Demanding a number here
+    # would push it straight back to fabricating one.
+    chk("current flow is a number or an explicit unknown: " + rid,
+        cur.get("flow") is None or cur.get("flow") >= 0, str(cur.get("flow")))
     chk("water model covers this river: " + rid, rid in riverlib.WATER_MODEL)
     wm = riverlib.WATER_MODEL[rid]
     chk("water model cites a source: " + rid, len(wm.get("src", "")) > 40)
@@ -96,10 +101,24 @@ for rid in RIVERS:
         "%s/%s/%s" % (wm["wade_ok"], wm["wade_marginal"], wm["no_wade"]))
 
 # ── the reason the Duck was split: the three reaches must NOT read the same ────
+#
+# This check earned its keep: when the Columbia gauge 503'd, duck.py fell back to
+# Centerville for every reach and all three reported 0.47 kcfs — the upper reach overstated
+# by 1.7x on the number that decides wadeability. It fired, the deploy stopped, and the
+# fallback was fixed to return None instead of borrowing.
+#
+# So the assertion is about NUMBERS, not about presence. None is an honest unknown during an
+# outage and must pass; two reaches claiming the same reading must not.
 flows = {r: (D[r]["cur"] or {}).get("flow") for r in ("duckup", "duckmid", "ducklow")}
-chk("the three Duck sections report different water", len(set(flows.values())) == 3, json.dumps(flows))
+known = {r: v for r, v in flows.items() if v is not None}
+chk("no two Duck sections report the same flow",
+    len(set(known.values())) == len(known), json.dumps(flows))
+# Ordering only applies to the reaches that actually have a reading.
+ordered = [known[r] for r in ("duckup", "duckmid", "ducklow") if r in known]
 chk("Duck flow increases downstream (tributaries only add water)",
-    flows["duckup"] < flows["duckmid"] < flows["ducklow"], json.dumps(flows))
+    all(ordered[i] < ordered[i + 1] for i in range(len(ordered) - 1)), json.dumps(flows))
+chk("at least one Duck reach has a reading (all three unknown means both gauges are out)",
+    len(known) >= 1, json.dumps(flows))
 
 # each section's accesses must lie inside its own river-mile range, and the ranges must tile
 RANGES = {"duckup": (113.9, 133.5), "duckmid": (95.0, 113.9), "ducklow": (73.7, 95.0)}
