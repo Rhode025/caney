@@ -109,28 +109,38 @@ async def prefetch(build_fn, fetch):
         res = await Promise.all(to_js(promises))
         return list(res)
 
-    started, order = [], []
-    for r in reqs:
-        try:
-            started.append(fetch(r.url, _opts(r)))
-            order.append(r)
-        except Exception as e:                      # noqa: BLE001
-            filled.put(r.key, error="%s: %s" % (type(e).__name__, e))
-            stats["failed"] += 1
+    # BATCHED, because the platform caps SIMULTANEOUS OPEN CONNECTIONS at a handful —
+    # separately from the 50-subrequest total. Removing the old Semaphore along with
+    # asyncio took the throttle off too, and starting thirty fetches at once produced
+    # exactly twelve successes per shard and eighteen failures: a connection cap, not a
+    # concurrency bug. JS parallelism still does the work; it just does it six at a time.
+    BATCH = 6
 
-    # Promise.all REJECTS on the first failure, which would lose every other response. So
-    # each promise gets a JS-level catch that resolves to None instead, and a None is read
-    # back as that source having failed.
-    guarded = []
-    for pr in started:
-        try:
-            guarded.append(pr.catch(lambda _e: None))
-        except Exception:                           # noqa: BLE001
-            guarded.append(pr)
+    responses, order = [], []
+    for i in range(0, len(reqs), BATCH):
+        chunk = reqs[i:i + BATCH]
+        started, kept = [], []
+        for r in chunk:
+            try:
+                started.append(fetch(r.url, _opts(r)))
+                kept.append(r)
+            except Exception as e:                  # noqa: BLE001
+                filled.put(r.key, error="%s: %s" % (type(e).__name__, e))
+                stats["failed"] += 1
+                _tally(stats, r, False)
+        # Promise.all REJECTS on the first failure, which would lose every other response
+        # in the batch. A JS-level catch resolves to None instead, read back as a failure.
+        guarded = []
+        for pr in started:
+            try:
+                guarded.append(pr.catch(lambda _e: None))
+            except Exception:                       # noqa: BLE001
+                guarded.append(pr)
+        responses.extend(await _all(guarded))
+        order.extend(kept)
 
-    responses = await _all(guarded)
-
-    texts, text_order = [], []
+    # Reading the bodies is a second round of promises, batched for the same reason.
+    pending = []
     for r, resp in zip(order, responses):
         if resp is None:
             filled.put(r.key, error="fetch failed for %s" % _host(r.url))
@@ -142,35 +152,35 @@ async def prefetch(build_fn, fetch):
             stats["failed"] += 1
             _tally(stats, r, False)
             continue
-        try:
-            texts.append(resp.text().catch(lambda _e: None))
-        except Exception:                           # noqa: BLE001
-            texts.append(None)
-        text_order.append(r)
+        pending.append((r, resp))
 
-    bodies = await _all([t for t in texts if t is not None])
-    bi = 0
-    for r, t in zip(text_order, texts):
-        if t is None:
-            filled.put(r.key, error="could not read the body from %s" % _host(r.url))
-            stats["failed"] += 1
-            _tally(stats, r, False)
-            continue
-        raw = bodies[bi] if bi < len(bodies) else None
-        bi += 1
-        if raw is None:
-            filled.put(r.key, error="empty body from %s" % _host(r.url))
-            stats["failed"] += 1
-            _tally(stats, r, False)
-            continue
-        try:
-            filled.put(r.key, data=json.loads(str(raw)))
-            stats["ok"] += 1
-            _tally(stats, r, True)
-        except ValueError as e:
-            filled.put(r.key, error="not JSON from %s: %s" % (_host(r.url), e))
-            stats["failed"] += 1
-            _tally(stats, r, False)
+    for i in range(0, len(pending), BATCH):
+        chunk = pending[i:i + BATCH]
+        promises, kept = [], []
+        for r, resp in chunk:
+            try:
+                promises.append(resp.text().catch(lambda _e: None))
+                kept.append(r)
+            except Exception:                       # noqa: BLE001
+                filled.put(r.key, error="could not read the body from %s" % _host(r.url))
+                stats["failed"] += 1
+                _tally(stats, r, False)
+        bodies = await _all(promises)
+        for r, raw in zip(kept, bodies):
+            if raw is None:
+                filled.put(r.key, error="empty body from %s" % _host(r.url))
+                stats["failed"] += 1
+                _tally(stats, r, False)
+                continue
+            try:
+                filled.put(r.key, data=json.loads(str(raw)))
+                stats["ok"] += 1
+                _tally(stats, r, True)
+            except ValueError as e:
+                filled.put(r.key, error="not JSON from %s: %s" % (_host(r.url), e))
+                stats["failed"] += 1
+                _tally(stats, r, False)
+    stats["batch_size"] = BATCH
     return filled, stats
 
 
