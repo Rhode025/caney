@@ -21,7 +21,11 @@ on:
         required: true
         default: probe
         type: choice
-        options: [probe, bootstrap, deploy-research, deploy-api, deploy-all]
+        options: [probe, bootstrap, deploy-research, deploy-api, deploy-all, tail]
+      minutes:
+        description: "tail only: how long to stream logs (default 7, enough for one cron)"
+        required: false
+        default: "7"
 
 concurrency:
   group: caney-workers
@@ -121,3 +125,25 @@ jobs:
             echo "— $host —"
           done
           echo "Smoke runs from the post-deploy workflow; see DEPLOYMENT.md for URLs."
+
+      # ── tail ─────────────────────────────────────────────────────────────
+      # The diagnostic for #165, and the reason it took too long to run: I kept saying
+      # `wrangler tail` needed credentials I did not have. It needs exactly the
+      # credentials this workflow already uses to deploy. The logs are not reachable from
+      # a developer machine; they are reachable from here.
+      #
+      # Streams for seven minutes by default, which covers at least one */5 cron window.
+      # A scheduled invocation appears as an event of type "scheduled"; its absence over
+      # two windows is evidence the scheduler is not invoking the worker at all, as
+      # distinct from invoking it and failing.
+      - name: Tail the API worker
+        if: ${{ inputs.action == 'tail' }}
+        working-directory: caney-api
+        run: |
+          set +e
+          MIN="${{ inputs.minutes }}"
+          MIN="${MIN:-7}"
+          echo "streaming $MIN minutes — a */5 cron should appear at least once"
+          timeout "${MIN}m" npx --yes wrangler@4 tail --format json 2>&1 | tee /tmp/tail.log
+          echo "── summary ──"
+          python3 ../tools/tail_summary.py /tmp/tail.log
