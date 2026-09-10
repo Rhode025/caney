@@ -135,7 +135,15 @@ jobs:
           if [ -f cache_dam.json ]; then
             python3 -c "import json;print('cache_dam.json ts:', json.load(open('cache_dam.json')).get('ts'))"
           else
-            echo "::warning::cache_dam.json missing after build — CWMS fallback is unavailable next run"
+            # It says "after build" only when the build actually ran. On a run that
+            # failed at an earlier gate this file was never going to exist, and a warning
+            # about the CWMS fallback is then noise pointing at the wrong thing — which
+            # is exactly how it read when a unit test failed at step 5.
+            if [ -d out ]; then
+              echo "::warning::cache_dam.json missing after build — CWMS fallback is unavailable next run"
+            else
+              echo "cache_dam.json absent and the build did not run — nothing to report"
+            fi
           fi
 
       - name: Build report

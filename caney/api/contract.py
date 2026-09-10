@@ -13,6 +13,7 @@ it later. So a client error is a 400 naming the field, an unknown route is a 404
 unauthorised internal call is a 403, and 200-with-degradation is reserved for the case it
 was designed for — the deterministic plan succeeded and something optional did not.
 """
+import datetime as _dt
 import time
 
 from ..domain.method import TackleMethod
@@ -166,10 +167,23 @@ def parse(body, now=None, tz_name="America/Chicago"):
     if (hi - lo) / 60.0 < MIN_DAY_MINUTES:
         raise BadRequest("availability is under %d minutes" % MIN_DAY_MINUTES,
                          "availability")
-    days_out = (lo - now) / 86400.0
+    # CALENDAR DAYS, not float days. This used to be `(lo - now) / 86400.0`, which made
+    # the horizon shrink as the clock moved: "three days out" was accepted at 08:00,
+    # 14:00 and 22:00 and REJECTED at 00:51, because a 6 a.m. window three calendar days
+    # away is 3.2 float-days from one in the morning. A scheduled build caught it, at the
+    # worst possible hour to find it — before dawn is exactly when somebody opens a
+    # fishing app.
+    #
+    # "Three days out" means three calendar days to a person, and a bound that depends on
+    # what time they ask is not a bound they can learn. Thin weather at the far edge is
+    # handled where thin data belongs: the confidence model degrades it, visibly. Gates
+    # are for requests that are WRONG; confidence is for answers that are WEAK.
+    req_date = _dt.datetime.fromtimestamp(lo, tz).date()
+    today = _dt.datetime.fromtimestamp(now, tz).date()
+    days_out = (req_date - today).days
     if days_out > MAX_DAYS_OUT:
         raise BadRequest(
-            "that is %.1f days out. The hourly weather forecast only reaches %d days, "
+            "that is %d days out. The hourly weather forecast only reaches %d days, "
             "and past that a plan carries a forecast confidence of zero — which is not "
             "an answer, however confidently the destination is printed."
             % (days_out, MAX_DAYS_OUT), "availability")

@@ -347,23 +347,51 @@ def test_api_contract():
             check("%s is rejected, naming %s" % (name, field), e.field == field,
                   "field was %r" % e.field)
 
-    section("the horizon matches the data, not a hopeful constant")
+    section("the horizon is CALENDAR days, and stable at every hour")
+    # THIS TEST FAILED ONCE AND IT WAS RIGHT TO. It asserted that a request at the horizon
+    # is accepted, and a 05:50Z scheduled build rejected it: a 6 a.m. window three
+    # CALENDAR days out is 3.2 FLOAT days from one in the morning, so the old
+    # float comparison shrank the horizon before dawn — exactly when somebody opens a
+    # fishing app. Fixed in the contract, not worked around here.
+    #
+    # It now sweeps the clock rather than trusting whatever hour CI happens to run at.
+    # The previous version of this test would have passed at 08:00 and failed at 00:51,
+    # which is the same time-dependence that bit test_stale_research the day before.
     from caney.api.contract import MAX_DAYS_OUT
     import datetime as _dt
-    day = _dt.datetime.fromtimestamp(now, _tz()).date()
-
-    def _at(d, h):
-        x = day + _dt.timedelta(days=d)
-        return _dt.datetime(x.year, x.month, x.day, h, tzinfo=_tz()).timestamp()
 
     check("the horizon is 3 days", MAX_DAYS_OUT == 3, str(MAX_DAYS_OUT))
-    ok_body = {**good, "availability": {"depart_after": _at(MAX_DAYS_OUT, 6),
-                                        "return_by": _at(MAX_DAYS_OUT, 11)}}
-    try:
-        parse(ok_body, now=now)
-        check("a request at the horizon is accepted", True)
-    except BadRequest as e:
-        check("a request at the horizon is accepted", False, e.message)
+
+    day = _dt.datetime.fromtimestamp(now, _tz()).date()
+
+    def _at(offset, hour, minute=0):
+        x = day + _dt.timedelta(days=offset)
+        return _dt.datetime(x.year, x.month, x.day, hour, minute,
+                            tzinfo=_tz()).timestamp()
+
+    def _asked_at(hour, minute=0):
+        return _dt.datetime(day.year, day.month, day.day, hour, minute,
+                            tzinfo=_tz()).timestamp()
+
+    def _accepts(asked_at, offset):
+        body = {**good, "availability": {"depart_after": _at(offset, 6),
+                                         "return_by": _at(offset, 11)}}
+        try:
+            parse(body, now=asked_at)
+            return True
+        except BadRequest:
+            return False
+
+    bad = []
+    for hour in (0, 1, 5, 8, 12, 17, 22, 23):
+        for offset in range(1, MAX_DAYS_OUT + 1):
+            if not _accepts(_asked_at(hour), offset):
+                bad.append("+%dd refused when asked at %02d:00" % (offset, hour))
+        if _accepts(_asked_at(hour), MAX_DAYS_OUT + 1):
+            bad.append("+%dd accepted when asked at %02d:00" % (MAX_DAYS_OUT + 1, hour))
+    check("every day inside the horizon is accepted at every hour, and none outside it",
+          not bad, "; ".join(bad[:4]))
+
     try:
         parse({**good, "availability": {"depart_after": _at(MAX_DAYS_OUT + 2, 6),
                                         "return_by": _at(MAX_DAYS_OUT + 2, 11)}}, now=now)
@@ -374,12 +402,12 @@ def test_api_contract():
               "weather" in e.message.lower(), e.message[:90])
 
     # The reason the bound exists: past it there are no weather rows to score.
-    snap = _snaps[list(_snaps)[0]] if False else _ctx()[0].get("caney_upper")
+    snap = _ctx()[0].get("caney_upper")
     if snap is not None:
-        inside = snap.weather_window(_at(MAX_DAYS_OUT, 6), _at(MAX_DAYS_OUT, 11))
+        inside = snap.weather_window(_at(MAX_DAYS_OUT - 1, 6), _at(MAX_DAYS_OUT - 1, 11))
         beyond = snap.weather_window(_at(MAX_DAYS_OUT + 2, 6), _at(MAX_DAYS_OUT + 2, 11))
-        check("weather reaches the horizon", len(inside) > 0, str(len(inside)))
-        check("and does not reach past it", len(beyond) == 0, str(len(beyond)))
+        check("weather reaches inside the horizon", len(inside) > 0, str(len(inside)))
+        check("and does not reach well past it", len(beyond) == 0, str(len(beyond)))
 
     section("§7 — the envelope carries what §7 lists")
     from caney.api.handler import Context, plan as api_plan
