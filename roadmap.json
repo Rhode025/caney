@@ -1247,6 +1247,25 @@
    "sprint": 61,
    "issue": 165,
    "issue_url": "https://github.com/Rhode025/caney/issues/165"
+  },
+  {
+   "sprint": 62,
+   "key": "RES-04",
+   "epic": "Research",
+   "priority": "P1",
+   "effort": "M",
+   "lane": "next",
+   "title": "Two decay models disagree: Python has one curve, the worker has sixteen",
+   "evidence": "caney/domain/claim.py::_recency is a single step function applied to EVERY claim type \u2014 1.0 within a week, then 0.9, 0.75, 0.55, floor 0.35. research-worker/src/claims.js::DECAY has sixteen per-type curves with their own half-lives and floors. They disagree badly, and in both directions. A month-old FISHING REPORT: python 0.900, worker 0.050 \u2014 python gives it 18x the weight. A five-year-old HABITAT description: python 0.350, worker 0.700 \u2014 python gives it half. So the single curve is simultaneously too generous to perishable claims and too harsh on durable ones, which is the worst of both. This is the same defect 3.0 set out to eliminate \u2014 two implementations of one model that can disagree \u2014 and it survived because the research worker is not yet feeding the planner. It is LATENT, not active: research_status is 'disabled' with no OPENAI_API_KEY, so only the seed corpus is scored today and production is unaffected. It becomes live the moment RES-03 turns research on, which is why this should land first. Found while fixing a test time bomb that pinned a literal published_at date and failed overnight when it aged past the seven-day step.",
+   "done": [
+    "One decay model, per claim type, shared by both halves \u2014 the worker's DECAY table is the considered one and should be the source of truth.",
+    "The Python side reads it rather than carrying a second curve, the way caney/hydrology inverted the riverlib dependency.",
+    "A test asserts the two agree for every claim type at several ages, so they cannot drift again.",
+    "RESEARCH_VERSION is bumped \u2014 this changes how claims score, and a calibration figure spanning the change would be meaningless.",
+    "Landed BEFORE RES-03, so research is never switched on with the two halves disagreeing."
+   ],
+   "issue": 166,
+   "issue_url": "https://github.com/Rhode025/caney/issues/166"
   }
  ],
  "repo": "Rhode025/caney",
