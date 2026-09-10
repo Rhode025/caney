@@ -113,45 +113,35 @@ blocked:
 
   - id: API-03
     what: keeping the snapshot shards fresh
-    status: RESOLVED
-    the_bug: the Worker's own cron looked dead — wrangler printed
-      `schedule: */5 * * * *` on every deploy and bundle age grew 865s, 966s, 1067s with
-      no error anywhere. The build markers settled it: build_bundle writes
-      build:last_start before doing anything else, and EVERY marker ever written said
-      why="self". No "cron" marker had ever existed, which rules out "invoked and threw
-      inside the body" and leaves "invoked with an arity the signature refused" — a
-      TypeError at the call boundary leaves no marker, no log, no trace. Both handlers
-      now take *args/**kwargs and find env by looking for an object carrying bindings.
-      A why=cron marker appeared within two minutes.
-    a_correction: I first reported the fixed cron as firing "intermittently" — one landed
-      build in seventeen minutes where three were due. That was wrong, and wrong because
-      I sampled during a rotation. One shard per fire means a full cycle takes fifteen
-      minutes, so any single sample finds two shards mid-cycle and looks like a stall.
-    measured: twenty minutes of observation with nothing else touching the API —
-        fire at 15:30:29 -> shard 0
-        fire at 15:35:28 -> shard 1
-        fire at 15:40:27 -> shard 2
-      299 seconds apart, rotating in order, full cycle in fifteen minutes. Confirmed
-      independently from the hourly build, which found shard ages 701s / 402s / 102s —
-      the same 300-second spacing seen from outside — and correctly did nothing.
-    cadence_is_deliberate: fifteen minutes per shard is matched to what the data does
-      rather than to what a cron can manage. USGS instantaneous values update every 15
-      min; CWMS and Open-Meteo are hourly; the freshness budgets in
-      caney/domain/observation.py are two to three HOURS. Fetching faster would get
-      nothing new, and snapshots.py is explicit that these are four public agencies, not
-      a CDN. Do not "optimise" this upward.
-    the_net: two paths behind the cron, and only one of them is proven.
-      * .github/workflows/deploy.yml — hourly and on every push. PROVEN: observed
-        skipping cleanly with "nothing is stale — the scheduled build is keeping up".
-      * .github/workflows/refresh.yml — every 30 min. Its schedule trigger had STILL not
-        fired two hours after the workflow was added, matching CLAUDE.md's note about
-        scheduled runs here arriving 40-100 minutes late or never. It works on dispatch.
-      Both use --stale-after, so they read /health and rebuild only what is genuinely
-      behind; a healthy system costs one GET. Rebuilding all three unconditionally every
-      ten minutes — which is what this did first — was ~11,000 extra fetches a day for
-      numbers that had not changed. Total dropped from ~20,000/day to ~8,000, almost all
-      of it the cron doing the work it should.
-    manual: python3 tools/refresh_api.py
+    status: ADEQUATE — the hourly job carries it; the Worker cron is unreliable (#165)
+    the_bug: the Worker cron never fired. The build markers settled why: build_bundle
+      writes build:last_start before anything else, and EVERY marker said why="self".
+      No "cron" marker had ever existed, which rules out "threw inside the body" and
+      leaves "invoked with an arity the signature refused" — a TypeError at the call
+      boundary leaves no marker, no log, no trace. Both handlers take *args/**kwargs now.
+    it_then_worked_and_stopped: fired reliably for twenty minutes — 15:30:29, 15:35:28,
+      15:40:27, rotating shards 0 -> 1 -> 2, 299s apart — then went quiet for 95 minutes
+      with no deploy in between, and has not resumed. The signature fix was real and did
+      not make the scheduler durable. Four guesses at this scheduler, three of them wrong;
+      `wrangler tail` is what would settle it and needs credentials that live only as
+      repository secrets. #165 is reopened.
+    what_actually_carries_it: .github/workflows/deploy.yml's `refresh-api` job — hourly
+      and on every push, with --stale-after so a healthy system costs one GET.
+      IT IS ITS OWN JOB, and that matters: it used to be a step after the test gates, so
+      when the planner suite failed at 00:05Z it was SKIPPED along with everything else
+      downstream, and continue-on-error cannot save a step that never runs. That night all
+      three paths failed at once — cron stopped, GitHub's schedule had fired once in two
+      hours, this was skipped behind a broken test — and the API served data 110 minutes
+      old. Verified fixed: refresh-api now completes while build-deploy is still running.
+    the_lesson: three independent paths are not three independent paths if two depend on
+      the same scheduler being reliable and the third depends on the test suite being
+      green. Redundancy has to be redundant in the right dimension.
+    cadence_is_deliberate: when the cron does run, fifteen minutes per shard is matched to
+      what the data does — USGS every 15 min, CWMS and Open-Meteo hourly, and the
+      freshness budgets in caney/domain/observation.py are two to three HOURS. Do not
+      "optimise" this upward; snapshots.py is explicit that these are four public
+      agencies, not a CDN.
+    manual: python3 tools/refresh_api.py   (and tools/api_check.py to see who last built)
 
   - id: API-04
     what: 28 of 74 upstream sources failed from inside the Worker
