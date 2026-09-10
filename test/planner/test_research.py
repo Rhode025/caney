@@ -195,21 +195,62 @@ def test_research_changes_ranking():
 
 
 def test_stale_research():
-    """§62 — a five-year-old field report must not carry a current report's weight."""
+    """§62 — a five-year-old field report must not carry a current report's weight.
+
+    THIS TEST USED TO BE A TIME BOMB, and it went off. It pinned `published_at` to the
+    literal date "2026-09-02", one day inside `_recency`'s seven-day grace, and asserted a
+    blended ratio of 1.4 against an actual 1.413 — one percent of margin. When the
+    hardcoded date aged past seven days the recency term stepped 1.0 -> 0.9, the ratio fell
+    to 1.350, and a scheduled build failed on a Thursday having passed on the Wednesday.
+
+    Two things were wrong and both are fixed. Dates are RELATIVE now, because "this week"
+    is what the test's own prose says and a literal date cannot mean that for long. And it
+    pins `_recency`'s step boundaries EXACTLY rather than inferring the curve from a
+    blended score — the boundaries are the contract, the blend is a consequence, and
+    asserting the consequence to three decimal places was measuring the wrong thing.
+    """
+    import datetime as _dt
+
+    from caney.domain.claim import ResearchClaim, _recency
     section("§62 — decay by claim type")
-    from caney.domain.claim import ResearchClaim
-    fresh = ResearchClaim(species="trout", claim_type="recent_report",
-                          claim_text="The tailwater fished well this week.",
-                          source_url="https://www.tn.gov/twra/report",
-                          published_at="2026-09-02", location_ids=["caney_upper"])
-    old = ResearchClaim(species="trout", claim_type="recent_report",
-                        claim_text="The tailwater fished well this week.",
-                        source_url="https://www.tn.gov/twra/report-old",
-                        published_at="2021-09-02", location_ids=["caney_upper"])
+
+    def _ago(days):
+        return (_dt.date.today() - _dt.timedelta(days=days)).isoformat()
+
+    # The curve itself, at every boundary and on both sides of it. Exact, so it cannot
+    # drift, and it fails loudly if anyone reshapes the decay without meaning to.
+    for days, want in ((0, 1.0), (7, 1.0), (8, 0.9), (30, 0.9), (31, 0.75),
+                       (120, 0.75), (121, 0.55), (400, 0.55), (401, 0.35),
+                       (5 * 365, 0.35)):
+        got = _recency(_ago(days))
+        check("recency at %d days is %.2f" % (days, want), abs(got - want) < 1e-9,
+              "%s != %s" % (got, want))
+    check("no published date is neither fresh nor stale", _recency(None) == 0.5)
+    check("an unparseable date does not crash or score full",
+          _recency("last Tuesday") == 0.5)
+    check("the curve never reaches zero — old agency science is still science",
+          _recency(_ago(50 * 365)) == 0.35)
+
+    def _claim(days, slug):
+        return ResearchClaim(species="trout", claim_type="recent_report",
+                             claim_text="The tailwater fished well this week.",
+                             source_url="https://www.tn.gov/twra/%s" % slug,
+                             published_at=_ago(days), location_ids=["caney_upper"])
+
+    fresh = _claim(1, "report")
+    old = _claim(5 * 365, "report-old")
     f = fresh.score(month=9, zone_ids=["caney_upper"])
     o = old.score(month=9, zone_ids=["caney_upper"])
     check("the current report is worth more", f > o, "%s vs %s" % (f, o))
-    check("materially more, not marginally", f > o * 1.4, "%s vs %s" % (f, o))
+    # 1.413 at the current weights. Asserting 1.25 leaves real margin while still failing
+    # if the decay stops mattering — which is the property, rather than today's arithmetic.
+    check("materially more, not marginally", f > o * 1.25, "%s vs %s" % (f, o))
+    # And the ordering holds at every step, which the single comparison above did not check.
+    scores = [_claim(d, "r%d" % d).score(month=9, zone_ids=["caney_upper"])
+              for d in (1, 20, 90, 300, 5 * 365)]
+    check("score falls monotonically as a report ages",
+          all(scores[i] >= scores[i + 1] for i in range(len(scores) - 1)),
+          str([round(x, 4) for x in scores]))
     check("but the old one is not worthless — it is still an agency source", o > 0.2, str(o))
 
     section("the worker's decay curves are steeper still, per claim type")
