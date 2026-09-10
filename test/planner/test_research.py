@@ -1,5 +1,6 @@
 """§15-§21 — the research layer, and that the product works without it."""
 import os
+import sys
 import time
 
 from harness import check, eq, raises, section
@@ -195,41 +196,79 @@ def test_research_changes_ranking():
 
 
 def test_stale_research():
-    """§62 — a five-year-old field report must not carry a current report's weight.
+    """§24, §62 — decay is PER CLAIM TYPE, and both halves of the system agree on it.
 
-    THIS TEST USED TO BE A TIME BOMB, and it went off. It pinned `published_at` to the
-    literal date "2026-09-02", one day inside `_recency`'s seven-day grace, and asserted a
-    blended ratio of 1.4 against an actual 1.413 — one percent of margin. When the
-    hardcoded date aged past seven days the recency term stepped 1.0 -> 0.9, the ratio fell
-    to 1.350, and a scheduled build failed on a Thursday having passed on the Wednesday.
+    This test has been wrong twice and the history is worth keeping.
 
-    Two things were wrong and both are fixed. Dates are RELATIVE now, because "this week"
-    is what the test's own prose says and a literal date cannot mean that for long. And it
-    pins `_recency`'s step boundaries EXACTLY rather than inferring the curve from a
-    blended score — the boundaries are the contract, the blend is a consequence, and
-    asserting the consequence to three decimal places was measuring the wrong thing.
+    First it was a time bomb: it pinned `published_at` to the literal "2026-09-02", one day
+    inside a seven-day grace, and asserted a blended ratio of 1.4 against an actual 1.413.
+    When that date aged past seven days a scheduled build failed having passed three hours
+    earlier. Relative dates fixed that.
+
+    Then it pinned the step curve EXACTLY — which was the right instinct and the wrong
+    target, because the step curve itself was the bug. Python applied one curve to every
+    claim type while the research worker had sixteen, and they disagreed by 18x on a
+    month-old fishing report. The table is shared now (caney/research/decay.py, emitted to
+    research-worker/src/decay.generated.js), so what this pins is the SHARED model and the
+    fact that the two consumers cannot drift apart again.
     """
     import datetime as _dt
+    import subprocess as _sp
 
-    from caney.domain.claim import ResearchClaim, _recency
-    section("§62 — decay by claim type")
+    from caney.domain.claim import ResearchClaim
+    from caney.research.decay import DECAY, decay_for, recency, recency_for
+    section("§24 — decay is per claim type")
 
+    check("the table covers the types the worker knows", len(DECAY) == 16, str(len(DECAY)))
+    check("a fresh claim of any type is worth ~1.0",
+          all(abs(recency(k, 0) - 1.0) < 1e-9 for k in DECAY))
+    check("every type has a floor above zero — old agency science is still science",
+          all(DECAY[k]["floor"] > 0 for k in DECAY))
+    check("no floor reaches 1.0 except where influence genuinely does not decay",
+          [k for k in DECAY if DECAY[k]["floor"] >= 0.95] == ["regulation"],
+          str([k for k in DECAY if DECAY[k]["floor"] >= 0.95]))
+
+    section("§24 — the shape that matters: perishable vs structural")
+    # A fishing report is worthless as a CURRENT report within a month; a habitat
+    # description is still true years later. One curve could express neither.
+    check("a month-old fishing report has collapsed to its floor",
+          abs(recency("recent_report", 30) - 0.05) < 1e-9,
+          str(recency("recent_report", 30)))
+    check("a month-old habitat note is barely touched",
+          recency("habitat", 30) > 0.97, str(recency("habitat", 30)))
+    check("at five years the report is worth far less than the habitat note",
+          recency("habitat", 5 * 365) > recency("recent_report", 5 * 365) * 10,
+          "%s vs %s" % (recency("habitat", 5 * 365), recency("recent_report", 5 * 365)))
+    check("a regulation does not decay in influence",
+          recency("regulation", 5 * 365) > 0.98, str(recency("regulation", 5 * 365)))
+    check("an unknown claim type falls to the default, not to zero",
+          recency("no_such_type", 400) == recency_for("no_such_type", None) or
+          recency("no_such_type", 0) == 1.0)
+    check("monotonic in age for every type",
+          all(recency(k, a) >= recency(k, b)
+              for k in DECAY for a, b in ((0, 7), (7, 30), (30, 400), (400, 5000))))
+
+    section("§24 — the seed corpus's spelling is aliased, not silently defaulted")
+    # The corpus says seasonal_location; the worker says seasonal_distribution. Letting
+    # that fall through to DEFAULT cost three TWRA claims a third of their weight.
+    check("seasonal_location resolves to seasonal_distribution",
+          decay_for("seasonal_location") is DECAY["seasonal_distribution"])
+    check("and is therefore not on the default curve",
+          recency("seasonal_location", 5 * 365) != recency("no_such_type", 5 * 365))
+
+    section("§62 — an undated claim gets its type's FLOOR, not a flat 0.5")
+    # 22 of the 23 seeded claims carry no publication date, so this branch is what nearly
+    # the whole corpus is scored on. A flat 0.5 over-credited perishable claims and
+    # under-credited durable agency facts simultaneously.
+    for kind in ("recent_report", "habitat", "regulation"):
+        check("undated %s scores its floor (%.2f)" % (kind, DECAY[kind]["floor"]),
+              abs(recency_for(kind, None) - DECAY[kind]["floor"]) < 1e-9,
+              str(recency_for(kind, None)))
+    check("an unparseable date does not crash", recency_for("habitat", "last Tuesday") > 0)
+
+    section("§62 — a current report still outranks an ancient one, with margin")
     def _ago(days):
         return (_dt.date.today() - _dt.timedelta(days=days)).isoformat()
-
-    # The curve itself, at every boundary and on both sides of it. Exact, so it cannot
-    # drift, and it fails loudly if anyone reshapes the decay without meaning to.
-    for days, want in ((0, 1.0), (7, 1.0), (8, 0.9), (30, 0.9), (31, 0.75),
-                       (120, 0.75), (121, 0.55), (400, 0.55), (401, 0.35),
-                       (5 * 365, 0.35)):
-        got = _recency(_ago(days))
-        check("recency at %d days is %.2f" % (days, want), abs(got - want) < 1e-9,
-              "%s != %s" % (got, want))
-    check("no published date is neither fresh nor stale", _recency(None) == 0.5)
-    check("an unparseable date does not crash or score full",
-          _recency("last Tuesday") == 0.5)
-    check("the curve never reaches zero — old agency science is still science",
-          _recency(_ago(50 * 365)) == 0.35)
 
     def _claim(days, slug):
         return ResearchClaim(species="trout", claim_type="recent_report",
@@ -237,33 +276,21 @@ def test_stale_research():
                              source_url="https://www.tn.gov/twra/%s" % slug,
                              published_at=_ago(days), location_ids=["caney_upper"])
 
-    fresh = _claim(1, "report")
-    old = _claim(5 * 365, "report-old")
-    f = fresh.score(month=9, zone_ids=["caney_upper"])
-    o = old.score(month=9, zone_ids=["caney_upper"])
+    f = _claim(1, "report").score(month=9, zone_ids=["caney_upper"])
+    o = _claim(5 * 365, "report-old").score(month=9, zone_ids=["caney_upper"])
     check("the current report is worth more", f > o, "%s vs %s" % (f, o))
-    # 1.413 at the current weights. Asserting 1.25 leaves real margin while still failing
-    # if the decay stops mattering — which is the property, rather than today's arithmetic.
     check("materially more, not marginally", f > o * 1.25, "%s vs %s" % (f, o))
-    # And the ordering holds at every step, which the single comparison above did not check.
     scores = [_claim(d, "r%d" % d).score(month=9, zone_ids=["caney_upper"])
               for d in (1, 20, 90, 300, 5 * 365)]
     check("score falls monotonically as a report ages",
           all(scores[i] >= scores[i + 1] for i in range(len(scores) - 1)),
           str([round(x, 4) for x in scores]))
-    check("but the old one is not worthless — it is still an agency source", o > 0.2, str(o))
 
-    section("the worker's decay curves are steeper still, per claim type")
-    import json
-    import os
-    p = os.path.join(ROOT, "research-worker", "src", "claims.js")
-    src = open(p, encoding="utf-8").read()
-    check("a weekly report has a short TTL", "recent_report:" in src and
-          "ttlSeconds: 12 * 3600" in src)
-    check("a survey has a long one", "survey:" in src and "180 * 86400" in src)
-    check("a regulation is rechecked but does not decay in influence",
-          "regulation:" in src and "floor: 0.95" in src)
-
+    section("§2 — the two implementations cannot drift apart")
+    r = _sp.run([sys.executable, os.path.join(ROOT, "tools", "emit_decay.py"), "--check"],
+                capture_output=True, text=True, cwd=ROOT)
+    check("research-worker/src/decay.generated.js is in sync with the Python table",
+          r.returncode == 0, (r.stdout + r.stderr).strip()[:160])
 
 def test_research_offline():
     """§63 — RESEARCH_ENABLED=false must still produce a valid plan."""

@@ -278,7 +278,8 @@ class ResearchClaim:
         self.seasonal_match = seasonal
         geo = 1.0 if (not zone_ids or set(self.location_ids) & set(zone_ids)) else 0.3
         self.geographic_match = geo
-        rec = self.recency_score if self.recency_score else _recency(self.published_at)
+        rec = (self.recency_score if self.recency_score
+               else _recency(self.published_at, self.claim_type))
         self.recency_score = rec
         self.confidence = round(self.source_quality * seasonal * geo * (0.55 + 0.45 * rec), 4)
         return self.confidence
@@ -299,18 +300,18 @@ def _domain_of(url):
         return ""
 
 
-def _recency(published_at):
-    """1.0 for this week, decaying to a floor of 0.35 — old agency science is still science."""
-    if not published_at:
-        return 0.5
-    try:
-        import datetime as dt
-        d = dt.date.fromisoformat(str(published_at)[:10])
-        days = (dt.date.today() - d).days
-    except Exception:
-        return 0.5
-    if days <= 7:    return 1.0
-    if days <= 30:   return 0.9
-    if days <= 120:  return 0.75
-    if days <= 400:  return 0.55
-    return 0.35
+def _recency(published_at, claim_type=""):
+    """0..1 — how much a claim this old still counts. §24, §62.
+
+    DELEGATES to caney/research/decay.py, which is shared with the research worker. This
+    used to be a single step curve applied to every claim type — 1.0 within a week, then
+    0.9, 0.75, 0.55, floor 0.35 — while the worker had sixteen per-type curves. They
+    disagreed in both directions: at a month old a fishing report was weighted 18x what the
+    worker would give it, and a five-year-old habitat note got half. Two implementations of
+    one model, which is the defect this release was built to remove.
+
+    `claim_type` is optional only so that a caller with nothing better still gets the
+    default curve rather than a crash; every real call site passes it.
+    """
+    from ..research.decay import recency_for
+    return recency_for(claim_type, published_at)

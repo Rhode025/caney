@@ -23,15 +23,19 @@ changes which windows are considered, so PLANNER_VERSION moves. A stored 2.1 res
 3.0 result are not comparable as calibration evidence, and pretending otherwise by
 leaving the version alone would quietly poison the first real outcome sample.
 
-RESEARCH_VERSION deliberately stays at 2.1.0: nothing in the corpus, the tiers or the
-decay curves changed. Bumping every number together because "it is a new release" is how
-version fields stop carrying information.
+RESEARCH_VERSION MOVED TO 3.0.0 AFTER ALL, and the reason is worth recording because it
+was 2.1.0 on the argument that nothing in the corpus, the tiers or the decay curves had
+changed. Then the decay curves changed: Python had been applying one step curve to every
+claim type while the research worker carried sixteen per-type curves, and they disagreed by
+18x on a month-old fishing report. Unifying them (caney/research/decay.py, shared with the
+worker) changes how every claim scores, so a calibration figure spanning the change would
+be meaningless. That is exactly what this field is for.
 """
 
 PLANNER_VERSION = "3.0.0"
 SPECIES_MODEL_VERSION = "3.0.0"
 ZONE_MODEL_VERSION = "3.0.0"
-RESEARCH_VERSION = "2.1.0"
+RESEARCH_VERSION = "3.0.0"
 HYDROLOGY_VERSION = "3.0.0"
 
 #: The API's wire schema. Separate from the models: a schema change breaks clients, a

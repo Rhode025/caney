@@ -81,33 +81,22 @@ export const SAFETY_SENSITIVE_RE = new RegExp(
  * survey are not the same kind of fact, and giving them one TTL makes the recent one go
  * stale far too slowly and the structural one far too fast.
  *
+ * THE TABLE IS NOT HERE ANY MORE. It is generated from caney/research/decay.py into
+ * ./decay.generated.js by tools/emit_decay.py, and a Python test fails if the two drift. Python
+ * owns it for the same reason CLAUDE.md gives for every calibrated constant: a value that
+ * lives in two places gets edited in one — and this one did. The Python side had a single
+ * step curve for all claim types and disagreed with this table by 18x on a month-old
+ * fishing report.
+ *
  * `ttlSeconds` is when we would go looking again; `halfLifeDays` is how fast the claim's
  * influence decays in the meantime; `floor` is how much it is always worth.
  */
-export const DECAY = {
-  recent_report:        { ttlSeconds: 12 * 3600,   halfLifeDays: 5,      floor: 0.05 },
-  creel_result:         { ttlSeconds: 30 * 86400,  halfLifeDays: 400,    floor: 0.45 },
-  generation_response:  { ttlSeconds: 21 * 86400,  halfLifeDays: 900,    floor: 0.60 },
-  current_response:     { ttlSeconds: 28 * 86400,  halfLifeDays: 1200,   floor: 0.65 },
-  thermal_refuge:       { ttlSeconds: 28 * 86400,  halfLifeDays: 1200,   floor: 0.65 },
-  seasonal_distribution:{ ttlSeconds: 28 * 86400,  halfLifeDays: 1500,   floor: 0.65 },
-  migration:            { ttlSeconds: 28 * 86400,  halfLifeDays: 1500,   floor: 0.65 },
-  time_of_day:          { ttlSeconds: 28 * 86400,  halfLifeDays: 1500,   floor: 0.60 },
-  weather_response:     { ttlSeconds: 28 * 86400,  halfLifeDays: 1500,   floor: 0.60 },
-  forage:               { ttlSeconds: 45 * 86400,  halfLifeDays: 1100,   floor: 0.55 },
-  habitat:              { ttlSeconds: 90 * 86400,  halfLifeDays: 2200,   floor: 0.70 },
-  species_presence:     { ttlSeconds: 90 * 86400,  halfLifeDays: 2200,   floor: 0.70 },
-  technique:            { ttlSeconds: 60 * 86400,  halfLifeDays: 900,    floor: 0.40 },
-  stocking:             { ttlSeconds: 14 * 86400,  halfLifeDays: 500,    floor: 0.35 },
-  survey:               { ttlSeconds: 180 * 86400, halfLifeDays: 1800,   floor: 0.45 },
-  // Regulations do not decay in INFLUENCE — they are either current or they are wrong —
-  // but they must be rechecked, so the TTL is short and the floor is high.
-  regulation:           { ttlSeconds: 7 * 86400,   halfLifeDays: 100000, floor: 0.95 },
-};
-export const DEFAULT_DECAY = { ttlSeconds: 21 * 86400, halfLifeDays: 900, floor: 0.5 };
+export { DECAY, DEFAULT_DECAY, DECAY_ALIASES } from "./decay.generated.js";
+import { DECAY, DEFAULT_DECAY, DECAY_ALIASES } from "./decay.generated.js";
 
 export function decayFor(claimType) {
-  return DECAY[claimType] || DEFAULT_DECAY;
+  const key = DECAY_ALIASES[claimType] || claimType;
+  return DECAY[key] || DEFAULT_DECAY;
 }
 
 /** 0..1 — how much a claim of this type, this old, still counts. */
