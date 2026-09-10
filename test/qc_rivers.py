@@ -117,8 +117,16 @@ chk("no two Duck sections report the same flow",
 ordered = [known[r] for r in ("duckup", "duckmid", "ducklow") if r in known]
 chk("Duck flow increases downstream (tributaries only add water)",
     all(ordered[i] < ordered[i + 1] for i in range(len(ordered) - 1)), json.dumps(flows))
-chk("at least one Duck reach has a reading (all three unknown means both gauges are out)",
-    len(known) >= 1, json.dumps(flows))
+# A WARNING, NOT A FAILURE — and I got this wrong on the first attempt, which cost a
+# second red build. When BOTH gauges are out every reach is honestly unknown, and that is
+# degraded output rather than wrong output. Failing on it blocks publishing twelve other
+# rivers, the planner and the app because USGS is down for one of them, and the pages
+# already say "unknown" rather than inventing a number.
+#
+# The line QC draws: WRONG output fails (a borrowed reading presented as this reach's own),
+# DEGRADED output warns (no reading, and the page says so).
+warn("all three Duck reaches have a reading — both gauges may be out",
+     len(known) >= 1, json.dumps(flows))
 
 # each section's accesses must lie inside its own river-mile range, and the ranges must tile
 RANGES = {"duckup": (113.9, 133.5), "duckmid": (95.0, 113.9), "ducklow": (73.7, 95.0)}
