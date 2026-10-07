@@ -90,3 +90,17 @@ export function sampleSeries(U, values, t0, step, start, end) {
 // keeps the parity delta at zero rather than at 1e-12 drifting into 0.06 over a sum.
 function round4(x) { return Math.round(x * 1e4) / 1e4; }
 function round6(x) { return Math.round(x * 1e6) / 1e6; }
+
+/** Python's round(x, 1), exactly. Math.round(x * 10) / 10 is not: 68.85 is really
+ *  68.8499…, which Python rounds to 68.8, but x * 10 lands on 688.5 and Math.round says
+ *  68.9 — the 0.1 that failed the parity gate on 2026-10-07. toFixed rounds the exact
+ *  binary value as Python does, but half-up on a true tie; the only true ties at one
+ *  decimal are x.25 and x.75 (x * 4 odd), which Python sends to the even digit. */
+export function round1(x) {
+  const q = x * 4;
+  if (Number.isInteger(q) && q % 2 !== 0) {
+    const lo = Math.floor(x * 10);
+    return (lo % 2 === 0 ? lo : lo + 1) / 10;
+  }
+  return Number(x.toFixed(1));
+}

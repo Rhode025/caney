@@ -12,7 +12,7 @@
  * padding; this rewards a day whose fished time is uniformly good and charges for every
  * minute spent not fishing.
  */
-import { windowUtility } from "./utility.js";
+import { round1, windowUtility } from "./utility.js";
 
 export function idleMinutes(windows, transitions) {
   let total = 0;
@@ -115,5 +115,4 @@ export function zoneSeq(cand) {
   return out;
 }
 
-const round1 = (x) => Math.round(x * 10) / 10;
 const round4 = (x) => Math.round(x * 1e4) / 1e4;

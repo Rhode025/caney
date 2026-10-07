@@ -10,7 +10,7 @@
  * worth fishing as the first leg of a circuit, and the itinerary search then has nothing
  * early-ending to build on.
  */
-import { minDuration, sampleSeries, windowUtility } from "./utility.js";
+import { minDuration, round1, sampleSeries, windowUtility } from "./utility.js";
 
 export function findWindows(data, zoneId, species, availStart, availEnd, opts = {}) {
   const U = data.utility;
@@ -88,6 +88,5 @@ function prune(cands, availStart, O) {
   return pool.slice(0, O.topN);
 }
 
-const round1 = (x) => Math.round(x * 10) / 10;
 const round2 = (x) => Math.round(x * 100) / 100;
 const round4 = (x) => Math.round(x * 1e4) / 1e4;

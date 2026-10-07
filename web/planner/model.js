@@ -75,13 +75,13 @@ export function score(data, zoneId, species, craft, start, end) {
     lines.push({
       key: k,
       label: data.componentLabels[k] || k,
-      earned: Math.round(earned * 10) / 10,
+      earned: round1(earned),
       possible: w,
       why: f.why + (f.known ? "" : " (unknown — charged to confidence, not to score)"),
       known: f.known,
     });
   }
-  return { score: Math.round(total * 10) / 10, lines, fits };
+  return { score: round1(total), lines, fits };
 }
 
 /** §31 — the ONE published blend, shipped from Python as two constants. */
@@ -97,7 +97,7 @@ export function confidenceFor(data, zoneId, species, daysOut) {
   const hp = data.horizonPenalty || { fromDays: 3, perDay: 12, max: 45 };
   if (daysOut >= hp.fromDays) {
     const pen = Math.min(hp.max, hp.perDay * (daysOut - (hp.fromDays - 1)));
-    v = Math.max(0, Math.round((v - pen) * 10) / 10);
+    v = Math.max(0, round1(v - pen));
     rows.push({
       key: "horizon", label: "Forecast horizon", state: "stale", weight: 0,
       detail: daysOut + " days out — seasonal expectation, not a forecast",
@@ -163,6 +163,7 @@ function hourRange(data, g, start, end) {
 }
 
 import { findWindows } from "./opportunity.js";
+import { round1 } from "./utility.js";
 import { search as itinSearch, zoneSeq } from "./itin.js";
 
 /**
@@ -294,4 +295,3 @@ export function verdict(opportunity, confidence, lines, data) {
     (hard.length ? hard[0].why : "every component is weak in this window.")];
 }
 
-const round1 = (x) => Math.round(x * 10) / 10;
