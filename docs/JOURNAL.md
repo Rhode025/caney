@@ -1191,3 +1191,32 @@ look at the worker, not the headers.
   verification pass.
 - Every utility constant is still an uncalibrated prior. `analysis/road_factor.py` is the
   only fitted thing in the release.
+
+## 2026-10-07 — A stale morning: one rounding tie, one lazy scheduler
+
+### What happened
+
+The site showed "No current reading — built yesterday 7:38 PM" at 8 AM. Two causes,
+stacked:
+
+1. The 2:07 AM build failed the parity gate: `elk_tims_ford|trout: python 68.8 vs js 68.9`.
+   Not a model disagreement — the score was 68.85, which is 68.8499… in binary. Python's
+   `round(x, 1)` says 68.8; `Math.round(x * 10) / 10` multiplies to exactly 688.5 first and
+   says 68.9. Only fires when live data lands a score on a .x5 boundary. `4577d78` puts one
+   `round1()` in `web/planner/utility.js` that matches Python exactly (including
+   half-to-even on the true ties x.25/x.75); fuzzed against Python on 203k values, 0
+   mismatches (the old formula had 990).
+2. GitHub's "hourly" schedule had been firing every 5–7 hours for days, so the failure
+   cost a night instead of an hour. `a90d363` adds `caney-deploy-trigger`, a Cloudflare
+   cron Worker (every 15 min) that dispatches `deploy.yml` only when nothing is
+   queued/running and the last run started 55+ min ago. GitHub's schedule stays as backup.
+   Token: `DISPATCH_TOKEN` repo secret, fine-grained PAT, Actions r/w on this repo only —
+   it expires; when it does the worker logs `HTTP 401` and stops dispatching, nothing else.
+
+### Worth knowing
+
+- `curl https://caney-deploy-trigger.steven-b9c.workers.dev` answers what the next tick
+  would do, without doing it.
+- Pushing workflow files needs `gh` with the `workflow` scope.
+- `caney-api/wrangler.toml` carries `INTERNAL_TOKEN` as a plain var in a public repo.
+  If it guards anything, it should be a secret. Not changed.
