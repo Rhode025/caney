@@ -846,8 +846,20 @@ console.log('── routed forecast: shown only where it beats persistence ─�
     await pg.waitForTimeout(1200);
     const cap = await pg.$eval('#cap', e => e.innerText).catch(() => '');
     const shown = /routed forecast/i.test(cap);
-    assert(`${rid}: routed forecast ${expect ? 'shown' : 'suppressed'}`,
-      shown === expect, `rendered=${shown} expected=${expect}`);
+    // A gauge outage is degraded output, not wrong output (qc_rivers.py draws the same
+    // line). On 2026-10-07 USGS returned 503 for Columbia, every Duck reach was honestly
+    // unknown, the page rightly showed no forecast — and this check blocked the deploy for
+    // it. With no upstream reading or no prediction the forecast must be ABSENT, which is
+    // stricter than skipping: a forecast rendered from nothing would still fail here.
+    const R = await pg.evaluate(() => (typeof D !== 'undefined' && D.route) || {});
+    const live = R.upNow != null && R.pred != null;
+    if (expect && !live) {
+      console.log(`  \x1b[33m!\x1b[0m ${rid}: routed forecast not checked as shown — ` +
+        `upstream reading or prediction is unknown (upNow=${R.upNow} pred=${R.pred})`);
+    }
+    const want = expect && live;
+    assert(`${rid}: routed forecast ${want ? 'shown' : 'suppressed'}`,
+      shown === want, `rendered=${shown} expected=${want}`);
     await pg.close();
   }
 }
