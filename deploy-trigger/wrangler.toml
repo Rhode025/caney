@@ -1,0 +1,19 @@
+name = "caney-deploy-trigger"
+main = "src/worker.js"
+compatibility_date = "2026-01-01"
+
+# GitHub's own hourly schedule for deploy.yml is unreliable: on 2026-10-06/07 it fired
+# every 5-7 hours, so one failed build left the site a night stale. This checks every
+# 15 minutes and dispatches only when the site is actually due — GitHub's schedule stays
+# as a backup and is counted, never doubled.
+[triggers]
+crons = ["*/15 * * * *"]
+
+[vars]
+REPO = "Rhode025/caney"
+WORKFLOW = "deploy.yml"
+REF = "master"
+STALE_MINUTES = "55"
+
+# GITHUB_TOKEN is a secret (fine-grained PAT, this repo only, Actions: read & write),
+# set by workers.yml from the DISPATCH_TOKEN repository secret.

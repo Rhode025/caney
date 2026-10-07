@@ -1,0 +1,6 @@
+{
+  "name": "caney-deploy-trigger",
+  "private": true,
+  "type": "module",
+  "description": "Dispatches deploy.yml when GitHub's own hourly schedule has not run it."
+}

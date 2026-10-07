@@ -1,12 +1,13 @@
 # Deployment
 
-Three things ship, on two platforms.
+Four things ship, on two platforms.
 
 | What | Where | Live |
 |---|---|---|
 | Static site + app | Cloudflare Pages | https://caney.pages.dev · app at `/app/` |
 | Planner API | Cloudflare Worker (Python) | https://caney-api.steven-b9c.workers.dev |
 | Research service | Cloudflare Worker | https://caney-research.steven-b9c.workers.dev |
+| Deploy trigger | Cloudflare Worker (cron) | `caney-deploy-trigger` — GET shows what the next tick would do |
 
 ## How to deploy
 
@@ -18,10 +19,19 @@ gh workflow run workers.yml -f action=probe            # what can the token do?
 gh workflow run workers.yml -f action=bootstrap        # create KV, attempt D1
 gh workflow run workers.yml -f action=deploy-research
 gh workflow run workers.yml -f action=deploy-api
+gh workflow run workers.yml -f action=deploy-trigger
 gh workflow run workers.yml -f action=deploy-all
 ```
 
 Pages deploys on push to master, hourly, and on manual dispatch (`deploy.yml`).
+
+GitHub's hourly schedule is not reliable — on 2026-10-06/07 it fired every 5–7 hours, and
+one failed build left the site a night stale. `caney-deploy-trigger` checks every 15
+minutes and dispatches `deploy.yml` only when nothing is queued or running and the last
+run of any kind started 55+ minutes ago, so it fills gaps and never doubles a run. It
+needs one repository secret, `DISPATCH_TOKEN`: a fine-grained PAT scoped to this repo
+with **Actions: read & write** only. `deploy-trigger` copies it into the worker as
+`GITHUB_TOKEN`; rotate it by updating the repo secret and re-running that action.
 
 ## Token capability, measured
 
