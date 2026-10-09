@@ -1220,3 +1220,17 @@ stacked:
 - Pushing workflow files needs `gh` with the `workflow` scope.
 - `caney-api/wrangler.toml` carries `INTERNAL_TOKEN` as a plain var in a public repo.
   If it guards anything, it should be a secret. Not changed.
+
+## 2026-10-09 — "Built 3 days ago" was the service worker, not the deploy
+
+caney.html showed "No current reading — built Tue 7:38 PM" on Friday. The deploys were
+fine: every hourly run since 03:00 succeeded, and the live `caney.html` was stamped 9:18 AM.
+`web/sw.js` served every same-origin GET except `plan/*.json` **cache-first with no
+revalidation**, so any page visited once was served from that first visit until
+`VERSION` changed — which it had not since 2.0. Every river page, `rivers.html` and
+`status/*.json` were affected.
+
+Now pages (navigations) and every `.html`/`.json` are network-first with cache as the
+offline fallback; scripts and styles are cache-then-revalidate. `VERSION` bumped to
+`caney-v2-2` so activation deletes the poisoned cache. **If a page says it is stale, check
+the live file's stamp with curl before suspecting the deploy.**
