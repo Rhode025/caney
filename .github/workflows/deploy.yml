@@ -30,7 +30,10 @@ concurrency:
 
 jobs:
   build-deploy:
-    runs-on: ubuntu-latest
+    # Pinned, not ubuntu-latest: in Nov 2026 `latest` moved to 26.04, where the pinned
+    # Playwright (test/package.json) cannot install Chromium, and every deploy failed at
+    # "Install browser test deps" for days. Move the OS and Playwright together, deliberately.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4

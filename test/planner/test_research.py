@@ -116,12 +116,19 @@ def test_cache():
                     ("striped_bass", "carthage_confluence", "2026-09-10", "report"),
                     ("striped_bass", "carthage_confluence", "2026-09-09", "management")]:
         check("changing one dimension changes the key", cache.key(*changed) != k1)
+    # Fixed dates, not time.time(): "now + 1 day" crosses a month boundary on the last
+    # day of every month, and that failed the deploy gate from 31 Oct 2026.
+    def noon(y, m, d):
+        return time.mktime((y, m, d, 12, 0, 0, 0, 0, -1))
     check("a report bucket is per day",
-          cache.date_bucket(time.time(), "report") !=
-          cache.date_bucket(time.time() + 86400, "report"))
+          cache.date_bucket(noon(2026, 9, 9), "report") !=
+          cache.date_bucket(noon(2026, 9, 10), "report"))
     check("a management bucket is per month",
-          cache.date_bucket(time.time(), "management") ==
-          cache.date_bucket(time.time() + 86400, "management"))
+          cache.date_bucket(noon(2026, 9, 9), "management") ==
+          cache.date_bucket(noon(2026, 9, 10), "management"))
+    check("the last day of a month and the next day are different management buckets",
+          cache.date_bucket(noon(2026, 10, 31), "management") !=
+          cache.date_bucket(noon(2026, 11, 1), "management"))
 
 
 def test_seed_corpus():
