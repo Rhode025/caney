@@ -1234,3 +1234,23 @@ Now pages (navigations) and every `.html`/`.json` are network-first with cache a
 offline fallback; scripts and styles are cache-then-revalidate. `VERSION` bumped to
 `caney-v2-2` so activation deletes the poisoned cache. **If a page says it is stale, check
 the live file's stamp with curl before suspecting the deploy.**
+
+## 2026-11-11 — Twelve days without a deploy: two gates, back to back
+
+The banner read "This build is 12 days old". The schedule/dispatcher was fine — runs
+fired hourly — but ~300 consecutive runs failed. Last success 2026-10-30 23:37 UTC.
+
+1. **31 Oct, 00:45 UTC → ~05:00:** `test_research.py` "a management bucket is per month"
+   compared `time.time()` with `time.time() + 86400` — false on the last day of every
+   month. Now fixed dates, plus an explicit month-boundary check. Would have recurred
+   30 Nov.
+2. **From ~31 Oct on:** `ubuntu-latest` moved to 26.04; Playwright 1.58.2 refuses to
+   install Chromium there ("does not support chromium on ubuntu26.04-x64"). `build-deploy`
+   pinned to `ubuntu-24.04`. Upgrade the OS and Playwright together, on purpose.
+
+### Worth knowing
+
+- Nothing alerts on a failing deploy except the staleness banner. A red streak of hundreds
+  of runs went unnoticed for 12 days. `gh run list --workflow deploy.yml` first, always.
+- Tests that read the wall clock are date-bombs; `test/planner` claims a fixed clock —
+  keep it that way.
